@@ -116,7 +116,9 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
     with engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE batch.schedule_revisions, batch.notebook_versions, "
+                "TRUNCATE batch.run_commands, batch.run_step_bindings, "
+                "batch.batch_runs, batch.schedule_revisions, "
+                "batch.notebook_versions, "
                 "batch.idempotency_records, batch.batches"
             )
         )

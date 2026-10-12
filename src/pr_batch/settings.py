@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, ge=1, le=100)
     db_max_overflow: int = Field(default=5, ge=0, le=100)
 
+    executor_base_url: str | None = None
+    executor_poll_seconds: int = Field(default=5, ge=1, le=300)
+
     @model_validator(mode="after")
     def validate_configuration(self) -> Self:
         url = make_url(self.database_url.get_secret_value())
@@ -37,4 +41,17 @@ class Settings(BaseSettings):
             raise ValueError("auth_secret must contain at least 32 bytes.")
         if any(not name.strip() for name in self.allowed_kernel_profiles):
             raise ValueError("Kernel profile names must not be blank.")
+        if self.executor_base_url is not None:
+            endpoint = urlsplit(self.executor_base_url)
+            if (
+                endpoint.scheme not in {"http", "https"}
+                or not endpoint.hostname
+                or endpoint.username
+                or endpoint.password
+                or endpoint.query
+                or endpoint.fragment
+            ):
+                raise ValueError(
+                    "Use an HTTP Executor base URL without credentials."
+                )
         return self

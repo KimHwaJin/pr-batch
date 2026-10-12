@@ -1,10 +1,12 @@
 # pr-batch
 
 Python 3.12 기반 배치 서비스 프로젝트입니다.
-현재는 사용자별 노트북 등록·버전 관리·일정 설정 API까지 구현되어 있습니다.
-모든 등록은 비활성이며 예약 실행·Executor·리포트 연동은 다음 단계입니다.
+사용자별 노트북 등록·버전·일정 설정과 수동 실행·실행 이력을 제공합니다.
+별도 워커가 Executor 제출과 상태·결과 참조 수집을 담당합니다.
+예약 실행 활성화·스케줄러·리포트 생성은 다음 단계입니다.
 
-[등록 API 실행 및 연동 안내](docs/registration-api.md)를 따릅니다.
+[등록 API 안내](docs/registration-api.md)와
+[수동 실행·워커 안내](docs/execution-api.md)를 따릅니다.
 
 ## 서비스 설계
 
@@ -15,7 +17,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 - [API·데이터 모델·상태 흐름 설계 초안](docs/design.md)
 - [Executor·prj_re 연동 계약과 확인 사항](docs/integrations.md)
 
-설계 초안은 전체 목표이며 실제 구현 범위는 등록 API 안내에서 구분합니다.
+설계 초안은 전체 목표이며 실제 구현 범위는 각 API 안내에서 구분합니다.
 
 ## 개발 도구
 
@@ -47,6 +49,8 @@ PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 �
 ```sh
 make migrate
 make serve
+# 별도 터미널에서 Executor 제출·상태 확인 워커 시작
+make worker
 ```
 
 기본 주소는 `http://127.0.0.1:8000`, API 문서는 `/docs`입니다.

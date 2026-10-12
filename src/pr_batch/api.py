@@ -22,10 +22,12 @@ from pydantic import ValidationError
 from pr_batch.auth import current_owner
 from pr_batch.errors import ServiceError
 from pr_batch.notebooks import Notebook, parse_notebook
+from pr_batch.runs import RunDetail, RunPage, RunService, RunView
 from pr_batch.schemas import (
     BatchPage,
     BatchView,
     CreateBatch,
+    ManualRun,
     RenameBatch,
     UpdateSchedule,
     VersionPage,
@@ -206,3 +208,43 @@ def set_schedule(
             owner, batch_id, key, expected, data
         )
     )
+
+
+@router.post("/{batch_id}/runs", response_model=RunView, status_code=202)
+def create_run(
+    request: Request,
+    owner: Owner,
+    batch_id: UUID,
+    key: Key,
+    data: ManualRun | None = None,
+) -> JSONResponse:
+    if configuration(request).executor_base_url is None:
+        raise ServiceError(
+            503, "EXECUTOR_NOT_CONFIGURED", "Configure Executor first."
+        )
+    return mutation_response(
+        RunService(registration(request)).create(owner, batch_id, key)
+    )
+
+
+@router.get("/{batch_id}/runs", response_model=RunPage)
+def list_runs(
+    request: Request,
+    owner: Owner,
+    batch_id: UUID,
+    limit: Limit = 50,
+    cursor: UUID | None = None,
+) -> RunPage:
+    return RunService(registration(request)).list(
+        owner, batch_id, limit, cursor
+    )
+
+
+@router.get("/{batch_id}/runs/{run_id}", response_model=RunDetail)
+def get_run(
+    request: Request,
+    owner: Owner,
+    batch_id: UUID,
+    run_id: UUID,
+) -> RunDetail:
+    return RunService(registration(request)).get(owner, batch_id, run_id)

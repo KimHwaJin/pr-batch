@@ -1,4 +1,4 @@
-.PHONY: setup check lint format typecheck test migrate serve
+.PHONY: setup check lint format typecheck test migrate serve worker
 
 setup:
 	uv sync --locked
@@ -24,3 +24,6 @@ migrate:
 
 serve:
 	uv run --locked uvicorn pr_batch.app:create_app --factory
+
+worker:
+	uv run --locked python -m pr_batch.worker

@@ -81,7 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine.dispose()
 
     app = FastAPI(
-        title="Notebook Batch Registration", version="0.1.0", lifespan=lifespan
+        title="Notebook Batch Service", version="0.1.0", lifespan=lifespan
     )
     app.state.settings = settings
     app.state.registration = RegistrationService(
@@ -141,7 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             revision = connection.scalar(
                 text("SELECT version_num FROM batch.alembic_version")
             )
-        if revision != "0001_registration":
+        if revision != "0002_execution":
             raise ServiceError(503, "MIGRATION_REQUIRED", "Apply migrations.")
         if not settings.storage_root.is_dir():
             raise ServiceError(

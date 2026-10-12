@@ -137,6 +137,10 @@ class ScheduleConfig(Contract):
         return self
 
 
+class ManualRun(Contract):
+    """Run the selected immutable configuration without overrides."""
+
+
 class CreateBatch(Contract):
     name: Name
     kernel_profile: KernelName
