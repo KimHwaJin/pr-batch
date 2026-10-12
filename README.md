@@ -3,10 +3,11 @@
 Python 3.12 기반 배치 서비스 프로젝트입니다.
 사용자별 노트북 등록·버전·일정 설정과 수동 실행·실행 이력을 제공합니다.
 별도 워커가 Executor 제출과 상태·결과 참조 수집을 담당합니다.
-예약 실행 활성화·스케줄러·리포트 생성은 다음 단계입니다.
+예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 리포트 생성 연동은 다음 단계입니다.
 
 [등록 API 안내](docs/registration-api.md)와
-[수동 실행·워커 안내](docs/execution-api.md)를 따릅니다.
+[수동 실행·워커 안내](docs/execution-api.md),
+[예약 실행 안내](docs/scheduling-api.md)를 따릅니다.
 
 ## 서비스 설계
 
@@ -51,6 +52,8 @@ make migrate
 make serve
 # 별도 터미널에서 Executor 제출·상태 확인 워커 시작
 make worker
+# 예약 실행을 사용하면 별도 터미널에서 스케줄러도 시작
+make scheduler
 ```
 
 기본 주소는 `http://127.0.0.1:8000`, API 문서는 `/docs`입니다.

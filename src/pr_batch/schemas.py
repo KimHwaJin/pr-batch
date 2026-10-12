@@ -1,4 +1,4 @@
-"""Registration contracts; schedules are validated but not executed yet."""
+"""Registration and schedule configuration contracts."""
 
 import re
 from datetime import datetime, time
@@ -178,7 +178,10 @@ class ScheduleView(Contract):
 class BatchView(Contract):
     id: UUID
     name: str
-    enabled: Literal[False] = False
+    enabled: bool
+    next_run_at: datetime | None
+    scheduling_state: Literal["DISABLED", "ACTIVE", "EXHAUSTED"]
+    upcoming_runs: list[datetime]
     revision: int
     latest_version_number: int
     selected_schedule: ScheduleView

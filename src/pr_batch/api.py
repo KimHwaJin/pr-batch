@@ -23,6 +23,7 @@ from pr_batch.auth import current_owner
 from pr_batch.errors import ServiceError
 from pr_batch.notebooks import Notebook, parse_notebook
 from pr_batch.runs import RunDetail, RunPage, RunService, RunView
+from pr_batch.scheduler import SchedulingService, SkippedPage
 from pr_batch.schemas import (
     BatchPage,
     BatchView,
@@ -248,3 +249,61 @@ def get_run(
     run_id: UUID,
 ) -> RunDetail:
     return RunService(registration(request)).get(owner, batch_id, run_id)
+
+
+@router.post("/{batch_id}/enable", response_model=BatchView)
+def enable_batch(
+    request: Request,
+    owner: Owner,
+    batch_id: UUID,
+    key: Key,
+    expected: Revision,
+) -> JSONResponse:
+    settings = configuration(request)
+    if settings.executor_base_url is None:
+        raise ServiceError(
+            503, "EXECUTOR_NOT_CONFIGURED", "Configure Executor first."
+        )
+    return mutation_response(
+        SchedulingService(registration(request)).set_enabled(
+            owner,
+            batch_id,
+            key,
+            expected,
+            True,
+            settings.allowed_kernel_profiles,
+        )
+    )
+
+
+@router.post("/{batch_id}/disable", response_model=BatchView)
+def disable_batch(
+    request: Request,
+    owner: Owner,
+    batch_id: UUID,
+    key: Key,
+    expected: Revision,
+) -> JSONResponse:
+    return mutation_response(
+        SchedulingService(registration(request)).set_enabled(
+            owner,
+            batch_id,
+            key,
+            expected,
+            False,
+            configuration(request).allowed_kernel_profiles,
+        )
+    )
+
+
+@router.get("/{batch_id}/skipped-windows", response_model=SkippedPage)
+def list_skipped_windows(
+    request: Request,
+    owner: Owner,
+    batch_id: UUID,
+    limit: Limit = 50,
+    cursor: UUID | None = None,
+) -> SkippedPage:
+    return SchedulingService(registration(request)).skipped(
+        owner, batch_id, limit, cursor
+    )

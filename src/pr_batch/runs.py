@@ -10,10 +10,12 @@ from sqlalchemy.orm import Session
 
 from pr_batch.errors import ServiceError
 from pr_batch.models import (
+    Batch,
     BatchRun,
     NotebookVersion,
     RunCommand,
     RunStepBinding,
+    ScheduleRevision,
 )
 from pr_batch.service import (
     MutationResult,
@@ -44,6 +46,7 @@ class RunView(BaseModel):
     kernel_profile: str
     snapshot: dict[str, Any]
     trigger: str
+    scheduled_for: datetime | None
     dispatch_status: str
     execution_id: UUID | None
     operation_id: UUID | None
@@ -106,6 +109,103 @@ def waiting(session: Session, batch_id: UUID) -> int:
     )
 
 
+def admit_run(
+    session: Session,
+    batch: Batch,
+    schedule: ScheduleRevision,
+    scheduled_for: datetime | None = None,
+) -> tuple[int, BatchRun]:
+    """Caller must hold the batch row lock; never performs remote I/O."""
+    batch_id, owner = batch.id, batch.owner_id
+    version = session.get(NotebookVersion, schedule.version_id)
+    assert version is not None
+    config = schedule.config
+    active = occupied(session, batch_id)
+    pending = waiting(session, batch_id)
+    dispatch = "PENDING"
+    reason = None
+    status = 202
+    if config["overlap_policy"] == "SKIP" and active:
+        dispatch, reason = "SKIPPED", "OVERLAP"
+    elif active >= config["max_concurrent"] or pending:
+        if pending >= config["max_pending"]:
+            dispatch, reason = "SKIPPED", "SKIPPED_CAPACITY"
+            status = 409
+        else:
+            dispatch = "WAITING_CAPACITY"
+    run = BatchRun(
+        id=uuid4(),
+        created_at=session.scalar(select(func.clock_timestamp())),
+        batch_id=batch_id,
+        scheduled_for=scheduled_for,
+        trigger="SCHEDULED" if scheduled_for else "MANUAL",
+        owner_id=owner,
+        version_id=version.id,
+        schedule_number=schedule.number,
+        kernel_profile=schedule.kernel_profile,
+        snapshot={
+            "schedule": config,
+            "sha256": version.sha256,
+            "code_hash": version.code_hash,
+        },
+        dispatch_status=dispatch,
+        skip_reason=reason,
+        report_status=("NOT_APPLICABLE" if reason else "NOT_REQUESTED"),
+        result_status="NOT_APPLICABLE" if reason else "PENDING",
+    )
+    session.add(run)
+    session.flush()
+    for cell in version.cell_map:
+        session.add(
+            RunStepBinding(
+                run_id=run.id,
+                sequence=cell["sequence"],
+                original_index=cell["original_index"],
+                source_sha256=cell["sha256"],
+            )
+        )
+    if dispatch != "SKIPPED":
+        payload = {
+            "idempotency_key": f"batch-run:{run.id}:submit",
+            "lifecycle": {"operation_mode": "SINGLE"},
+            "trigger": {
+                "type": "BATCH",
+                "actor": {"type": "BATCH", "id": str(batch_id)},
+            },
+            "runtime": {
+                "type": "JUPYTER",
+                "profile": schedule.kernel_profile,
+            },
+            "context": {"user_id": owner, "task_id": str(run.id)},
+            "operation": {
+                "spec": {
+                    "schema_version": "1.0",
+                    "steps": [
+                        {
+                            "sequence": cell["sequence"],
+                            "payload": {
+                                "type": "PYTHON_EXECUTE",
+                                "source": {
+                                    "type": "PATH",
+                                    "path": cell["path"],
+                                    "sha256": cell["sha256"],
+                                },
+                            },
+                        }
+                        for cell in version.cell_map
+                    ],
+                }
+            },
+            "metadata": {
+                "batch_id": str(batch_id),
+                "notebook_version_id": str(version.id),
+            },
+        }
+        session.add(RunCommand(run_id=run.id, payload=payload))
+    session.flush()
+    return status, run
+
+
 class RunService:
     def __init__(self, registration: RegistrationService) -> None:
         self.registration = registration
@@ -115,92 +215,7 @@ class RunService:
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
             schedule = current_schedule(session, batch)
-            version = session.get(NotebookVersion, schedule.version_id)
-            assert version is not None
-            config = schedule.config
-            active = occupied(session, batch_id)
-            pending = waiting(session, batch_id)
-            dispatch = "PENDING"
-            reason = None
-            status = 202
-            if config["overlap_policy"] == "SKIP" and active:
-                dispatch, reason = "SKIPPED", "OVERLAP"
-            elif active >= config["max_concurrent"] or pending:
-                if pending >= config["max_pending"]:
-                    dispatch, reason = "SKIPPED", "SKIPPED_CAPACITY"
-                    status = 409
-                else:
-                    dispatch = "WAITING_CAPACITY"
-            run = BatchRun(
-                id=uuid4(),
-                created_at=session.scalar(select(func.clock_timestamp())),
-                batch_id=batch_id,
-                owner_id=owner,
-                version_id=version.id,
-                schedule_number=schedule.number,
-                kernel_profile=schedule.kernel_profile,
-                snapshot={
-                    "schedule": config,
-                    "sha256": version.sha256,
-                    "code_hash": version.code_hash,
-                },
-                dispatch_status=dispatch,
-                skip_reason=reason,
-                report_status=(
-                    "NOT_APPLICABLE" if reason else "NOT_REQUESTED"
-                ),
-                result_status="NOT_APPLICABLE" if reason else "PENDING",
-            )
-            session.add(run)
-            session.flush()
-            for cell in version.cell_map:
-                session.add(
-                    RunStepBinding(
-                        run_id=run.id,
-                        sequence=cell["sequence"],
-                        original_index=cell["original_index"],
-                        source_sha256=cell["sha256"],
-                    )
-                )
-            if dispatch != "SKIPPED":
-                payload = {
-                    "idempotency_key": f"batch-run:{run.id}:submit",
-                    "lifecycle": {"operation_mode": "SINGLE"},
-                    "trigger": {
-                        "type": "BATCH",
-                        "actor": {"type": "BATCH", "id": str(batch_id)},
-                    },
-                    "runtime": {
-                        "type": "JUPYTER",
-                        "profile": schedule.kernel_profile,
-                    },
-                    "context": {"user_id": owner, "task_id": str(run.id)},
-                    "operation": {
-                        "spec": {
-                            "schema_version": "1.0",
-                            "steps": [
-                                {
-                                    "sequence": cell["sequence"],
-                                    "payload": {
-                                        "type": "PYTHON_EXECUTE",
-                                        "source": {
-                                            "type": "PATH",
-                                            "path": cell["path"],
-                                            "sha256": cell["sha256"],
-                                        },
-                                    },
-                                }
-                                for cell in version.cell_map
-                            ],
-                        }
-                    },
-                    "metadata": {
-                        "batch_id": str(batch_id),
-                        "notebook_version_id": str(version.id),
-                    },
-                }
-                session.add(RunCommand(run_id=run.id, payload=payload))
-            session.flush()
+            status, run = admit_run(session, batch, schedule)
             return status, RunView.model_validate(run).model_dump(mode="json")
 
         return self.registration.mutate(

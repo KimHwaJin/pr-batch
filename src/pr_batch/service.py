@@ -22,6 +22,8 @@ from pr_batch.models import (
     utcnow,
 )
 from pr_batch.notebooks import Notebook
+from pr_batch.schedule_clock import EPSILON, ScheduleClock
+from pr_batch.schedule_state import database_now, record_skipped
 from pr_batch.schemas import (
     BatchPage,
     BatchView,
@@ -53,6 +55,18 @@ def batch_view(batch: Batch, schedule: ScheduleRevision) -> BatchView:
     return BatchView(
         id=batch.id,
         name=batch.name,
+        enabled=batch.enabled,
+        next_run_at=batch.next_run_at,
+        scheduling_state=(
+            "DISABLED"
+            if not batch.enabled
+            else "ACTIVE"
+            if batch.next_run_at
+            else "EXHAUSTED"
+        ),
+        upcoming_runs=ScheduleClock(
+            ScheduleConfig.model_validate(schedule.config)
+        ).preview(utcnow()),
         revision=batch.revision,
         latest_version_number=batch.latest_version_number,
         created_at=batch.created_at,
@@ -256,9 +270,29 @@ class RegistrationService:
             )
             if version is None:
                 raise ServiceError(404, "NOT_FOUND", "Version not found.")
+            now = database_now(session)
+            if batch.enabled:
+                following = ScheduleClock(data.schedule).find(now)
+                if following is None:
+                    raise ServiceError(
+                        422,
+                        "NO_FUTURE_OCCURRENCE",
+                        "Choose a schedule with a future occurrence.",
+                    )
+                if batch.next_run_at and batch.next_run_at <= now:
+                    record_skipped(
+                        session,
+                        batch,
+                        current_schedule(session, batch),
+                        batch.next_run_at,
+                        now + EPSILON,
+                        "SCHEDULE_REPLACED",
+                        now,
+                    )
+                batch.next_run_at = following
             batch.schedule_number += 1
             batch.revision += 1
-            batch.updated_at = utcnow()
+            batch.updated_at = now
             schedule = ScheduleRevision(
                 batch_id=batch.id,
                 number=batch.schedule_number,

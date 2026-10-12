@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=5, ge=0, le=100)
 
     executor_base_url: str | None = None
+    scheduler_poll_seconds: int = Field(default=1, ge=1, le=60)
     executor_poll_seconds: int = Field(default=5, ge=1, le=300)
 
     @model_validator(mode="after")

@@ -1,4 +1,4 @@
-.PHONY: setup check lint format typecheck test migrate serve worker
+.PHONY: setup check lint format typecheck test migrate serve worker scheduler
 
 setup:
 	uv sync --locked
@@ -27,3 +27,6 @@ serve:
 
 worker:
 	uv run --locked python -m pr_batch.worker
+
+scheduler:
+	uv run --locked python -m pr_batch.scheduler

@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -30,7 +31,10 @@ class Batch(Base):
     __tablename__ = "batches"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="batch_revision_positive"),
-        CheckConstraint("NOT enabled", name="registration_only_disabled"),
+        CheckConstraint(
+            "enabled OR next_run_at IS NULL", name="disabled_has_no_next_run"
+        ),
+        Index("ix_batches_due", "enabled", "next_run_at"),
         Index("ix_batches_owner_created", "owner_id", "created_at", "id"),
     )
 
@@ -38,6 +42,9 @@ class Batch(Base):
     owner_id: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
     enabled: Mapped[bool] = mapped_column(default=False)
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     revision: Mapped[int] = mapped_column(default=1)
     latest_version_number: Mapped[int] = mapped_column(default=1)
     schedule_number: Mapped[int] = mapped_column(default=1)
@@ -130,6 +137,12 @@ class BatchRun(Base):
         ),
         Index("ix_runs_batch_created", "batch_id", "created_at", "id"),
         Index("ix_runs_capacity", "batch_id", "dispatch_status"),
+        UniqueConstraint(
+            "batch_id",
+            "schedule_number",
+            "scheduled_for",
+            name="uq_run_occurrence",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -140,6 +153,9 @@ class BatchRun(Base):
     kernel_profile: Mapped[str] = mapped_column(String(128))
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
     trigger: Mapped[str] = mapped_column(String(16), default="MANUAL")
+    scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     dispatch_status: Mapped[str] = mapped_column(String(32))
     execution_id: Mapped[UUID | None] = mapped_column(unique=True)
     operation_id: Mapped[UUID | None]
@@ -215,3 +231,32 @@ class RunCommand(Base):
         DateTime(timezone=True)
     )
     failures: Mapped[int] = mapped_column(default=0)
+
+
+class SkippedWindow(Base):
+    """Compressed, exact-count history for deliberately unsubmitted slots."""
+
+    __tablename__ = "skipped_windows"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["batch_id", "schedule_number"],
+            [
+                "batch.schedule_revisions.batch_id",
+                "batch.schedule_revisions.number",
+            ],
+        ),
+        CheckConstraint("occurrences > 0", name="skipped_count_positive"),
+        CheckConstraint("from_at < until_at", name="skipped_window_order"),
+        Index("ix_skipped_batch_created", "batch_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    batch_id: Mapped[UUID] = mapped_column(ForeignKey("batch.batches.id"))
+    schedule_number: Mapped[int]
+    from_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    until_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    occurrences: Mapped[int] = mapped_column(BigInteger)
+    reason: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )

@@ -245,7 +245,9 @@ def test_database_rollback_after_storage_failure(client, monkeypatch):
     assert create_batch(client).status_code == 201
 
 
-def test_original_integrity_and_no_enabled_endpoint(client, settings):
+def test_original_integrity_and_activation_requires_configuration(
+    client, settings
+):
     batch = create_batch(client).json()
     url = f"{API}/{batch['id']}"
     version = batch["selected_schedule"]["version_id"]
@@ -254,7 +256,17 @@ def test_original_integrity_and_no_enabled_endpoint(client, settings):
     response = client.get(f"{url}/versions/{version}/content", headers=token())
     assert response.status_code == 503
     assert response.json()["code"] == "STORAGE_INTEGRITY_ERROR"
-    assert client.post(f"{url}/enable", headers=token()).status_code == 404
+    assert (
+        client.post(
+            f"{url}/enable",
+            headers={
+                **token(),
+                "Idempotency-Key": "enable",
+                "If-Match": '"1"',
+            },
+        ).status_code
+        == 503
+    )
 
 
 def test_immutable_schedule_history_and_cell_mapping(client, database_url):

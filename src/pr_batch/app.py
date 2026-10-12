@@ -141,7 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             revision = connection.scalar(
                 text("SELECT version_num FROM batch.alembic_version")
             )
-        if revision != "0002_execution":
+        if revision != "0003_scheduling":
             raise ServiceError(503, "MIGRATION_REQUIRED", "Apply migrations.")
         if not settings.storage_root.is_dir():
             raise ServiceError(
