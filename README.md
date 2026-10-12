@@ -11,6 +11,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 인터뷰에서 합의한 범위와 구현 전 검토할 설계를 관리합니다.
 
 - [확정 요구사항](docs/requirements.md)
+- [확정 실행 이력 저장 계약](docs/execution-history.md)
 - [API·데이터 모델·상태 흐름 설계 초안](docs/design.md)
 - [Executor·prj_re 연동 계약과 확인 사항](docs/integrations.md)
 

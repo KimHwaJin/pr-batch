@@ -189,6 +189,9 @@ DB와 네트워크 사이에서 전역 exactly-once를 주장하지 않는다. �
 
 ## 실행과 리포트 상태
 
+실행별 보존 정보와 저장 순서는 사용자와 합의한
+[실행 이력 저장 계약](execution-history.md)을 따른다. 아래 상태명은 구현 설계다.
+
 | 축 | 제안 상태 |
 | --- | --- |
 | dispatch | PENDING, WAITING_CAPACITY, SUBMITTING, SUBMITTED, FAILED, SKIPPED, CANCELLED |
