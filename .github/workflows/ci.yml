@@ -12,6 +12,23 @@ jobs:
     name: Python quality checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: batch_test
+          POSTGRES_PASSWORD: batch_test_local
+          POSTGRES_DB: pr_batch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U batch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      BATCH_TEST_DATABASE_URL: postgresql+psycopg://batch_test:batch_test_local@localhost:5432/pr_batch_test
+      BATCH_DATABASE_URL: postgresql+psycopg://batch_test:batch_test_local@localhost:5432/pr_batch_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,5 +42,7 @@ jobs:
         run: uv python install
       - name: Install dependencies
         run: make setup
-      - name: Run lint, format, and type checks
+      - name: Run static checks and PostgreSQL tests
         run: make check
+      - name: Check migration and model agreement
+        run: uv run --locked alembic check

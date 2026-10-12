@@ -1,1 +1,1 @@
-"""Batch service package; implementation follows requirements interviews."""
+"""Notebook batch registration service."""

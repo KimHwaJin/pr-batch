@@ -66,6 +66,9 @@ Jupyter driver는 `execute_request`를 사용하고 `allow_stdin=false`이므로
 
 ## 재시도 조사 결과와 남은 결정
 
+2026-10-12 후속 합의: 재시도 정책은 추후 결정한다. 초기 Batch는 Executor의
+상태를 기록하고 자동 재실행하지 않는다. 아래 조사는 향후 결정의 근거로 유지한다.
+
 사용자는 Executor의 기존 재시도를 활용하고 Batch에 중복 엔진을 두지 않기로 했다.
 확인 커밋의 전체 서비스 소스와 README를 조사한 결과는 다음과 같다.
 

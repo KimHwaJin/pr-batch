@@ -4,7 +4,20 @@ version = "0.1.0"
 description = "Batch service project"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "alembic>=1.20.0",
+    "croniter>=6.2.4",
+    "fastapi>=0.143.0",
+    "jsonschema>=4.26.0",
+    "nbformat>=5.11.1",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.15.0",
+    "pyjwt>=2.15.1",
+    "python-dotenv>=1.2.4",
+    "python-multipart>=0.0.32",
+    "sqlalchemy>=2,<3",
+    "uvicorn[standard]>=0.54.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.32,<0.12"]
@@ -24,8 +37,14 @@ python-version = "3.12"
 [tool.ty.terminal]
 error-on-warning = true
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
 [dependency-groups]
 dev = [
+    "httpx2>=2.13.1",
+    "pytest>=9.1.1",
     "ruff>=0.17.0",
     "ty>=0.0.86",
 ]
