@@ -18,7 +18,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from test_runs import FakeExecutor
 
-from app.db.base import utcnow
+from app.db.base import SCHEDULER, utcnow
 from app.integrations.executor import ExecutorClient
 from app.models import Batch, BatchRun, Task
 from app.runtime.dispatcher import Dispatcher
@@ -315,7 +315,7 @@ def test_occurrence_unique_constraint_protects_against_duplicate_admission(
     scheduling.tick(now=now)
     with pytest.raises(IntegrityError), scheduling.sessions.begin() as session:
         row = session.get(Batch, UUID(batch["id"]))
-        admit_run(session, row, current_config(session, row), now)
+        admit_run(session, row, current_config(session, row), SCHEDULER, now)
     assert len(runs(client, batch)) == 1
 
 
@@ -463,3 +463,29 @@ def test_schedule_is_optional_but_required_to_enable(client, scheduling):
     )
     assert removed.status_code == 200
     assert removed.json()["schedule"] is None
+
+
+def test_scheduled_runs_are_created_by_the_system(client, scheduling):
+    batch = enabled_batch(client)
+    assert batch["created_by_type"] == "USER"
+    assert batch["updated_by"] == "alice"
+    assert scheduling.tick(now=first_at(batch))
+    run = runs(client, batch)[0]
+    assert (run["created_by_type"], run["created_by"]) == (
+        "SYSTEM",
+        "scheduler",
+    )
+    # Moving next_run_at is scheduler bookkeeping, not a batch update.
+    assert get_batch(client, batch)["updated_at"] == batch["updated_at"]
+    window = client.post(
+        f"{API}/{batch['id']}/disable",
+        headers={
+            **token(),
+            "Idempotency-Key": "disable",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+    ).json()
+    assert (window["updated_by_type"], window["updated_by"]) == (
+        "USER",
+        "alice",
+    )

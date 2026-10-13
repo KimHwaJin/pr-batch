@@ -905,3 +905,24 @@ def test_background_runtime_drives_runs_and_stops(client, execution):
         for thread in runtime.threads:
             thread.join(5)
     assert not any(thread.is_alive() for thread in runtime.threads)
+
+
+def test_audit_fields_follow_who_changed_the_run(client, execution):
+    fake, worker = execution
+    batch = create_batch(client).json()
+    run = run_request(client, batch["id"]).json()
+    assert (run["created_by_type"], run["created_by"]) == ("USER", "alice")
+    assert run["updated_by"] == "alice"
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert (detail["updated_by_type"], detail["updated_by"]) == (
+        "SYSTEM",
+        "dispatcher",
+    )
+    assert detail["updated_at"] > run["updated_at"]
+    assert detail["created_by"] == "alice"
+    cancelled = command(client, run, "cancel", "cancel").json()
+    assert (cancelled["updated_by_type"], cancelled["updated_by"]) == (
+        "USER",
+        "alice",
+    )

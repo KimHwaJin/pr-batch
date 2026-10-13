@@ -17,10 +17,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, utcnow
+from app.db.base import AuditMixin, Base, utcnow
 
 
-class BatchRun(Base):
+class BatchRun(AuditMixin, Base):
     __tablename__ = "batch_runs"
     __table_args__ = (
         ForeignKeyConstraint(
@@ -80,9 +80,6 @@ class BatchRun(Base):
     # Latest communication/contract error while progressing the run.
     last_error: Mapped[str | None] = mapped_column(String(64))
     report_generation: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
     submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
@@ -115,7 +112,7 @@ class RunStepBinding(Base):
     result_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
-class RunReport(Base):
+class RunReport(AuditMixin, Base):
     """One report attempt; a retry adds a generation, never re-runs code."""
 
     __tablename__ = "run_reports"
@@ -137,12 +134,6 @@ class RunReport(Base):
         JSONB, default=list
     )
     error_code: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
 
 
 class Task(Base):

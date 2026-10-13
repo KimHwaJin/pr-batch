@@ -463,3 +463,20 @@ def test_script_type_is_required_and_fixed(client):
     )
     assert content.headers["content-type"] == "application/x-ipynb+json"
     assert content.headers["content-disposition"].endswith('.ipynb"')
+
+
+def test_resources_report_created_and_updated_by(client):
+    script = upload_script(client).json()
+    for record in (script, script["latest_version"]):
+        assert (record["created_by_type"], record["created_by"]) == (
+            "USER",
+            "alice",
+        )
+        assert record["updated_by"] == "alice"
+    batch = create_batch(client, owner="bob").json()
+    assert batch["created_by"] == batch["updated_by"] == "bob"
+    renamed = patch_batch(
+        client, batch, "rename", {"name": "renamed"}, owner="bob"
+    ).json()
+    assert renamed["updated_at"] > batch["updated_at"]
+    assert renamed["created_at"] == batch["created_at"]

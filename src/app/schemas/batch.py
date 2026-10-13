@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.common import Contract, KernelName, Name
+from app.schemas.common import Audited, Contract, KernelName, Name
 from app.schemas.schedule import Policy, PolicyPatch, Schedule
 
 
@@ -39,7 +39,7 @@ class UpdateBatch(Contract):
         return self
 
 
-class BatchView(Contract):
+class BatchView(Audited, Contract):
     id: UUID
     name: str
     script_id: UUID
@@ -53,8 +53,6 @@ class BatchView(Contract):
     preview_runs: list[datetime]
     config_number: int
     revision: int
-    created_at: datetime
-    updated_at: datetime
 
 
 class BatchPage(Contract):
@@ -62,7 +60,7 @@ class BatchPage(Contract):
     next_cursor: str | None
 
 
-class SkippedView(BaseModel):
+class SkippedView(Audited, BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     batch_id: UUID
@@ -71,7 +69,6 @@ class SkippedView(BaseModel):
     until_at: datetime
     occurrences: int
     reason: str
-    created_at: datetime
 
 
 class SkippedPage(BaseModel):

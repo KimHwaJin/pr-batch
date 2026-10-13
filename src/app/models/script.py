@@ -1,12 +1,10 @@
 """Uploaded scripts (notebooks, later Python files) and their versions."""
 
-from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     String,
@@ -15,10 +13,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, utcnow
+from app.db.base import AuditMixin, Base
 
 
-class Script(Base):
+class Script(AuditMixin, Base):
     __tablename__ = "scripts"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="script_revision_positive"),
@@ -33,15 +31,9 @@ class Script(Base):
     type: Mapped[str] = mapped_column(String(16))
     revision: Mapped[int] = mapped_column(default=1)
     latest_version_number: Mapped[int] = mapped_column(default=1)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
 
 
-class ScriptVersion(Base):
+class ScriptVersion(AuditMixin, Base):
     __tablename__ = "script_versions"
     __table_args__ = (
         UniqueConstraint("script_id", "number", name="uq_version_number"),
@@ -62,6 +54,3 @@ class ScriptVersion(Base):
     cell_map: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     # Every original cell with its type and whether it is executed.
     cell_list: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )

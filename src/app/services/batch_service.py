@@ -8,7 +8,7 @@ from sqlalchemy import and_, select, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
-from app.db.base import utcnow
+from app.db.base import Actor, utcnow
 from app.db.session import database_now
 from app.domain.schedule_clock import EPSILON, ScheduleClock
 from app.models import Batch, BatchConfig, ScriptVersion, SkippedWindow
@@ -20,6 +20,7 @@ from app.schemas.batch import (
     SkippedView,
     UpdateBatch,
 )
+from app.schemas.common import audit_fields
 from app.schemas.schedule import Policy
 from app.services.common import (
     before_cursor,
@@ -57,8 +58,7 @@ def batch_view(
         ),
         config_number=batch.config_number,
         revision=batch.revision,
-        created_at=batch.created_at,
-        updated_at=batch.updated_at,
+        **audit_fields(batch),
     )
 
 
@@ -98,7 +98,9 @@ class BatchService:
             version = self.resolve_version(
                 session, owner, data.script_id, data.script_version_id
             )
+            actor = Actor.user(owner)
             batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
+            batch.stamp_created(actor)
             session.add(batch)
             session.flush()
             config = BatchConfig(
@@ -114,6 +116,7 @@ class BatchService:
                 ),
                 policy=data.policy.model_dump(mode="json"),
             )
+            config.stamp_created(actor, batch.created_at)
             session.add(config)
             session.flush()
             return 201, batch_view(batch, config, version).model_dump(
@@ -148,7 +151,7 @@ class BatchService:
             if fields - {"name"}:
                 config = self.next_config(session, owner, batch, config, data)
             batch.revision += 1
-            batch.updated_at = now
+            batch.stamp_updated(Actor.user(owner), now)
             return 200, batch_view(
                 batch, config, config_version(session, config)
             ).model_dump(mode="json")
@@ -211,6 +214,7 @@ class BatchService:
                         now + EPSILON,
                         "SCHEDULE_REPLACED",
                         now,
+                        Actor.user(owner),
                     )
                 batch.next_run_at = following
         batch.config_number += 1
@@ -223,6 +227,7 @@ class BatchService:
             schedule=schedule.model_dump(mode="json") if schedule else None,
             policy=policy.model_dump(mode="json"),
         )
+        config.stamp_created(Actor.user(owner), now)
         session.add(config)
         session.flush()
         return config
@@ -315,11 +320,12 @@ class BatchService:
                             now + EPSILON,
                             "DISABLED",
                             now,
+                            Actor.user(owner),
                         )
                     batch.next_run_at = None
                 batch.enabled = enabled
                 batch.revision += 1
-                batch.updated_at = now
+                batch.stamp_updated(Actor.user(owner), now)
             return 200, batch_view(
                 batch, config, config_version(session, config)
             ).model_dump(mode="json")

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from app.schemas.common import Contract
+from app.schemas.common import Audited, Contract
 
 
 class ManualRun(Contract):
@@ -23,14 +23,12 @@ class StepView(BaseModel):
     result_ref: dict[str, Any] | None
 
 
-class ReportView(BaseModel):
+class ReportView(Audited, BaseModel):
     model_config = ConfigDict(from_attributes=True)
     generation: int
     status: str
     error_code: str | None
     artifacts: list[dict[str, Any]]
-    created_at: datetime
-    updated_at: datetime
 
 
 class ResultRefs(BaseModel):
@@ -40,7 +38,7 @@ class ResultRefs(BaseModel):
     report_artifact_id: str | None = None
 
 
-class RunView(BaseModel):
+class RunView(Audited, BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     batch_id: UUID
@@ -66,7 +64,6 @@ class RunView(BaseModel):
     retry_info: dict[str, Any] | None
     report: ReportView | None = None
     result: ResultRefs = ResultRefs()
-    created_at: datetime
     submitted_at: datetime | None
     started_at: datetime | None
     finished_at: datetime | None

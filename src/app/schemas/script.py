@@ -1,10 +1,9 @@
 """Script upload, version and cell contracts."""
 
-from datetime import datetime
 from uuid import UUID
 
 from app.domain.scripts import ScriptType
-from app.schemas.common import Contract, Name
+from app.schemas.common import Audited, Contract, Name
 
 
 class RenameScript(Contract):
@@ -24,7 +23,7 @@ class CellEntry(Contract):
     sequence: int | None = None
 
 
-class VersionView(Contract):
+class VersionView(Audited, Contract):
     id: UUID
     script_id: UUID
     number: int
@@ -33,21 +32,18 @@ class VersionView(Contract):
     code_hash: str
     size_bytes: int
     cells: CellCounts
-    created_at: datetime
 
 
 class VersionDetail(VersionView):
     cell_list: list[CellEntry]
 
 
-class ScriptView(Contract):
+class ScriptView(Audited, Contract):
     id: UUID
     name: str
     type: ScriptType
     revision: int
     latest_version: VersionView
-    created_at: datetime
-    updated_at: datetime
 
 
 class ScriptPage(Contract):

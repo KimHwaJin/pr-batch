@@ -10,6 +10,7 @@ from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
+from app.db.base import DISPATCHER, Actor
 from app.db.session import database_now
 from app.domain.run_state import CANCELLABLE, OCCUPYING, RunStatus
 from app.models import (
@@ -58,6 +59,7 @@ def admit_run(
     session: Session,
     batch: Batch,
     config: BatchConfig,
+    actor: Actor,
     scheduled_for: datetime | None = None,
 ) -> tuple[int, BatchRun]:
     """Caller must hold the batch row lock; never performs remote I/O."""
@@ -77,7 +79,6 @@ def admit_run(
             target = RunStatus.WAITING
     run = BatchRun(
         id=uuid4(),
-        created_at=session.scalar(select(func.clock_timestamp())),
         batch_id=batch.id,
         scheduled_for=scheduled_for,
         trigger="SCHEDULED" if scheduled_for else "MANUAL",
@@ -99,6 +100,7 @@ def admit_run(
         artifacts=[],
         attempts=[],
     )
+    run.stamp_created(actor, session.scalar(select(func.clock_timestamp())))
     if target == RunStatus.SKIPPED:
         run.completed_at = run.created_at
     session.add(run)
@@ -118,7 +120,9 @@ def admit_run(
     return http_status, run
 
 
-def promote_waiting(session: Session, batch_id: UUID) -> None:
+def promote_waiting(
+    session: Session, batch_id: UUID, actor: Actor = DISPATCHER
+) -> None:
     """Fill freed concurrency slots in admission order.
 
     Caller must hold the batch row lock, which also serializes admission.
@@ -139,6 +143,7 @@ def promote_waiting(session: Session, batch_id: UUID) -> None:
         if count_status(session, batch_id, OCCUPYING) >= maximum:
             return
         queue_submission(session, oldest)
+        oldest.stamp_updated(actor, database_now(session))
         session.flush()
 
 
@@ -235,7 +240,7 @@ class RunService:
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
             config = current_config(session, batch)
-            status, run = admit_run(session, batch, config)
+            status, run = admit_run(session, batch, config, Actor.user(owner))
             return status, run_view(session, run).model_dump(mode="json")
 
         return self.idempotency.run(owner, f"run:{batch_id}", key, {}, action)
@@ -251,6 +256,7 @@ class RunService:
                 raise ServiceError(
                     409, "NOT_CANCELLABLE", "Run can no longer be cancelled."
                 )
+            run.stamp_updated(Actor.user(owner), database_now(session))
             if run.status == RunStatus.WAITING:
                 run.status = RunStatus.CANCELLED
                 run.completed_at = database_now(session)
@@ -280,7 +286,7 @@ class RunService:
                 raise ServiceError(
                     409, "REPORT_NOT_RETRYABLE", "Only failed reports retry."
                 )
-            start_report(session, run)
+            start_report(session, run, Actor.user(owner))
             return 202, run_view(session, run).model_dump(mode="json")
 
         return self.idempotency.run(
@@ -355,22 +361,21 @@ def result_artifact(
     return None
 
 
-def start_report(session: Session, run: BatchRun) -> None:
+def start_report(session: Session, run: BatchRun, actor: Actor) -> None:
     """Open a new report generation; code is never executed again."""
     now = database_now(session)
+    run.stamp_updated(actor, now)
     run.report_generation += 1
     run.status = RunStatus.REPORTING
     run.completed_at = None
-    session.add(
-        RunReport(
-            run_id=run.id,
-            generation=run.report_generation,
-            status="REQUESTED",
-            artifacts=[],
-            created_at=now,
-            updated_at=now,
-        )
+    report = RunReport(
+        run_id=run.id,
+        generation=run.report_generation,
+        status="REQUESTED",
+        artifacts=[],
     )
+    report.stamp_created(actor, now)
+    session.add(report)
     enqueue(
         session,
         TaskKind.REQUEST_REPORT,

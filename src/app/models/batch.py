@@ -16,10 +16,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, utcnow
+from app.db.base import AuditMixin, Base
 
 
-class Batch(Base):
+class Batch(AuditMixin, Base):
     __tablename__ = "batches"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="batch_revision_positive"),
@@ -39,15 +39,9 @@ class Batch(Base):
     )
     revision: Mapped[int] = mapped_column(default=1)
     config_number: Mapped[int] = mapped_column(default=1)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
 
 
-class BatchConfig(Base):
+class BatchConfig(AuditMixin, Base):
     """Immutable run configuration history; runs point at one revision."""
 
     __tablename__ = "batch_configs"
@@ -73,12 +67,9 @@ class BatchConfig(Base):
     kernel_profile: Mapped[str] = mapped_column(String(128))
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
 
 
-class SkippedWindow(Base):
+class SkippedWindow(AuditMixin, Base):
     """Compressed, exact-count history for deliberately unsubmitted slots."""
 
     __tablename__ = "skipped_windows"
@@ -99,6 +90,3 @@ class SkippedWindow(Base):
     until_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     occurrences: Mapped[int] = mapped_column(BigInteger)
     reason: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )

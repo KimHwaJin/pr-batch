@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.domain.run_state import EXECUTOR_TERMINAL, RunStatus
 from app.integrations.executor import (
@@ -239,23 +240,21 @@ class CollectResult:
             if clients.report is None:
                 finish(run, RunStatus.COMPLETED, now)
                 return
-            start_report(session, run)
+            start_report(session, run, DISPATCHER)
             return
         if run.notebook_status == "FAILED":
             # Code succeeded but no result notebook exists to report on.
             complete(task)
             run.report_generation += 1
-            session.add(
-                RunReport(
-                    run_id=run.id,
-                    generation=run.report_generation,
-                    status="FAILED",
-                    error_code="RESULT_NOTEBOOK_UNAVAILABLE",
-                    artifacts=[],
-                    created_at=now,
-                    updated_at=now,
-                )
+            report = RunReport(
+                run_id=run.id,
+                generation=run.report_generation,
+                status="FAILED",
+                error_code="RESULT_NOTEBOOK_UNAVAILABLE",
+                artifacts=[],
             )
+            report.stamp_created(DISPATCHER, now)
+            session.add(report)
             finish(run, RunStatus.REPORT_FAILED, now)
             return
         # The notebook projection can finish after the execution.
@@ -320,7 +319,7 @@ def apply_report_job(
 ) -> bool:
     """Record a job snapshot; True once the report reached a final state."""
     report.job_id = job.report_job_id
-    report.updated_at = now
+    report.stamp_updated(DISPATCHER, now)
     if job.status == "SUCCEEDED":
         report.status = "SUCCEEDED"
         report.artifacts = [a.model_dump() for a in job.artifacts]

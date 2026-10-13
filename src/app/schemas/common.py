@@ -1,6 +1,7 @@
 """Shared request/response building blocks."""
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
@@ -27,3 +28,21 @@ KernelName = Annotated[
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+ActorType = Literal["USER", "SYSTEM"]
+
+
+class Audited(BaseModel):
+    """Standard audit fields present on every resource response."""
+
+    created_at: datetime
+    created_by_type: ActorType
+    created_by: str
+    updated_at: datetime
+    updated_by_type: ActorType
+    updated_by: str
+
+
+def audit_fields(record: object) -> dict[str, Any]:
+    return {name: getattr(record, name) for name in Audited.model_fields}

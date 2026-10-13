@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.db.base import SCHEDULER
 from app.db.session import database_now
 from app.domain.schedule_clock import ScheduleClock
 from app.models import Batch
@@ -77,16 +78,17 @@ class Scheduler:
                     until,
                     f"MISFIRE_{policy.misfire}",
                     now,
+                    SCHEDULER,
                 )
                 for scheduled_for in recovered:
-                    admit_run(session, batch, config, scheduled_for)
+                    admit_run(session, batch, config, SCHEDULER, scheduled_for)
                 cursor = clock.find(cutoff, inclusive=True)
             # Bound timely admissions too: a long grace period is not an
             # excuse for unbounded row creation in a single transaction.
             for _ in range(100):
                 if cursor is None or cursor > now:
                     break
-                admit_run(session, batch, config, cursor)
+                admit_run(session, batch, config, SCHEDULER, cursor)
                 cursor = clock.find(cursor)
             batch.next_run_at = cursor
             return True

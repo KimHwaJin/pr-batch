@@ -21,7 +21,11 @@ def upgrade() -> None:
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("config_number", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint(
             "enabled OR next_run_at IS NULL", name="disabled_has_no_next_run"
         ),
@@ -66,7 +70,11 @@ def upgrade() -> None:
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("latest_version_number", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint(
             "type IN ('NOTEBOOK', 'PYTHON')", name="script_type"
         ),
@@ -100,6 +108,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint("number >= 1", name="version_number_positive"),
         sa.ForeignKeyConstraint(
             ["script_id"],
@@ -125,6 +138,11 @@ def upgrade() -> None:
             "policy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint("number >= 1", name="config_number_positive"),
         sa.ForeignKeyConstraint(
             ["batch_id"],
@@ -183,12 +201,17 @@ def upgrade() -> None:
         ),
         sa.Column("last_error", sa.String(length=64), nullable=True),
         sa.Column("report_generation", sa.Integer(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("observed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint(
             "status IN ('WAITING', 'QUEUED', 'RUNNING', 'COLLECTING', "
             "'REPORTING', 'COMPLETED', 'FAILED', 'REPORT_FAILED', "
@@ -241,6 +264,11 @@ def upgrade() -> None:
         sa.Column("occurrences", sa.BigInteger(), nullable=False),
         sa.Column("reason", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint("from_at < until_at", name="skipped_window_order"),
         sa.CheckConstraint("occurrences > 0", name="skipped_count_positive"),
         sa.ForeignKeyConstraint(
@@ -274,7 +302,11 @@ def upgrade() -> None:
         ),
         sa.Column("error_code", sa.String(length=64), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by_type", sa.String(length=16), nullable=False),
+        sa.Column("created_by", sa.String(length=255), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
+        sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint(
             "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
             name="report_status",

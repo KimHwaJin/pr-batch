@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.integrations.executor import ExecutorError
 from app.integrations.report import ReportError
@@ -22,6 +23,24 @@ from app.tasks.queue import (
 
 logger = logging.getLogger(__name__)
 RemoteError = (ExecutorError, ReportError)
+
+
+def progress(run: BatchRun) -> tuple[object, ...]:
+    """User-visible facts; polls that observe nothing new are not updates.
+
+    (Compared by value because autoflush clears ORM change tracking.)
+    """
+    return (
+        run.status,
+        run.execution_status,
+        run.observed_version,
+        run.notebook_status,
+        run.failure_type,
+        run.report_generation,
+        run.last_error,
+        run.completed_at,
+        len(run.artifacts or ()),
+    )
 
 
 def lock_run(session: Session, run_id) -> BatchRun | None:
@@ -74,16 +93,14 @@ class Dispatcher:
                     return True  # lease lost; another pod owns it now
                 run = lock_run(session, claimed.run_id)
                 assert run is not None
+                now = database_now(session)
+                before = progress(run)
                 handler.apply(
-                    session,
-                    task,
-                    run,
-                    context,
-                    response,
-                    database_now(session),
-                    self.clients,
+                    session, task, run, context, response, now, self.clients
                 )
                 run.last_error = None
+                if progress(run) != before:
+                    run.stamp_updated(DISPATCHER, now)
         except RemoteError as exc:  # contract violations found while applying
             self.fail(claimed, str(exc))
         return True
@@ -93,9 +110,12 @@ class Dispatcher:
         task = locked_lease(session, claimed)
         assert task is not None
         run = lock_run(session, claimed.run_id)
-        context = (
-            None if run is None else handler.prepare(session, run, claimed)
-        )
+        context = None
+        if run is not None:
+            before = progress(run)
+            context = handler.prepare(session, run, claimed)
+            if progress(run) != before:
+                run.stamp_updated(DISPATCHER, database_now(session))
         if context is None:
             complete(task)  # stale or no longer needed
         return context
@@ -106,11 +126,13 @@ class Dispatcher:
             task = locked_lease(session, claimed)
             if task is None:
                 return
-            backoff(task, database_now(session), code)
+            now = database_now(session)
+            backoff(task, now, code)
             if claimed.run_id is not None:
                 run = session.get(BatchRun, claimed.run_id)
-                if run is not None:
+                if run is not None and run.last_error != code:
                     run.last_error = code
+                    run.stamp_updated(DISPATCHER, now)
 
     def next_due(self) -> datetime | None:
         with self.sessions() as session:

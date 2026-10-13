@@ -167,6 +167,22 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 운영자가 맞춰야 한다. 노트북 메타데이터에 다른 언어가 명시되면 거절한다. 코드
 문법은 서버에서 실행·변환하지 않으며 IPython 문법도 원문으로 보관한다.
 
+## 감사 필드 (모든 자원 응답 공통)
+
+서비스 표준에 따라 Script, ScriptVersion, Batch, Run, Report, SkippedWindow 응답은 모두 아래 여섯 필드를 갖는다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `created_at`, `updated_at` | 생성·마지막 수정 시각 (UTC) |
+| `created_by_type`, `updated_by_type` | `USER`(로그인 사용자) 또는 `SYSTEM`(서비스 자체) |
+| `created_by`, `updated_by` | USER면 JWT `sub`(prj_re가 SSO로 확인한 사용자 ID), SYSTEM이면 `scheduler` 또는 `dispatcher` |
+
+- Script·Batch처럼 사용자가 관리하는 자원은 항상 USER가 생성·수정한다. 스케줄러가 `next_run_at`을 옮기는 것은
+  수정으로 보지 않아 `updated_*`가 바뀌지 않는다.
+- Run은 수동 실행이면 USER, 예약 실행이면 `SYSTEM / scheduler`가 생성한다. 실행 진행(상태·결과 반영)은
+  `SYSTEM / dispatcher`, 취소·리포트 재시도는 USER가 수정한 것으로 남는다. 새 정보가 없는 상태 조회는 수정이 아니다.
+- 버전·설정 이력처럼 바뀌지 않는 자원은 `updated_*`가 생성값과 같다.
+
 ## NOTEBOOK 처리 규칙
 
 동일한 원본 바이트를 다시 업로드하면 기존 버전을 반환한다. 파일명이 같더라도

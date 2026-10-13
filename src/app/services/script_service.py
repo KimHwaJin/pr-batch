@@ -7,9 +7,10 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
-from app.db.base import utcnow
+from app.db.base import Actor
 from app.domain.scripts import ParsedScript, ScriptType
 from app.models import Script, ScriptVersion
+from app.schemas.common import audit_fields
 from app.schemas.script import (
     CellCounts,
     CellEntry,
@@ -45,7 +46,7 @@ def version_view(version: ScriptVersion) -> VersionView:
             executable=executable,
             skipped=len(version.cell_list) - executable,
         ),
-        created_at=version.created_at,
+        **audit_fields(version),
     )
 
 
@@ -63,8 +64,7 @@ def script_view(script: Script, latest: ScriptVersion) -> ScriptView:
         type=ScriptType(script.type),
         revision=script.revision,
         latest_version=version_view(latest),
-        created_at=script.created_at,
-        updated_at=script.updated_at,
+        **audit_fields(script),
     )
 
 
@@ -104,6 +104,7 @@ class ScriptService:
             cell_map=cell_map,
             cell_list=list(parsed.cell_list),
         )
+        version.stamp_created(Actor.user(script.owner_id))
         session.add(version)
         session.flush()
         return version
@@ -117,6 +118,7 @@ class ScriptService:
             script = Script(
                 id=uuid4(), owner_id=owner, name=display, type=parsed.type
             )
+            script.stamp_created(Actor.user(owner))
             session.add(script)
             session.flush()
             version = self.save_version(session, script, parsed, 1)
@@ -153,7 +155,7 @@ class ScriptService:
             version = self.save_version(session, script, parsed, number)
             script.latest_version_number = number
             script.revision += 1
-            script.updated_at = utcnow()
+            script.stamp_updated(Actor.user(owner))
             return 201, version_view(version).model_dump(mode="json")
 
         return self.idempotency.run(
@@ -177,7 +179,7 @@ class ScriptService:
             check_revision(script.revision, expected)
             script.name = name
             script.revision += 1
-            script.updated_at = utcnow()
+            script.stamp_updated(Actor.user(owner))
             latest = script_version(
                 session, script.id, script.latest_version_number
             )
