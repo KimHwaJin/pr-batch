@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 
 import jwt
 
-from src.core.config import Settings
+from app.core.config import Settings
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 NOTEBOOK = {

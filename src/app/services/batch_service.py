@@ -1,0 +1,369 @@
+"""Batch registration, partial updates, activation and skip history."""
+
+from typing import Any
+from uuid import UUID, uuid4
+
+from pydantic import ValidationError
+from sqlalchemy import and_, select, tuple_
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.core.exceptions import ServiceError
+from app.db.base import utcnow
+from app.db.session import database_now
+from app.domain.schedule_clock import EPSILON, ScheduleClock
+from app.models import Batch, BatchConfig, NotebookVersion, SkippedWindow
+from app.schemas.batch import (
+    BatchPage,
+    BatchView,
+    CreateBatch,
+    SkippedPage,
+    SkippedView,
+    UpdateBatch,
+)
+from app.schemas.schedule import Policy
+from app.services.common import (
+    before_cursor,
+    check_revision,
+    config_version,
+    current_config,
+    encode_cursor,
+    notebook_version,
+    owned_batch,
+    owned_notebook,
+    policy_of,
+    schedule_of,
+)
+from app.services.idempotency import Idempotency, MutationResult
+from app.services.schedule_history import record_skipped
+
+
+def batch_view(
+    batch: Batch, config: BatchConfig, version: NotebookVersion
+) -> BatchView:
+    schedule = schedule_of(config)
+    return BatchView(
+        id=batch.id,
+        name=batch.name,
+        notebook_id=config.notebook_id,
+        notebook_version_id=config.notebook_version_id,
+        notebook_version_number=version.number,
+        kernel_profile=config.kernel_profile,
+        schedule=schedule,
+        policy=policy_of(config),
+        enabled=batch.enabled,
+        next_run_at=batch.next_run_at,
+        preview_runs=(
+            ScheduleClock(schedule).preview(utcnow()) if schedule else []
+        ),
+        config_number=batch.config_number,
+        revision=batch.revision,
+        created_at=batch.created_at,
+        updated_at=batch.updated_at,
+    )
+
+
+def merged_policy(current: Policy, patch: dict[str, Any]) -> Policy:
+    try:
+        return Policy.model_validate(current.model_dump() | patch)
+    except ValidationError as exc:
+        raise ServiceError(
+            422, "INVALID_POLICY", "Only PARALLEL allows max_concurrent > 1."
+        ) from exc
+
+
+class BatchService:
+    def __init__(self, sessions: sessionmaker[Session]) -> None:
+        self.sessions = sessions
+        self.idempotency = Idempotency(sessions)
+
+    def resolve_version(
+        self,
+        session: Session,
+        owner: str,
+        notebook_id: UUID,
+        version_id: UUID | None,
+    ) -> NotebookVersion:
+        """Pin an explicit version, or the notebook's latest one."""
+        notebook = owned_notebook(session, owner, notebook_id)
+        if version_id is None:
+            return notebook_version(
+                session, notebook.id, notebook.latest_version_number
+            )
+        return notebook_version(session, notebook.id, version_id)
+
+    def create_batch(
+        self, owner: str, key: str, data: CreateBatch
+    ) -> MutationResult:
+        def action(session: Session) -> MutationResult:
+            version = self.resolve_version(
+                session, owner, data.notebook_id, data.notebook_version_id
+            )
+            batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
+            session.add(batch)
+            session.flush()
+            config = BatchConfig(
+                batch_id=batch.id,
+                number=1,
+                notebook_id=version.notebook_id,
+                notebook_version_id=version.id,
+                kernel_profile=data.kernel_profile,
+                schedule=(
+                    data.schedule.model_dump(mode="json")
+                    if data.schedule
+                    else None
+                ),
+                policy=data.policy.model_dump(mode="json"),
+            )
+            session.add(config)
+            session.flush()
+            return 201, batch_view(batch, config, version).model_dump(
+                mode="json"
+            )
+
+        return self.idempotency.run(
+            owner,
+            "batch:create",
+            key,
+            data.model_dump(mode="json"),
+            action,
+        )
+
+    def update_batch(
+        self,
+        owner: str,
+        batch_id: UUID,
+        key: str,
+        expected: int,
+        data: UpdateBatch,
+    ) -> MutationResult:
+        fields = data.model_fields_set
+
+        def action(session: Session) -> MutationResult:
+            batch = owned_batch(session, owner, batch_id, lock=True)
+            check_revision(batch.revision, expected)
+            config = current_config(session, batch)
+            now = database_now(session)
+            if "name" in fields and data.name is not None:
+                batch.name = data.name
+            if fields - {"name"}:
+                config = self.next_config(session, owner, batch, config, data)
+            batch.revision += 1
+            batch.updated_at = now
+            return 200, batch_view(
+                batch, config, config_version(session, config)
+            ).model_dump(mode="json")
+
+        return self.idempotency.run(
+            owner,
+            f"batch:update:{batch_id}",
+            key,
+            {
+                "expected_revision": expected,
+                "data": data.model_dump(mode="json", exclude_unset=True),
+            },
+            action,
+        )
+
+    def next_config(
+        self,
+        session: Session,
+        owner: str,
+        batch: Batch,
+        current: BatchConfig,
+        data: UpdateBatch,
+    ) -> BatchConfig:
+        fields = data.model_fields_set
+        notebook_id = data.notebook_id or current.notebook_id
+        if "notebook_id" in fields or "notebook_version_id" in fields:
+            version = self.resolve_version(
+                session, owner, notebook_id, data.notebook_version_id
+            )
+        else:
+            version = config_version(session, current)
+        schedule = (
+            data.schedule if "schedule" in fields else schedule_of(current)
+        )
+        policy = policy_of(current)
+        if data.policy is not None:
+            policy = merged_policy(
+                policy, data.policy.model_dump(exclude_none=True)
+            )
+        now = database_now(session)
+        if batch.enabled:
+            if schedule is None:
+                raise ServiceError(
+                    409, "SCHEDULE_REQUIRED", "Disable the batch first."
+                )
+            if "schedule" in fields:
+                following = ScheduleClock(schedule).find(now)
+                if following is None:
+                    raise ServiceError(
+                        422,
+                        "NO_FUTURE_OCCURRENCE",
+                        "Choose a schedule with a future occurrence.",
+                    )
+                if batch.next_run_at and batch.next_run_at <= now:
+                    record_skipped(
+                        session,
+                        batch,
+                        current,
+                        batch.next_run_at,
+                        now + EPSILON,
+                        "SCHEDULE_REPLACED",
+                        now,
+                    )
+                batch.next_run_at = following
+        batch.config_number += 1
+        config = BatchConfig(
+            batch_id=batch.id,
+            number=batch.config_number,
+            notebook_id=version.notebook_id,
+            notebook_version_id=version.id,
+            kernel_profile=data.kernel_profile or current.kernel_profile,
+            schedule=schedule.model_dump(mode="json") if schedule else None,
+            policy=policy.model_dump(mode="json"),
+        )
+        session.add(config)
+        session.flush()
+        return config
+
+    def get_batch(self, owner: str, batch_id: UUID) -> BatchView:
+        with self.sessions() as session:
+            batch = owned_batch(session, owner, batch_id)
+            config = current_config(session, batch)
+            return batch_view(batch, config, config_version(session, config))
+
+    def list_batches(
+        self,
+        owner: str,
+        limit: int,
+        cursor: str | None,
+        notebook_id: UUID | None,
+    ) -> BatchPage:
+        query = (
+            select(Batch, BatchConfig, NotebookVersion)
+            .join(
+                BatchConfig,
+                and_(
+                    BatchConfig.batch_id == Batch.id,
+                    BatchConfig.number == Batch.config_number,
+                ),
+            )
+            .join(
+                NotebookVersion,
+                NotebookVersion.id == BatchConfig.notebook_version_id,
+            )
+            .where(Batch.owner_id == owner)
+        )
+        if notebook_id is not None:
+            query = query.where(BatchConfig.notebook_id == notebook_id)
+        if cursor:
+            query = query.where(
+                before_cursor(Batch.created_at, Batch.id, cursor)
+            )
+        query = query.order_by(Batch.created_at.desc(), Batch.id.desc())
+        with self.sessions() as session:
+            rows = session.execute(query.limit(limit + 1)).all()
+            items = [batch_view(b, c, v) for b, c, v in rows[:limit]]
+        next_cursor = None
+        if len(rows) > limit:
+            next_cursor = encode_cursor(items[-1].created_at, items[-1].id)
+        return BatchPage(items=items, next_cursor=next_cursor)
+
+    def set_enabled(
+        self,
+        owner: str,
+        batch_id: UUID,
+        key: str,
+        expected: int,
+        enabled: bool,
+        allowed_kernels: list[str],
+    ) -> MutationResult:
+        def action(session: Session) -> MutationResult:
+            batch = owned_batch(session, owner, batch_id, lock=True)
+            check_revision(batch.revision, expected)
+            config = current_config(session, batch)
+            if batch.enabled != enabled:
+                now = database_now(session)
+                if enabled:
+                    schedule = schedule_of(config)
+                    if schedule is None:
+                        raise ServiceError(
+                            409,
+                            "SCHEDULE_REQUIRED",
+                            "Set a schedule before enabling.",
+                        )
+                    if config.kernel_profile not in allowed_kernels:
+                        raise ServiceError(
+                            422, "UNKNOWN_KERNEL", "Kernel is not allowed."
+                        )
+                    following = ScheduleClock(schedule).find(now)
+                    if following is None:
+                        raise ServiceError(
+                            422,
+                            "NO_FUTURE_OCCURRENCE",
+                            "Choose a schedule with a future occurrence.",
+                        )
+                    batch.next_run_at = following
+                else:
+                    if batch.next_run_at and batch.next_run_at <= now:
+                        record_skipped(
+                            session,
+                            batch,
+                            config,
+                            batch.next_run_at,
+                            now + EPSILON,
+                            "DISABLED",
+                            now,
+                        )
+                    batch.next_run_at = None
+                batch.enabled = enabled
+                batch.revision += 1
+                batch.updated_at = now
+            return 200, batch_view(
+                batch, config, config_version(session, config)
+            ).model_dump(mode="json")
+
+        return self.idempotency.run(
+            owner,
+            f"activation:{batch_id}",
+            key,
+            {"enabled": enabled, "expected_revision": expected},
+            action,
+        )
+
+    def skipped(
+        self,
+        owner: str,
+        batch_id: UUID,
+        limit: int,
+        cursor: UUID | None,
+    ) -> SkippedPage:
+        with self.sessions() as session:
+            owned_batch(session, owner, batch_id)
+            query = select(SkippedWindow).where(
+                SkippedWindow.batch_id == batch_id
+            )
+            if cursor:
+                last = session.scalar(query.where(SkippedWindow.id == cursor))
+                if last is None:
+                    raise ServiceError(
+                        422, "INVALID_CURSOR", "Invalid cursor."
+                    )
+                query = query.where(
+                    tuple_(SkippedWindow.created_at, SkippedWindow.id)
+                    < tuple_(last.created_at, last.id)
+                )
+            rows = list(
+                session.scalars(
+                    query.order_by(
+                        SkippedWindow.created_at.desc(),
+                        SkippedWindow.id.desc(),
+                    ).limit(limit + 1)
+                )
+            )
+            items = [SkippedView.model_validate(row) for row in rows[:limit]]
+            return SkippedPage(
+                items=items,
+                next_cursor=(items[-1].id if len(rows) > limit else None),
+            )

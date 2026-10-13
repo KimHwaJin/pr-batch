@@ -24,10 +24,11 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 
 ## 디렉토리 구조
 
-`src`가 최상위 패키지이며 저장소 루트에서 `src.*`로 실행합니다(라이브러리로 빌드하지 않음).
+src 레이아웃입니다. 애플리케이션 패키지는 `src/app`이고 `from app.core.config import ...`
+형태로 import합니다. `uv sync`가 `app` 패키지를 가상환경에 설치합니다.
 
 ```text
-src/
+src/app/
   main.py                 앱 생성: 라우터·미들웨어·예외 핸들러·헬스체크
   core/                   config(환경 설정), security(JWT), exceptions, middleware
   db/                     Base, 엔진·세션 생성, DB 시각
@@ -47,8 +48,8 @@ scripts/                  Docker smoke 테스트
 tests/
 ```
 
-API(`uvicorn src.main:create_app --factory`), Executor 워커
-(`python -m src.workers.executor_worker`), 스케줄러(`python -m src.workers.scheduler`)는
+API(`uvicorn app.main:create_app --factory`), Executor 워커
+(`python -m app.workers.executor_worker`), 스케줄러(`python -m app.workers.scheduler`)는
 같은 DB와 설정을 쓰는 별도 프로세스입니다.
 
 ## 개발 도구

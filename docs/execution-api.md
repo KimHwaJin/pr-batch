@@ -36,7 +36,7 @@ Executor HTTP 인증 헤더는 현재 계약에 없어 추가하지 않았다. �
 `BATCH_EXECUTOR_POLL_SECONDS`는 기본 5초이며 1~300초로 설정할 수 있다.
 워커 한 프로세스는 한 번에 한 요청을 처리한다. 처리량이 필요하면 같은 DB를 사용하는
 워커를 추가할 수 있다. 여러 워커의 claim은 DB 잠금과 lease로 조정한다.
-`uv run --locked python -m src.workers.executor_worker --once`는 처리 가능한 명령 하나를
+`uv run --locked python -m app.workers.executor_worker --once`는 처리 가능한 명령 하나를
 검사하는 점검용이다. 지속 실행에는 `make worker`를 사용한다.
 
 ## HTTP 계약

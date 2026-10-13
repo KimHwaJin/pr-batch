@@ -16,7 +16,7 @@ from conftest import (
 )
 from sqlalchemy import create_engine, select, text
 
-from src.models import NotebookVersion
+from app.models import NotebookVersion
 
 
 def mixed_notebook() -> bytes:

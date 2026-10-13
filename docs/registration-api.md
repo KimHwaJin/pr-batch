@@ -17,7 +17,7 @@ uv sync --locked
 cp .env.example .env
 # .env의 DB URL, 공유 PV 절대경로, 인증 비밀키, 커널 목록 수정
 uv run --locked alembic upgrade head
-uv run --locked uvicorn src.main:create_app --factory
+uv run --locked uvicorn app.main:create_app --factory
 ```
 
 `BATCH_DATABASE_URL`은 `postgresql+psycopg://...` 형식이다.
@@ -63,7 +63,7 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 않는다. 요청 body의 사용자 ID나 `X-User-Id`는 인증 근거가 아니다.
 외부 클라이언트가 서비스 인증 헤더를 그대로 전달하게 하지 않고 `prj_re`가 검증한
 사용자로 새 토큰을 발급한다. 운영에서는 TLS와 내부 서비스 접근 제한을 적용한다.
-회사 표준 서비스 인증이 정해지면 `src/core/security.py` 경계에서 교체할 수 있다.
+회사 표준 서비스 인증이 정해지면 `src/app/core/security.py` 경계에서 교체할 수 있다.
 
 모든 쓰기는 `Idempotency-Key`를 요구한다. 동일 사용자·작업·키에 동일 내용이면
 최초 상태 코드와 응답을 재전송한다. 내용이 다르면 409다. 네트워크 오류 후에는

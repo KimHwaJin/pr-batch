@@ -18,13 +18,13 @@ from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from test_runs import FakeExecutor
 
-from src.db.base import utcnow
-from src.integrations.executor import ExecutorClient
-from src.models import Batch, BatchRun, RunCommand
-from src.services.common import current_config
-from src.services.run_service import admit_run
-from src.workers.executor_worker import Worker
-from src.workers.scheduler import Scheduler
+from app.db.base import utcnow
+from app.integrations.executor import ExecutorClient
+from app.models import Batch, BatchRun, RunCommand
+from app.services.common import current_config
+from app.services.run_service import admit_run
+from app.workers.executor_worker import Worker
+from app.workers.scheduler import Scheduler
 
 
 @pytest.fixture

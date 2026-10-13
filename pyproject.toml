@@ -20,24 +20,30 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# src layout: the importable package is `app` (src/app).
+module-name = "app"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 79
-src = ["."]
+src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ty.environment]
 python-version = "3.12"
-root = ["."]
 
 [tool.ty.terminal]
 error-on-warning = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
 addopts = "-ra"
 
 [dependency-groups]
@@ -46,7 +52,3 @@ dev = [
     "ruff>=0.17.0",
     "ty>=0.0.86",
 ]
-
-[tool.uv]
-# Application, not a library: run from the repository root as `src.*`.
-package = false

@@ -17,14 +17,14 @@ from conftest import (
 )
 from sqlalchemy import func, select, update
 
-from src.db.base import utcnow
-from src.integrations.executor import ExecutorClient, ExecutorError
-from src.models import (
+from app.db.base import utcnow
+from app.integrations.executor import ExecutorClient, ExecutorError
+from app.models import (
     BatchRun,
     RunCommand,
     RunStepBinding,
 )
-from src.workers.executor_worker import Worker
+from app.workers.executor_worker import Worker
 
 
 class FakeExecutor:
