@@ -529,15 +529,10 @@ def test_capacity_queue_and_manual_overflow(
     client, execution, policy, maximum
 ):
     _, worker = execution
-    config = metadata(
-        policy={
-            "overlap": {
-                "mode": policy,
-                "max_concurrent": maximum,
-                "max_queued": 1,
-            }
-        }
-    )
+    overlap = {"mode": policy, "max_queued": 1}
+    if policy == "PARALLEL":
+        overlap["max_concurrent"] = maximum
+    config = metadata(policy={"overlap": overlap})
     batch = create_batch(client, config=config).json()
     runs = [
         run_request(client, batch["id"], f"r{n}") for n in range(maximum + 2)

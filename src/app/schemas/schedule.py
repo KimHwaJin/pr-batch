@@ -179,45 +179,89 @@ class Schedule(Contract):
 
 OverlapMode = Literal["SKIP", "QUEUE", "PARALLEL", "REPLACE"]
 MisfireMode = Literal["SKIP", "LATEST", "CATCH_UP"]
+DEFAULT_MAX_QUEUED = 100
 
 
-class Overlap(Contract):
-    """What happens when a run is due while code is still running.
+# overlap: what happens when a run is due while this batch's code is still
+# running. Each mode accepts only the values it uses.
+class SkipOverlap(Contract):
+    """Record the new run as SKIPPED (OVERLAP)."""
 
-    SKIP: record and skip. QUEUE: wait in order (max_queued).
-    PARALLEL: up to max_concurrent at once. REPLACE: cancel the running
-    one(s) and run the new one when they have stopped.
-    """
-
-    mode: OverlapMode = "SKIP"
-    max_concurrent: int = Field(default=1, ge=1, le=100)
-    max_queued: int = Field(default=100, ge=1, le=10000)
-
-    @model_validator(mode="after")
-    def validate_mode(self) -> Self:
-        if self.mode != "PARALLEL" and self.max_concurrent != 1:
-            raise ValueError("Only PARALLEL allows max_concurrent > 1.")
-        return self
+    mode: Literal["SKIP"]
 
 
-class Misfire(Contract):
-    """What happens to occurrences missed by more than grace_seconds.
+class QueueOverlap(Contract):
+    """Wait in order; beyond max_queued the run is SKIPPED (capacity)."""
 
-    SKIP: drop them. LATEST: run the most recent one. CATCH_UP: run up to
-    max_runs of those younger than max_age_seconds, oldest first.
-    """
+    mode: Literal["QUEUE"]
+    max_queued: int = Field(default=DEFAULT_MAX_QUEUED, ge=1, le=10000)
 
-    mode: MisfireMode = "SKIP"
+
+class ParallelOverlap(Contract):
+    """Run up to max_concurrent at once; extra runs wait (max_queued)."""
+
+    mode: Literal["PARALLEL"]
+    max_concurrent: int = Field(ge=1, le=100)
+    max_queued: int = Field(default=DEFAULT_MAX_QUEUED, ge=1, le=10000)
+
+
+class ReplaceOverlap(Contract):
+    """Cancel running/waiting runs; start the new one once they stop."""
+
+    mode: Literal["REPLACE"]
+
+
+Overlap = Annotated[
+    SkipOverlap | QueueOverlap | ParallelOverlap | ReplaceOverlap,
+    Field(discriminator="mode"),
+]
+
+
+# misfire: occurrences missed by more than grace_seconds (outages).
+class SkipMisfire(Contract):
+    """Drop missed occurrences."""
+
+    mode: Literal["SKIP"]
+    grace_seconds: int = Field(default=60, ge=1, le=86400)
+
+
+class LatestMisfire(Contract):
+    """Run only the most recent missed occurrence."""
+
+    mode: Literal["LATEST"]
+    grace_seconds: int = Field(default=60, ge=1, le=86400)
+
+
+class CatchUpMisfire(Contract):
+    """Run up to max_runs missed occurrences younger than max_age_seconds."""
+
+    mode: Literal["CATCH_UP"]
     grace_seconds: int = Field(default=60, ge=1, le=86400)
     max_runs: int = Field(default=10, ge=1, le=1000)
     max_age_seconds: int = Field(default=86400, ge=60, le=31_536_000)
 
 
+Misfire = Annotated[
+    SkipMisfire | LatestMisfire | CatchUpMisfire,
+    Field(discriminator="mode"),
+]
+
+
 class Policy(Contract):
     """Overlap and misfire handling; manual runs also follow overlap."""
 
-    overlap: Overlap = Field(default_factory=Overlap)
-    misfire: Misfire = Field(default_factory=Misfire)
+    overlap: Overlap = Field(default_factory=lambda: SkipOverlap(mode="SKIP"))
+    misfire: Misfire = Field(default_factory=lambda: SkipMisfire(mode="SKIP"))
+
+
+def concurrency(policy: dict) -> tuple[str, int, int]:
+    """(mode, max_concurrent, max_queued) from a stored policy."""
+    overlap = policy["overlap"]
+    return (
+        overlap["mode"],
+        overlap.get("max_concurrent", 1),
+        overlap.get("max_queued", DEFAULT_MAX_QUEUED),
+    )
 
 
 class OverlapPatch(Contract):

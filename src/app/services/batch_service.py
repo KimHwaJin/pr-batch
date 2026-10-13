@@ -70,12 +70,23 @@ def merged_policy(current: Policy, patch: dict[str, Any]) -> Policy:
     """Apply a nested partial policy; the result must be valid as a whole."""
     merged = current.model_dump()
     for section, values in patch.items():
-        merged[section] = merged[section] | values
+        if (
+            values.get("mode", merged[section]["mode"])
+            != merged[section]["mode"]
+        ):
+            # A new mode starts from that mode's defaults.
+            merged[section] = values
+        else:
+            merged[section] = merged[section] | values
     try:
         return Policy.model_validate(merged)
     except ValidationError as exc:
+        problem = exc.errors()[0]
+        field = ".".join(str(part) for part in problem["loc"][:3])
         raise ServiceError(
-            422, "INVALID_POLICY", "Only PARALLEL allows max_concurrent > 1."
+            422,
+            "INVALID_POLICY",
+            f"{field}: not valid for the selected mode ({problem['type']}).",
         ) from exc
 
 

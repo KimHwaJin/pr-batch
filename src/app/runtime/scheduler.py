@@ -13,6 +13,7 @@ from app.db.base import SCHEDULER
 from app.db.session import database_now
 from app.domain.schedule_clock import ScheduleClock
 from app.models import Batch
+from app.schemas.schedule import CatchUpMisfire
 from app.services.common import current_config, policy_of, schedule_of
 from app.services.run_service import admit_run
 from app.services.schedule_history import record_skipped
@@ -55,7 +56,7 @@ class Scheduler:
                 lower = cursor
                 if policy.misfire.mode == "LATEST":
                     count = 1
-                elif policy.misfire.mode == "CATCH_UP":
+                elif isinstance(policy.misfire, CatchUpMisfire):
                     count = policy.misfire.max_runs
                     lower = max(
                         lower,

@@ -317,10 +317,20 @@ def test_batch_validation_reports_fields(client):
         policy={"overlap": {"mode": "SKIP", "max_concurrent": 2}},
     )
     assert policy.status_code == 422
-    assert "PARALLEL" in policy.json()["errors"][0]["msg"]
+    assert policy.json()["errors"][0]["type"] == "extra_forbidden"
+    queue = register(
+        "queue",
+        policy={"overlap": {"mode": "QUEUE"}, "misfire": {"mode": "LATEST"}},
+    )
+    assert queue.status_code == 201
+    assert queue.json()["policy"] == {
+        "overlap": {"mode": "QUEUE", "max_queued": 100},
+        "misfire": {"mode": "LATEST", "grace_seconds": 60},
+    }
     missing = register("missing", script_id=str(uuid4()))
     assert missing.status_code == 404
-    assert client.get(API, headers=token()).json()["items"] == []
+    # Only the valid QUEUE/LATEST registration above was stored.
+    assert len(client.get(API, headers=token()).json()["items"]) == 1
 
 
 def test_patch_rules_and_policy_merge(client):
@@ -350,7 +360,7 @@ def test_patch_rules_and_policy_merge(client):
         client,
         merged.json(),
         "bad-policy",
-        {"policy": {"overlap": {"mode": "SKIP"}}},
+        {"policy": {"overlap": {"max_concurrent": 1, "mode": "QUEUE"}}},
     )
     assert invalid.status_code == 422
     assert invalid.json()["code"] == "INVALID_POLICY"

@@ -52,10 +52,29 @@ def config(**options):
     window = {
         k: options.pop(k) for k in ("start_at", "end_at") if k in options
     }
-    policy: dict[str, dict] = {"overlap": {"mode": "QUEUE"}, "misfire": {}}
+    policy: dict[str, dict] = {
+        "overlap": {"mode": "QUEUE"},
+        "misfire": {"mode": "SKIP"},
+    }
     for key, value in options.items():
         section, name = POLICY_KEYS[key]
         policy[section][name] = value
+    # Each mode accepts only its own values; drop the rest.
+    allowed = {
+        "SKIP": {"mode"},
+        "REPLACE": {"mode"},
+        "QUEUE": {"mode", "max_queued"},
+        "PARALLEL": {"mode", "max_concurrent", "max_queued"},
+        "LATEST": {"mode", "grace_seconds"},
+        "CATCH_UP": {"mode", "grace_seconds", "max_runs", "max_age_seconds"},
+    }
+    for section in ("overlap", "misfire"):
+        keep = allowed[policy[section]["mode"]]
+        if policy[section]["mode"] == "SKIP" and section == "misfire":
+            keep = {"mode", "grace_seconds"}
+        policy[section] = {
+            k: v for k, v in policy[section].items() if k in keep
+        }
     return metadata(
         schedule={
             "definition": {

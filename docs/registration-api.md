@@ -233,21 +233,32 @@ code_hash로 실제 실행 코드가 같음을 확인할 수 있다.
 
 ### 정책 (`policy`)
 
+각 구역은 `mode`를 고르고, **그 모드가 쓰는 값만** 보낸다. 모드에 없는 값을 보내면 422다.
+값을 생략하면 기본값이 채워져 응답에 보인다. 자세한 설명과 예시는 정책 안내 문서를 따른다.
+
 ```json
-"policy": {
-  "overlap": {"mode": "QUEUE", "max_concurrent": 1, "max_queued": 100},
-  "misfire": {"mode": "CATCH_UP", "grace_seconds": 60, "max_runs": 10, "max_age_seconds": 86400}
-}
+// overlap: 이전 실행이 아직 돌 때
+{"mode": "SKIP"}                                               // 기본: 이번 건 생략
+{"mode": "QUEUE", "max_queued": 100}                            // 순서대로 대기
+{"mode": "PARALLEL", "max_concurrent": 3, "max_queued": 100}    // 동시 실행, 넘치면 대기
+{"mode": "REPLACE"}                                            // 실행 중인 것 취소 후 새로
+
+// misfire: 장애 등으로 grace_seconds 넘게 놓친 일정
+{"mode": "SKIP", "grace_seconds": 60}                           // 기본: 버림
+{"mode": "LATEST", "grace_seconds": 60}                         // 가장 최근 1회
+{"mode": "CATCH_UP", "grace_seconds": 60, "max_runs": 10, "max_age_seconds": 86400}
 ```
 
-| 구역 | mode | 함께 쓰는 값 | 기본 |
+| 값 | 쓰는 모드 | 범위 | 기본 |
 | --- | --- | --- | --- |
-| overlap (이전 실행이 아직 돌 때) | `SKIP` 건너뜀 / `QUEUE` 순서대로 대기 / `PARALLEL` 동시 실행 / `REPLACE` 실행 중인 것 취소 후 새로 실행 | `max_concurrent` 1~100(PARALLEL만 1 초과), `max_queued` 1~10000 | SKIP, 1, 100 |
-| misfire (장애 등으로 놓친 일정) | `SKIP` 버림 / `LATEST` 가장 최근 1회 / `CATCH_UP` 보충 | `grace_seconds` 1~86400, `max_runs` 1~1000, `max_age_seconds` 60~31536000 | SKIP, 60, 10, 86400 |
+| `max_concurrent` | PARALLEL (필수) | 1~100 | — |
+| `max_queued` | QUEUE, PARALLEL | 1~10000 | 100 |
+| `grace_seconds` | misfire 모든 모드 | 1~86400 | 60 |
+| `max_runs`, `max_age_seconds` | CATCH_UP | 1~1000, 60~31536000 | 10, 86400 |
 
-- 수동 실행도 overlap 정책을 따른다. REPLACE에서는 대기 중인 실행은 취소되고, 실행 중인 것은 Executor에 취소를
-  요청한 뒤 실제로 끝나면 새 실행이 시작된다.
-- PATCH의 `policy`는 `overlap`·`misfire` 안에서 보낸 값만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
+- 수동 실행도 overlap 정책을 따른다.
+- PATCH: 같은 모드면 보낸 값만 바뀌고, 다른 모드를 보내면 그 구역은 새 모드의 기본값에서 다시 시작한다.
+  잘못된 조합은 422 `INVALID_POLICY`(어느 값이 문제인지 메시지에 포함).
 
 ## 검증과 오류
 

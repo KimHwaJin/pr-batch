@@ -29,6 +29,7 @@ from app.schemas.run import (
     RunView,
     StepView,
 )
+from app.schemas.schedule import concurrency
 from app.services.common import current_config, owned_batch
 from app.services.idempotency import Idempotency, MutationResult
 from app.tasks.queue import TaskKind, enqueue
@@ -98,14 +99,14 @@ def admit_run(
     active = count_status(session, batch.id, OCCUPYING)
     pending = count_status(session, batch.id, frozenset({RunStatus.WAITING}))
     target, reason, http_status = RunStatus.QUEUED, None, 202
-    overlap = policy["overlap"]
-    if overlap["mode"] == "REPLACE":
+    mode, max_concurrent, max_queued = concurrency(policy)
+    if mode == "REPLACE":
         active -= replace_running(session, batch.id, actor)
         pending = 0
-    if overlap["mode"] == "SKIP" and active:
+    if mode == "SKIP" and active:
         target, reason = RunStatus.SKIPPED, "OVERLAP"
-    elif active >= overlap["max_concurrent"] or pending:
-        if pending >= overlap["max_queued"]:
+    elif active >= max_concurrent or pending:
+        if pending >= max_queued:
             target, reason = RunStatus.SKIPPED, "SKIPPED_CAPACITY"
             http_status = 409
         else:
@@ -172,7 +173,7 @@ def promote_waiting(
         )
         if oldest is None:
             return
-        maximum = oldest.snapshot["policy"]["overlap"]["max_concurrent"]
+        _, maximum, _ = concurrency(oldest.snapshot["policy"])
         if count_status(session, batch_id, OCCUPYING) >= maximum:
             return
         queue_submission(session, oldest)

@@ -16,7 +16,7 @@ from app.domain.scripts import ScriptType
 from app.integrations.executor import ExecutorClient
 from app.main import create_app
 from app.schemas.batch import RuntimeSpec
-from app.schemas.schedule import Policy, Schedule
+from app.schemas.schedule import ParallelOverlap, Policy, Schedule
 from app.services.runtime_catalog import RuntimeCatalog, check_runtime
 from app.storage.script_storage import ScriptStorage
 
@@ -149,6 +149,7 @@ def test_policy_defaults_and_parallel_rule():
     parallel = Policy.model_validate(
         {"overlap": {"mode": "PARALLEL", "max_concurrent": 3}}
     )
+    assert isinstance(parallel.overlap, ParallelOverlap)
     assert parallel.overlap.max_concurrent == 3
     with pytest.raises(ValidationError):
         Policy.model_validate(
