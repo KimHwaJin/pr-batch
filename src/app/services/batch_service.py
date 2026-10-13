@@ -81,22 +81,20 @@ class BatchService:
         session: Session,
         owner: str,
         script_id: UUID,
-        version_id: UUID | None,
+        version_number: int | None,
     ) -> ScriptVersion:
-        """Pin an explicit version, or the script's latest one."""
+        """Pin an explicit version number, or the script's latest one."""
         script = owned_script(session, owner, script_id)
-        if version_id is None:
-            return script_version(
-                session, script.id, script.latest_version_number
-            )
-        return script_version(session, script.id, version_id)
+        return script_version(
+            session, script.id, version_number or script.latest_version_number
+        )
 
     def create_batch(
         self, owner: str, key: str, data: CreateBatch
     ) -> MutationResult:
         def action(session: Session) -> MutationResult:
             version = self.resolve_version(
-                session, owner, data.script_id, data.script_version_id
+                session, owner, data.script_id, data.script_version_number
             )
             actor = Actor.user(owner)
             batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
@@ -177,9 +175,9 @@ class BatchService:
     ) -> BatchConfig:
         fields = data.model_fields_set
         script_id = data.script_id or current.script_id
-        if "script_id" in fields or "script_version_id" in fields:
+        if "script_id" in fields or "script_version_number" in fields:
             version = self.resolve_version(
-                session, owner, script_id, data.script_version_id
+                session, owner, script_id, data.script_version_number
             )
         else:
             version = config_version(session, current)

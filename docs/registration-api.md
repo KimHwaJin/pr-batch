@@ -142,7 +142,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | --- | --- | --- |
 | name | O | 1~255자 |
 | script_id | O | 내 스크립트 |
-| script_version_id | X | 생략하면 등록 시점 최신 버전으로 고정 |
+| script_version_number | X | 버전 번호(v1=1, v2=2 …). 생략하면 등록 시점 최신 버전으로 고정(이후 새 버전을 올려도 따라가지 않음) |
 | kernel_profile | O | `BATCH_ALLOWED_KERNEL_PROFILES` 중 하나 |
 | schedule | X | 없으면 수동 실행 전용. 활성화하려면 필요 |
 | policy | X | 보낸 값만 적용하고 나머지는 기본값 |
@@ -156,7 +156,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 - 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`kernel_profile`·`policy`의
   null은 422다.
 - `name`만 바꾸면 실행 설정 이력(`config_number`)은 늘지 않는다.
-- `script_id`만 바꾸면 그 스크립트의 최신 버전으로, `script_version_id: null`이면
+- `script_id`만 바꾸면 그 스크립트의 최신 버전으로, `script_version_number: null`이면
   현재 스크립트의 최신 버전으로 다시 고정한다.
 - `schedule: null`은 일정 제거다. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - `policy`는 보낸 하위 필드만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.

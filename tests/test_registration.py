@@ -128,7 +128,7 @@ def test_batch_pins_version_until_changed(client):
     v2 = add_version(client, notebook, "v2", notebook_bytes("x = 4")).json()
     current = client.get(f"{API}/{batch['id']}", headers=token()).json()
     assert current["script_version_id"] == batch["script_version_id"]
-    pinned = patch_batch(client, batch, "pin", {"script_version_id": None})
+    pinned = patch_batch(client, batch, "pin", {"script_version_number": None})
     assert pinned.status_code == 200, pinned.text
     assert pinned.json()["script_version_id"] == v2["id"]
     assert pinned.json()["config_number"] == 2
@@ -136,15 +136,13 @@ def test_batch_pins_version_until_changed(client):
         client,
         pinned.json(),
         "back",
-        {"script_version_id": batch["script_version_id"]},
+        {"script_version_number": 1},
     )
     assert back.json()["script_version_number"] == 1
     explicit = create_batch(
         client,
         key="explicit",
-        config=metadata(
-            script_id=batch["script_id"], script_version_id=v2["id"]
-        ),
+        config=metadata(script_id=batch["script_id"], script_version_number=2),
     )
     assert explicit.status_code == 201
     assert explicit.json()["script_version_number"] == 2
@@ -211,13 +209,14 @@ def test_cross_user_access(client):
         config=metadata(script_id=alice["script_id"]),
     )
     assert borrowed.status_code == 404
-    foreign_version = patch_batch(
-        client,
-        alice,
-        "foreign",
-        {"script_version_id": bob["script_version_id"]},
+    foreign_script = patch_batch(
+        client, alice, "foreign", {"script_id": bob["script_id"]}
     )
-    assert foreign_version.status_code == 404
+    assert foreign_script.status_code == 404
+    missing_version = patch_batch(
+        client, alice, "missing", {"script_version_number": 99}
+    )
+    assert missing_version.status_code == 404
 
 
 def test_concurrent_identical_create_is_one_resource(client):

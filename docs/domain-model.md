@@ -224,7 +224,7 @@ API: `GET /batches/{id}/skipped-windows`
 ### 스크립트를 고쳐서 적용
 
 1. 같은 스크립트에 수정본 업로드 → v2. 배치는 여전히 v1으로 돈다.
-2. 배치 PATCH `{"script_version_id": v2}` → BatchConfig #2.
+2. 배치 PATCH `{"script_version_number": 2}` → BatchConfig #2.
 3. 이미 접수된 실행은 #1(v1)로, 이후 실행은 #2(v2)로 돈다.
 
 ### 리포트만 실패

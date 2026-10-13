@@ -353,7 +353,7 @@ def test_active_schedule_change_preserves_old_run_snapshot(client, scheduling):
         files={"file": ("v2.ipynb", notebook_bytes("x = 42"))},
     ).json()
     replacement = {
-        "script_version_id": version["id"],
+        "script_version_number": version["version_number"],
         "kernel_profile": "analytics",
         "schedule": config()["schedule"],
     }

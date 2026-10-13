@@ -13,7 +13,8 @@ from app.schemas.schedule import Policy, PolicyPatch, Schedule
 class CreateBatch(Contract):
     name: Name
     script_id: UUID
-    script_version_id: UUID | None = None
+    # v1, v2, ...; omitted: pin the script's latest version at this time.
+    script_version_number: int | None = Field(default=None, ge=1)
     kernel_profile: KernelName
     schedule: Schedule | None = None
     policy: Policy = Field(default_factory=Policy)
@@ -24,7 +25,8 @@ class UpdateBatch(Contract):
 
     name: Name | None = None
     script_id: UUID | None = None
-    script_version_id: UUID | None = None
+    # null (or script_id alone): re-pin to the latest version.
+    script_version_number: int | None = Field(default=None, ge=1)
     kernel_profile: KernelName | None = None
     schedule: Schedule | None = None
     policy: PolicyPatch | None = None
