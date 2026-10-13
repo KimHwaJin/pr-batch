@@ -11,7 +11,7 @@
 | 식별자 | 의미 |
 | --- | --- |
 | batch_id | 등록 작업의 고정 ID. 버전·일정을 변경해도 유지 |
-| version_id | 업로드한 불변 노트북 원본의 ID |
+| notebook_id / notebook_version_id | 실행한 노트북과 불변 원본 버전의 ID |
 | run_id | 예약·수동 실행 한 번마다 Batch가 발급하는 ID |
 | execution_id | 실제 코드 실행을 맡긴 Executor의 ID |
 | operation_id | 제출한 Executor Operation의 ID |
@@ -27,7 +27,7 @@
 | 구분 | 보존 내용 |
 | --- | --- |
 | 소유·소속 | run_id, batch_id, owner_id |
-| 원본 | version_id, 원본·코드 해시, 선택한 커널 |
+| 원본 | notebook_version_id, 원본·코드 해시, 선택한 커널 |
 | 접수 맥락 | 예약 또는 수동 실행, 예약 시각, 일정 revision |
 | 실행 설정 | 접수 당시의 일정·겹침·누락 일정 정책과 제한값 |
 | 상태 | 제출 상태, Executor 실행 상태, 리포트 상태 |

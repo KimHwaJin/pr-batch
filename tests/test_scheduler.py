@@ -6,7 +6,14 @@ from uuid import UUID, uuid4
 
 import httpx2
 import pytest
-from conftest import API, create_batch, metadata, notebook_bytes, token
+from conftest import (
+    API,
+    NOTEBOOKS,
+    create_batch,
+    metadata,
+    notebook_bytes,
+    token,
+)
 from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from test_runs import FakeExecutor
@@ -15,7 +22,7 @@ from pr_batch.executor import ExecutorClient
 from pr_batch.models import Batch, BatchRun, RunCommand, utcnow
 from pr_batch.runs import admit_run
 from pr_batch.scheduler import Scheduler
-from pr_batch.service import current_schedule
+from pr_batch.service import current_config
 from pr_batch.worker import Worker
 
 
@@ -25,7 +32,16 @@ def scheduling(client):
     return Scheduler(client.app.state.registration.sessions)
 
 
+RENAMED = {"misfire_policy": "misfire", "overlap_policy": "overlap"}
+
+
 def config(**options):
+    """Interval batch body; window options go to schedule, others policy."""
+    window = {
+        k: options.pop(k) for k in ("start_at", "end_at") if k in options
+    }
+    policy = {"overlap": "QUEUE"}
+    policy.update({RENAMED.get(k, k): v for k, v in options.items()})
     return metadata(
         schedule={
             "definition": {
@@ -33,9 +49,9 @@ def config(**options):
                 "anchor": utcnow().isoformat(),
                 "seconds": 60,
             },
-            "overlap_policy": "QUEUE",
-            **options,
-        }
+            **window,
+        },
+        policy=policy,
     )
 
 
@@ -83,15 +99,14 @@ def test_activation_etag_replay_noop_and_owner(client, scheduling):
     batch = create_batch(client, config=config()).json()
     assert batch["enabled"] is False
     assert batch["next_run_at"] is None
-    assert batch["scheduling_state"] == "DISABLED"
-    assert len(batch["upcoming_runs"]) == 5
+    assert len(batch["preview_runs"]) == 5
     assert activation(client, batch["id"], owner="bob").status_code == 404
     response = activation(client, batch["id"], key="enable")
     assert response.status_code == 200
     enabled = response.json()
     assert response.headers["etag"] == '"2"'
     assert enabled["enabled"] is True
-    assert enabled["scheduling_state"] == "ACTIVE"
+    assert enabled["next_run_at"] is not None
     assert first_at(enabled) > utcnow()
     assert activation(client, batch["id"], key="enable").json() == enabled
     assert activation(client, batch["id"], expected=1).status_code == 409
@@ -142,7 +157,6 @@ def test_once_exhaustion_and_duplicate_scheduler_ticks(client, scheduling):
     assert scheduling.tick(now=at) is True
     assert scheduling.tick(now=at) is False
     current = get_batch(client, enabled)
-    assert current["scheduling_state"] == "EXHAUSTED"
     assert current["next_run_at"] is None
     assert current["enabled"] is True
     assert current["revision"] == 2
@@ -299,7 +313,7 @@ def test_occurrence_unique_constraint_protects_against_duplicate_admission(
     scheduling.tick(now=now)
     with pytest.raises(IntegrityError), scheduling.sessions.begin() as session:
         row = session.get(Batch, UUID(batch["id"]))
-        admit_run(session, row, current_schedule(session, row), now)
+        admit_run(session, row, current_config(session, row), now)
     assert len(runs(client, batch)) == 1
 
 
@@ -332,31 +346,31 @@ def test_active_schedule_change_preserves_old_run_snapshot(client, scheduling):
     scheduling.tick(now=first_at(batch))
     old_run = runs(client, batch)[0]
     version = client.post(
-        f"{API}/{batch['id']}/versions",
+        f"{NOTEBOOKS}/{batch['notebook_id']}/versions",
         headers={**token(), "Idempotency-Key": "v2"},
         files={"file": ("v2.ipynb", notebook_bytes("x = 42"))},
     ).json()
     replacement = {
-        "version_id": version["id"],
+        "notebook_version_id": version["id"],
         "kernel_profile": "analytics",
         "schedule": config()["schedule"],
     }
-    response = client.put(
-        f"{API}/{batch['id']}/schedule",
-        headers={**token(), "Idempotency-Key": "replace", "If-Match": '"3"'},
+    response = client.patch(
+        f"{API}/{batch['id']}",
+        headers={**token(), "Idempotency-Key": "replace", "If-Match": '"2"'},
         json=replacement,
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     changed = response.json()
     assert changed["enabled"] is True
-    assert changed["selected_schedule"]["number"] == 2
+    assert changed["config_number"] == 2
     assert first_at(changed) > utcnow()
     assert runs(client, batch)[0] == old_run
     assert scheduling.tick(now=first_at(changed))
     latest = runs(client, batch)[-1]
-    assert latest["version_id"] == version["id"]
+    assert latest["notebook_version_id"] == version["id"]
     assert latest["kernel_profile"] == "analytics"
-    assert latest["schedule_number"] == 2
+    assert latest["config_number"] == 2
 
 
 def test_replaced_overdue_schedule_is_audited(client, scheduling):
@@ -364,18 +378,14 @@ def test_replaced_overdue_schedule_is_audited(client, scheduling):
     with scheduling.sessions.begin() as session:
         row = session.get(Batch, UUID(batch["id"]))
         row.next_run_at = first_at(batch) - timedelta(hours=1)
-    response = client.put(
-        f"{API}/{batch['id']}/schedule",
+    response = client.patch(
+        f"{API}/{batch['id']}",
         headers={**token(), "Idempotency-Key": "replace", "If-Match": '"2"'},
-        json={
-            "version_id": batch["selected_schedule"]["version_id"],
-            "kernel_profile": "python3",
-            "schedule": config()["schedule"],
-        },
+        json={"schedule": config()["schedule"]},
     )
     assert response.status_code == 200
     assert skipped(client, batch)[0]["reason"] == "SCHEDULE_REPLACED"
-    assert skipped(client, batch)[0]["schedule_number"] == 1
+    assert skipped(client, batch)[0]["config_number"] == 1
     assert runs(client, batch) == []
 
 
@@ -418,3 +428,34 @@ def test_scheduler_to_executor_worker_contract(client, scheduling):
         assert fake.payloads[0]["runtime"]["profile"] == "python3"
     finally:
         executor.close()
+
+
+def test_schedule_is_optional_but_required_to_enable(client, scheduling):
+    batch = create_batch(
+        client, key="manual-only", config=metadata(schedule=None)
+    ).json()
+    assert batch["schedule"] is None
+    assert batch["preview_runs"] == []
+    response = activation(client, batch["id"])
+    assert response.status_code == 409
+    assert response.json()["code"] == "SCHEDULE_REQUIRED"
+    enabled = enabled_batch(client)
+    removed = client.patch(
+        f"{API}/{enabled['id']}",
+        headers={**token(), "Idempotency-Key": "drop", "If-Match": '"2"'},
+        json={"schedule": None},
+    )
+    assert removed.status_code == 409
+    assert removed.json()["code"] == "SCHEDULE_REQUIRED"
+    disabled = activation(client, enabled["id"], False, 2).json()
+    removed = client.patch(
+        f"{API}/{enabled['id']}",
+        headers={
+            **token(),
+            "Idempotency-Key": "drop-2",
+            "If-Match": f'"{disabled["revision"]}"',
+        },
+        json={"schedule": None},
+    )
+    assert removed.status_code == 200
+    assert removed.json()["schedule"] is None

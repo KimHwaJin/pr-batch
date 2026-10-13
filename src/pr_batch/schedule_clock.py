@@ -8,14 +8,14 @@ from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
-from pr_batch.schemas import Calendar, Cron, Interval, Once, ScheduleConfig
+from pr_batch.schemas import Calendar, Cron, Interval, Once, Schedule
 
 EPSILON = timedelta(microseconds=1)
 SEOUL = ZoneInfo("Asia/Seoul")
 
 
 class ScheduleClock:
-    def __init__(self, config: ScheduleConfig) -> None:
+    def __init__(self, config: Schedule) -> None:
         self.config = config
         self.definition = config.definition
         self.fields: list[list[int | Literal["*", "l"]]] = []

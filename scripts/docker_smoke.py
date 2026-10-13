@@ -21,6 +21,9 @@ NOTEBOOK = {
     "nbformat_minor": 5,
     "metadata": {},
     "cells": [
+        {"cell_type": "markdown", "metadata": {}, "source": "# Smoke"},
+    ]
+    + [
         {
             "cell_type": "code",
             "id": f"c{index}",
@@ -95,26 +98,9 @@ def main() -> None:
     kernel = settings.allowed_kernel_profiles[0]
     nonce = uuid.uuid4().hex
     auth = {"Authorization": f"Bearer {token(settings)}"}
-    metadata = {
-        "name": f"docker-smoke-{nonce[:8]}",
-        "kernel_profile": kernel,
-        "schedule": {
-            "definition": {"kind": "CRON", "expression": "0 8 * * *"},
-            "timezone": "Asia/Seoul",
-            "overlap_policy": "QUEUE",
-            "max_concurrent": 1,
-            "max_pending": 10,
-            "misfire_policy": "SKIP",
-            "misfire_grace_seconds": 60,
-        },
-    }
     body, content_type = multipart(
         {
-            "metadata": (
-                None,
-                "application/json",
-                json.dumps(metadata).encode(),
-            ),
+            "name": (None, "text/plain", f"smoke-{nonce[:8]}".encode()),
             "file": (
                 "smoke.ipynb",
                 "application/x-ipynb+json",
@@ -122,12 +108,33 @@ def main() -> None:
             ),
         }
     )
+    notebook = call(
+        "POST",
+        f"{api}/api/v1/notebooks",
+        auth
+        | {"Content-Type": content_type, "Idempotency-Key": f"nb-{nonce}"},
+        body,
+    )
+    cells = notebook["latest_version"]["cells"]
+    print(f"uploaded notebook {notebook['id']} (cells {cells})")
+    registration = {
+        "name": f"docker-smoke-{nonce[:8]}",
+        "notebook_id": notebook["id"],
+        "kernel_profile": kernel,
+        "schedule": {
+            "definition": {"kind": "CRON", "expression": "0 8 * * *"}
+        },
+        "policy": {"overlap": "QUEUE", "max_pending": 10},
+    }
     batch = call(
         "POST",
         base,
         auth
-        | {"Content-Type": content_type, "Idempotency-Key": f"reg-{nonce}"},
-        body,
+        | {
+            "Content-Type": "application/json",
+            "Idempotency-Key": f"reg-{nonce}",
+        },
+        json.dumps(registration).encode(),
     )
     print(f"registered batch {batch['id']} (kernel {kernel})")
     run = call(

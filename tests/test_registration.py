@@ -1,73 +1,172 @@
-"""Real PostgreSQL API and concurrency regressions."""
+"""Real PostgreSQL notebook/batch API and concurrency regressions."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from uuid import uuid4
 
-from conftest import API, create_batch, metadata, notebook_bytes, token
+from conftest import (
+    API,
+    NOTEBOOKS,
+    create_batch,
+    metadata,
+    notebook_bytes,
+    token,
+    upload_notebook,
+)
 from sqlalchemy import create_engine, select, text
 
 from pr_batch.models import NotebookVersion
 
 
-def test_registration_round_trip_and_version_pin(client, settings):
-    original = notebook_bytes("%matplotlib inline\nx = 3\nx", "old output")
-    response = create_batch(client, raw=original)
+def mixed_notebook() -> bytes:
+    """Markdown and raw cells plus nbformat 4.5 cells without ids."""
+    doc = json.loads(notebook_bytes("%matplotlib inline\nx = 3\nx", "old"))
+    code = doc["cells"][0]
+    del code["id"]
+    doc["cells"] = [
+        {"cell_type": "markdown", "metadata": {}, "source": "# 제목"},
+        code,
+        {"cell_type": "raw", "metadata": {}, "source": "raw"},
+        {**code, "source": "  "},
+    ]
+    return json.dumps(doc, ensure_ascii=False).encode()
+
+
+def versions_url(notebook):
+    return f"{NOTEBOOKS}/{notebook['id']}/versions"
+
+
+def add_version(client, notebook, key, raw, owner="alice"):
+    return client.post(
+        versions_url(notebook),
+        headers={**token(owner), "Idempotency-Key": key},
+        files={"file": ("new-name.ipynb", raw)},
+    )
+
+
+def patch_batch(client, batch, key, body, expected=None, owner="alice"):
+    return client.patch(
+        f"{API}/{batch['id']}",
+        headers={
+            **token(owner),
+            "Idempotency-Key": key,
+            "If-Match": f'"{expected or batch["revision"]}"',
+        },
+        json=body,
+    )
+
+
+def test_notebook_upload_keeps_original_and_skips_non_code(client, settings):
+    original = mixed_notebook()
+    response = upload_notebook(client, raw=original, filename="daily.ipynb")
     assert response.status_code == 201, response.text
-    batch = response.json()
-    assert batch["enabled"] is False
-    assert response.headers["etag"] == '"1"'
-    first_version = batch["selected_schedule"]["version_id"]
-    batch_url = f"{API}/{batch['id']}"
-    original_url = f"{batch_url}/versions/{first_version}/content"
-    assert client.get(original_url, headers=token()).content == original
+    notebook = response.json()
+    assert response.headers["location"] == f"{NOTEBOOKS}/{notebook['id']}"
+    assert notebook["name"] == "daily"
+    latest = notebook["latest_version"]
+    assert latest["filename"] == "daily.ipynb"
+    assert latest["cells"] == {"total": 4, "executable": 1, "skipped": 3}
+    detail_url = f"{versions_url(notebook)}/{latest['id']}"
+    detail = client.get(detail_url, headers=token()).json()
+    assert [c["type"] for c in detail["cell_list"]] == [
+        "markdown",
+        "code",
+        "raw",
+        "code",
+    ]
+    assert [c["executed"] for c in detail["cell_list"]] == [
+        False,
+        True,
+        False,
+        False,
+    ]
+    assert detail["cell_list"][1]["sequence"] == 0
+    content = client.get(f"{detail_url}/content", headers=token()).content
+    assert content == original
     paths = list(settings.storage_root.rglob("*.py"))
     assert len(paths) == 1
     assert paths[0].read_text() == "%matplotlib inline\nx = 3\nx"
-    assert "old output" not in paths[0].read_text()
-
-    version_response = client.post(
-        f"{batch_url}/versions",
-        headers={**token(), "Idempotency-Key": "v2"},
-        files={"file": ("new-name.ipynb", notebook_bytes("x = 4"))},
-    )
-    assert version_response.status_code == 201, version_response.text
-    v2 = version_response.json()
-    assert v2["number"] == 2
-    current = client.get(batch_url, headers=token()).json()
-    assert current["latest_version_number"] == 2
-    assert current["selected_schedule"]["version_id"] == first_version
-    update = client.put(
-        f"{batch_url}/schedule",
-        headers={**token(), "Idempotency-Key": "select-v2", "If-Match": '"2"'},
-        json={
-            "version_id": v2["id"],
-            "kernel_profile": "analytics",
-            "schedule": metadata()["schedule"],
-        },
-    )
-    assert update.status_code == 200, update.text
-    assert update.json()["selected_schedule"]["version_id"] == v2["id"]
-    assert update.json()["revision"] == 3
-    assert client.get(original_url, headers=token()).content == original
+    assert "/notebooks/" in paths[0].as_posix()
 
 
-def test_duplicate_upload_and_distinct_same_code(client):
-    batch = create_batch(client).json()
-    url = f"{API}/{batch['id']}/versions"
-    same = client.post(
-        url,
-        headers={**token(), "Idempotency-Key": "same"},
-        files={"file": ("renamed.ipynb", notebook_bytes())},
-    )
+def test_named_upload_rename_and_versions(client):
+    notebook = upload_notebook(client, name="생산 분석").json()
+    assert notebook["name"] == "생산 분석"
+    url = f"{NOTEBOOKS}/{notebook['id']}"
+    same = add_version(client, notebook, "same", notebook_bytes())
     assert same.status_code == 200
-    changed_output = client.post(
+    changed = add_version(client, notebook, "out", notebook_bytes(output="x"))
+    assert changed.status_code == 201
+    assert changed.json()["number"] == 2
+    assert changed.json()["code_hash"] == same.json()["code_hash"]
+    assert changed.json()["sha256"] != same.json()["sha256"]
+    current = client.get(url, headers=token())
+    assert current.headers["etag"] == '"2"'
+    assert current.json()["latest_version"]["number"] == 2
+    renamed = client.patch(
         url,
-        headers={**token(), "Idempotency-Key": "changed-output"},
-        files={"file": ("analysis.ipynb", notebook_bytes(output="new"))},
+        headers={**token(), "Idempotency-Key": "rename", "If-Match": '"2"'},
+        json={"name": "renamed"},
     )
-    assert changed_output.status_code == 201
-    assert changed_output.json()["code_hash"] == same.json()["code_hash"]
-    assert changed_output.json()["sha256"] != same.json()["sha256"]
+    assert renamed.status_code == 200
+    assert renamed.json()["revision"] == 3
+    stale = client.patch(
+        url,
+        headers={**token(), "Idempotency-Key": "stale", "If-Match": '"2"'},
+        json={"name": "stale"},
+    )
+    assert stale.status_code == 409
+
+
+def test_batch_pins_version_until_changed(client):
+    batch = create_batch(client).json()
+    assert batch["enabled"] is False
+    assert batch["notebook_version_number"] == 1
+    assert batch["policy"]["overlap"] == "SKIP"
+    notebook = {"id": batch["notebook_id"]}
+    v2 = add_version(client, notebook, "v2", notebook_bytes("x = 4")).json()
+    current = client.get(f"{API}/{batch['id']}", headers=token()).json()
+    assert current["notebook_version_id"] == batch["notebook_version_id"]
+    pinned = patch_batch(client, batch, "pin", {"notebook_version_id": None})
+    assert pinned.status_code == 200, pinned.text
+    assert pinned.json()["notebook_version_id"] == v2["id"]
+    assert pinned.json()["config_number"] == 2
+    back = patch_batch(
+        client,
+        pinned.json(),
+        "back",
+        {"notebook_version_id": batch["notebook_version_id"]},
+    )
+    assert back.json()["notebook_version_number"] == 1
+    explicit = create_batch(
+        client,
+        key="explicit",
+        config=metadata(
+            notebook_id=batch["notebook_id"], notebook_version_id=v2["id"]
+        ),
+    )
+    assert explicit.status_code == 201
+    assert explicit.json()["notebook_version_number"] == 2
+
+
+def test_one_notebook_in_many_batches_and_filter(client):
+    first = create_batch(client).json()
+    second = create_batch(
+        client,
+        key="second",
+        config=metadata(name="other", notebook_id=first["notebook_id"]),
+    ).json()
+    unrelated = create_batch(client, key="unrelated").json()
+    assert second["notebook_id"] == first["notebook_id"]
+    listed = client.get(
+        API, headers=token(), params={"notebook_id": first["notebook_id"]}
+    ).json()["items"]
+    assert {b["id"] for b in listed} == {first["id"], second["id"]}
+    moved = patch_batch(
+        client, unrelated, "move", {"notebook_id": first["notebook_id"]}
+    )
+    assert moved.json()["notebook_id"] == first["notebook_id"]
 
 
 def test_idempotency_replay_conflict_and_owner_scope(client):
@@ -81,72 +180,74 @@ def test_idempotency_replay_conflict_and_owner_scope(client):
     assert other.status_code == 201
     assert other.json()["id"] != first.json()["id"]
     assert len(client.get(API, headers=token()).json()["items"]) == 1
+    assert len(client.get(NOTEBOOKS, headers=token()).json()["items"]) == 1
 
 
-def test_cross_user_access_and_version_selection(client):
+def test_cross_user_access(client):
     alice = create_batch(client).json()
     bob = create_batch(client, owner="bob").json()
-    url = f"{API}/{alice['id']}"
-    assert client.get(url, headers=token("bob")).status_code == 404
-    assert (
-        client.get(f"{url}/versions", headers=token("bob")).status_code == 404
+    notebook_url = f"{NOTEBOOKS}/{alice['notebook_id']}"
+    version = alice["notebook_version_id"]
+    for url in [
+        f"{API}/{alice['id']}",
+        notebook_url,
+        f"{notebook_url}/versions",
+        f"{notebook_url}/versions/{version}",
+        f"{notebook_url}/versions/{version}/content",
+    ]:
+        assert client.get(url, headers=token("bob")).status_code == 404
+    forbidden = add_version(
+        client,
+        {"id": alice["notebook_id"]},
+        "forbidden",
+        notebook_bytes("x=2"),
+        owner="bob",
     )
-    version_id = alice["selected_schedule"]["version_id"]
-    assert (
-        client.get(
-            f"{url}/versions/{version_id}/content", headers=token("bob")
-        ).status_code
-        == 404
+    assert forbidden.status_code == 404
+    borrowed = create_batch(
+        client,
+        key="borrow",
+        owner="bob",
+        config=metadata(notebook_id=alice["notebook_id"]),
     )
-    assert (
-        client.post(
-            f"{url}/versions",
-            headers={**token("bob"), "Idempotency-Key": "forbidden"},
-            files={"file": ("x.ipynb", notebook_bytes("x=2"))},
-        ).status_code
-        == 404
+    assert borrowed.status_code == 404
+    foreign_version = patch_batch(
+        client,
+        alice,
+        "foreign",
+        {"notebook_version_id": bob["notebook_version_id"]},
     )
-    assert (
-        client.put(
-            f"{url}/schedule",
-            headers={
-                **token(),
-                "Idempotency-Key": "cross-version",
-                "If-Match": '"1"',
-            },
-            json={
-                "version_id": bob["selected_schedule"]["version_id"],
-                "kernel_profile": "python3",
-                "schedule": metadata()["schedule"],
-            },
-        ).status_code
-        == 404
-    )
+    assert foreign_version.status_code == 404
 
 
 def test_concurrent_identical_create_is_one_resource(client):
     with ThreadPoolExecutor(max_workers=4) as pool:
-        responses = list(pool.map(lambda _: create_batch(client), range(4)))
+        responses = list(pool.map(lambda _: upload_notebook(client), range(4)))
     assert [r.status_code for r in responses] == [201] * 4
     assert len({r.json()["id"] for r in responses}) == 1
-    assert len(client.get(API, headers=token()).json()["items"]) == 1
+    notebook_id = responses[0].json()["id"]
+    body = metadata(notebook_id=notebook_id)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(
+            pool.map(lambda _: create_batch(client, config=body), range(4))
+        )
+    assert [r.status_code for r in responses] == [201] * 4
+    assert len({r.json()["id"] for r in responses}) == 1
 
 
 def test_concurrent_versions_have_unique_numbers(client):
-    batch = create_batch(client).json()
-    url = f"{API}/{batch['id']}/versions"
+    notebook = upload_notebook(client).json()
 
     def upload(index):
-        return client.post(
-            url,
-            headers={**token(), "Idempotency-Key": f"upload-{index}"},
-            files={"file": ("x.ipynb", notebook_bytes(f"x = {index}"))},
+        return add_version(
+            client, notebook, f"upload-{index}", notebook_bytes(f"x={index}")
         )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(upload, range(4)))
     assert [r.status_code for r in responses] == [201] * 4
     assert sorted(r.json()["number"] for r in responses) == [2, 3, 4, 5]
+    url = versions_url(notebook)
     page = client.get(url, params={"limit": 2}, headers=token()).json()
     assert [v["number"] for v in page["items"]] == [5, 4]
     second = client.get(
@@ -158,76 +259,108 @@ def test_concurrent_versions_have_unique_numbers(client):
 
 
 def test_same_version_with_different_concurrent_keys(client):
-    batch = create_batch(client).json()
-    url = f"{API}/{batch['id']}/versions"
+    notebook = upload_notebook(client).json()
 
     def upload(index):
-        return client.post(
-            url,
-            headers={**token(), "Idempotency-Key": f"duplicate-{index}"},
-            files={"file": ("x.ipynb", notebook_bytes("x = 42"))},
+        return add_version(
+            client, notebook, f"duplicate-{index}", notebook_bytes("x = 42")
         )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(upload, range(4)))
     assert sorted(r.status_code for r in responses) == [200, 200, 200, 201]
     assert len({r.json()["id"] for r in responses}) == 1
+    url = versions_url(notebook)
     assert len(client.get(url, headers=token()).json()["items"]) == 2
 
 
-def test_registration_validation_and_readiness(client):
+def test_batch_validation_reports_fields(client):
     assert client.get("/readyz").status_code == 200
-    assert (
-        create_batch(
-            client, config=metadata(kernel_profile="not-registered")
-        ).status_code
-        == 422
+    notebook_id = upload_notebook(client).json()["id"]
+
+    def register(key, **updates):
+        return create_batch(
+            client,
+            key=key,
+            config=metadata(**{"notebook_id": notebook_id, **updates}),
+        )
+
+    unknown = register("kernel", kernel_profile="not-registered")
+    assert unknown.status_code == 422
+    assert unknown.json()["code"] == "UNKNOWN_KERNEL"
+    for key, updates in [
+        ("owner", {"owner_id": "someone-else"}),
+        ("enabled", {"enabled": True}),
+    ]:
+        response = register(key, **updates)
+        assert response.status_code == 422
+        assert response.json()["errors"][0]["type"] == "extra_forbidden"
+    cron = register(
+        "cron",
+        schedule={"definition": {"kind": "CRON", "expression": "0 0 L * *"}},
     )
-    assert (
-        create_batch(
-            client, config=metadata(owner_id="someone-else")
-        ).status_code
-        == 422
+    assert cron.status_code == 422
+    error = cron.json()["errors"][0]
+    assert error["loc"][:3] == ["body", "schedule", "definition"]
+    assert "Cron" in error["msg"]
+    policy = register(
+        "policy", policy={"overlap": "SKIP", "max_concurrent": 2}
     )
-    assert (
-        create_batch(client, config=metadata(enabled=True)).status_code == 422
-    )
+    assert policy.status_code == 422
+    assert "PARALLEL" in policy.json()["errors"][0]["msg"]
+    missing = register("missing", notebook_id=str(uuid4()))
+    assert missing.status_code == 404
     assert client.get(API, headers=token()).json()["items"] == []
 
 
-def test_stale_update_and_exact_replay(client):
+def test_patch_rules_and_policy_merge(client):
     batch = create_batch(client).json()
-    url = f"{API}/{batch['id']}"
-    headers = {**token(), "Idempotency-Key": "rename", "If-Match": '"1"'}
-    first = client.patch(url, headers=headers, json={"name": "renamed"})
-    assert first.status_code == 200
-    replay = client.patch(url, headers=headers, json={"name": "renamed"})
-    assert replay.json() == first.json()
-    stale = client.patch(
-        url,
-        headers={**headers, "Idempotency-Key": "stale"},
-        json={"name": "stale"},
-    )
+    empty = patch_batch(client, batch, "empty", {})
+    assert empty.status_code == 422
+    nulled = patch_batch(client, batch, "null", {"name": None})
+    assert nulled.status_code == 422
+    renamed = patch_batch(client, batch, "rename", {"name": "renamed"})
+    assert renamed.status_code == 200
+    assert renamed.json()["config_number"] == 1
+    replay = patch_batch(client, batch, "rename", {"name": "renamed"})
+    assert replay.json() == renamed.json()
+    stale = patch_batch(client, batch, "stale", {"name": "stale"})
     assert stale.status_code == 409
-    assert client.get(url, headers=token()).json()["name"] == "renamed"
+    current = renamed.json()
+    merged = patch_batch(
+        client,
+        current,
+        "policy",
+        {"policy": {"overlap": "PARALLEL", "max_concurrent": 3}},
+    )
+    assert merged.status_code == 200
+    assert merged.json()["policy"]["max_pending"] == 100
+    assert merged.json()["policy"]["max_concurrent"] == 3
+    invalid = patch_batch(
+        client, merged.json(), "bad-policy", {"policy": {"overlap": "SKIP"}}
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "INVALID_POLICY"
+    assert client.get(f"{API}/{batch['id']}", headers=token()).json()[
+        "name"
+    ] == ("renamed")
 
 
 def test_pagination_and_invalid_cursor(client):
     for n in range(3):
         create_batch(client, key=f"batch-{n}")
-    first = client.get(API, params={"limit": 2}, headers=token()).json()
-    second = client.get(
-        API,
-        params={"limit": 2, "cursor": first["next_cursor"]},
-        headers=token(),
-    ).json()
-    assert len(first["items"]) == 2
-    assert len(second["items"]) == 1
-    assert second["next_cursor"] is None
-    assert (
-        client.get(API, params={"cursor": "bad"}, headers=token()).status_code
-        == 422
-    )
+    for url in [API, NOTEBOOKS]:
+        first = client.get(url, params={"limit": 2}, headers=token()).json()
+        second = client.get(
+            url,
+            params={"limit": 2, "cursor": first["next_cursor"]},
+            headers=token(),
+        ).json()
+        assert len(first["items"]) == 2
+        assert len(second["items"]) == 1
+        assert second["next_cursor"] is None
+        response = client.get(url, params={"cursor": "bad"}, headers=token())
+        assert response.status_code == 422
 
 
 def test_database_rollback_after_storage_failure(client, monkeypatch):
@@ -238,27 +371,29 @@ def test_database_rollback_after_storage_failure(client, monkeypatch):
 
     with monkeypatch.context() as patch:
         patch.setattr(storage, "save", fail)
-        response = create_batch(client)
+        response = upload_notebook(client)
         assert response.status_code == 503
         assert "private path" not in response.text
-        assert client.get(API, headers=token()).json()["items"] == []
-    assert create_batch(client).status_code == 201
+        assert client.get(NOTEBOOKS, headers=token()).json()["items"] == []
+    assert upload_notebook(client).status_code == 201
 
 
 def test_original_integrity_and_activation_requires_configuration(
     client, settings
 ):
     batch = create_batch(client).json()
-    url = f"{API}/{batch['id']}"
-    version = batch["selected_schedule"]["version_id"]
+    notebook_url = f"{NOTEBOOKS}/{batch['notebook_id']}"
+    version = batch["notebook_version_id"]
     original = next(settings.storage_root.rglob("original.ipynb"))
     original.write_bytes(b"corrupted")
-    response = client.get(f"{url}/versions/{version}/content", headers=token())
+    response = client.get(
+        f"{notebook_url}/versions/{version}/content", headers=token()
+    )
     assert response.status_code == 503
     assert response.json()["code"] == "STORAGE_INTEGRITY_ERROR"
     assert (
         client.post(
-            f"{url}/enable",
+            f"{API}/{batch['id']}/enable",
             headers={
                 **token(),
                 "Idempotency-Key": "enable",
@@ -269,31 +404,28 @@ def test_original_integrity_and_activation_requires_configuration(
     )
 
 
-def test_immutable_schedule_history_and_cell_mapping(client, database_url):
+def test_immutable_config_history_and_cell_mapping(client, database_url):
     batch = create_batch(client).json()
-    url = f"{API}/{batch['id']}/schedule"
-    response = client.put(
-        url,
-        headers={**token(), "Idempotency-Key": "schedule", "If-Match": '"1"'},
-        json={
-            "version_id": batch["selected_schedule"]["version_id"],
-            "kernel_profile": "python3",
+    response = patch_batch(
+        client,
+        batch,
+        "schedule",
+        {
             "schedule": {
                 "definition": {
                     "kind": "INTERVAL",
                     "seconds": 600,
                     "anchor": "2026-10-12T00:00:00+09:00",
                 }
-            },
+            }
         },
     )
     assert response.status_code == 200
+    assert response.json()["schedule"]["definition"]["kind"] == "INTERVAL"
     engine = create_engine(database_url)
     with engine.connect() as connection:
         assert (
-            connection.scalar(
-                text("SELECT count(*) FROM batch.schedule_revisions")
-            )
+            connection.scalar(text("SELECT count(*) FROM batch.batch_configs"))
             == 2
         )
         mapping = connection.scalar(select(NotebookVersion.cell_map))

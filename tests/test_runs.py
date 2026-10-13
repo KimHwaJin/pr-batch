@@ -7,7 +7,14 @@ from uuid import UUID, uuid4
 
 import httpx2
 import pytest
-from conftest import API, create_batch, metadata, notebook_bytes, token
+from conftest import (
+    API,
+    NOTEBOOKS,
+    create_batch,
+    metadata,
+    notebook_bytes,
+    token,
+)
 from sqlalchemy import func, select, update
 
 from pr_batch.executor import ExecutorClient, ExecutorError
@@ -246,28 +253,32 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     assert fake.requests == []
     assert run_request(client, batch["id"]).json() == run
     uploaded = client.post(
-        f"{API}/{batch['id']}/versions",
+        f"{NOTEBOOKS}/{batch['notebook_id']}/versions",
         headers={**token(), "Idempotency-Key": "new-version"},
         files={"file": ("v2.ipynb", notebook_bytes("x = 42"))},
     ).json()
-    changed = client.put(
-        f"{API}/{batch['id']}/schedule",
-        headers={**token(), "Idempotency-Key": "schedule", "If-Match": '"2"'},
+    changed = client.patch(
+        f"{API}/{batch['id']}",
+        headers={**token(), "Idempotency-Key": "config", "If-Match": '"1"'},
         json={
-            "version_id": uploaded["id"],
+            "notebook_version_id": uploaded["id"],
             "kernel_profile": "analytics",
-            "schedule": metadata()["schedule"],
         },
     )
     assert changed.status_code == 200
+    assert changed.json()["config_number"] == 2
     tick(worker, run)
     payload = fake.payloads[0]
     assert payload["runtime"] == {"type": "JUPYTER", "profile": "python3"}
     assert payload["context"] == {"user_id": "alice", "task_id": run["id"]}
-    assert payload["metadata"]["notebook_version_id"] == run["version_id"]
+    assert (
+        payload["metadata"]["notebook_version_id"]
+        == (run["notebook_version_id"])
+    )
+    assert payload["metadata"]["notebook_id"] == batch["notebook_id"]
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
     assert payload["trigger"]["type"] == "BATCH"
-    assert run_get(client, run).json()["schedule_number"] == 1
+    assert run_get(client, run).json()["config_number"] == 1
     assert run_request(client, batch["id"]).json() == run
 
 
@@ -376,9 +387,12 @@ def test_capacity_queue_and_manual_overflow(
     client, execution, policy, maximum
 ):
     _, worker = execution
-    config = metadata()
-    config["schedule"].update(
-        overlap_policy=policy, max_concurrent=maximum, max_pending=1
+    config = metadata(
+        policy={
+            "overlap": policy,
+            "max_concurrent": maximum,
+            "max_pending": 1,
+        }
     )
     batch = create_batch(client, config=config).json()
     runs = [
@@ -400,8 +414,7 @@ def test_capacity_queue_and_manual_overflow(
 
 def test_queue_stays_blocked_on_unknown_submission(client, execution):
     fake, worker = execution
-    config = metadata()
-    config["schedule"]["overlap_policy"] = "QUEUE"
+    config = metadata(policy={"overlap": "QUEUE"})
     batch = create_batch(client, config=config).json()
     first = run_request(client, batch["id"]).json()
     second = run_request(client, batch["id"], "second").json()
@@ -616,8 +629,7 @@ def test_manual_body_rejects_unimplemented_overrides(client, execution):
 
 def test_fifo_promotion_serializes_concurrent_workers(client, execution):
     fake, worker = execution
-    config = metadata()
-    config["schedule"].update(overlap_policy="QUEUE")
+    config = metadata(policy={"overlap": "QUEUE"})
     batch = create_batch(client, config=config).json()
     runs = [run_request(client, batch["id"], f"r{n}").json() for n in range(4)]
     tick(worker, runs[0])

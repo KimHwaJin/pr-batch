@@ -20,6 +20,7 @@ from pr_batch.settings import Settings
 
 TEST_SECRET = "local-test-only-" * 4
 API = "/api/v1/batches"
+NOTEBOOKS = "/api/v1/notebooks"
 
 
 def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
@@ -66,6 +67,7 @@ def notebook_bytes(
 
 
 def metadata(**updates: object) -> dict:
+    """Batch registration body; create_batch fills notebook_id."""
     result = {
         "name": "생산라인 분석",
         "kernel_profile": "python3",
@@ -118,9 +120,9 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
             text(
                 "TRUNCATE batch.skipped_windows, batch.run_commands, "
                 "batch.run_step_bindings, "
-                "batch.batch_runs, batch.schedule_revisions, "
-                "batch.notebook_versions, "
-                "batch.idempotency_records, batch.batches"
+                "batch.batch_runs, batch.batch_configs, "
+                "batch.batches, batch.notebook_versions, batch.notebooks, "
+                "batch.idempotency_records"
             )
         )
     engine.dispose()
@@ -131,6 +133,28 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
         yield result
 
 
+def upload_notebook(
+    client: TestClient,
+    key: str = "notebook-1",
+    owner: str = "alice",
+    raw: bytes | None = None,
+    name: str | None = None,
+    filename: str = "analysis.ipynb",
+):
+    return client.post(
+        NOTEBOOKS,
+        headers={**token(owner), "Idempotency-Key": key},
+        data={"name": name} if name else None,
+        files={
+            "file": (
+                filename,
+                raw or notebook_bytes(),
+                "application/x-ipynb+json",
+            )
+        },
+    )
+
+
 def create_batch(
     client: TestClient,
     key: str = "create-1",
@@ -138,15 +162,12 @@ def create_batch(
     raw: bytes | None = None,
     config: dict | None = None,
 ):
+    """Upload a notebook (same key) and register a batch for it."""
+    body = dict(config or metadata())
+    if "notebook_id" not in body:
+        notebook = upload_notebook(client, f"notebook:{key}", owner, raw)
+        assert notebook.status_code == 201, notebook.text
+        body["notebook_id"] = notebook.json()["id"]
     return client.post(
-        API,
-        headers={**token(owner), "Idempotency-Key": key},
-        data={"metadata": json.dumps(config or metadata())},
-        files={
-            "file": (
-                "analysis.ipynb",
-                raw or notebook_bytes(),
-                "application/x-ipynb+json",
-            )
-        },
+        API, headers={**token(owner), "Idempotency-Key": key}, json=body
     )

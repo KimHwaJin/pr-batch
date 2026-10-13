@@ -35,7 +35,14 @@ if context.is_offline_mode():
         context.execute("CREATE SCHEMA IF NOT EXISTS batch")
         context.run_migrations()
 else:
-    engine = create_engine(url, poolclass=pool.NullPool)
+    # A role named "batch" would make "batch" the default schema through
+    # "$user"; reflection then reports it as None and autogenerate/check
+    # sees every table as new. Pin the default to public for migrations.
+    engine = create_engine(
+        url,
+        poolclass=pool.NullPool,
+        connect_args={"options": "-c search_path=public"},
+    )
     with engine.connect() as connection:
         connection.execute(text("CREATE SCHEMA IF NOT EXISTS batch"))
         connection.commit()

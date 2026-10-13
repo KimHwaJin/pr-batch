@@ -24,11 +24,7 @@ API는 두 프로세스를 자동 실행하지 않는다. 스케줄러는 유휴
 `uv run --locked python -m pr_batch.scheduler --once`는 도래한 배치 하나를
 처리하고 종료한다. DB 오류나 누락된 Executor 설정은 실패로 종료한다.
 
-DB migration `0003_scheduling`은 기존 배치를 비활성 상태로 보존한다.
-예약 프로세스를 배포한 것만으로 기존 배치가 활성화되지는 않는다.
-이 migration을 downgrade하면 모든 예약을 비활성화하고 예약 시각 컬럼과 생략
-구간 이력을 제거한다. 원본·기존 실행 행은 남지만 예약 이력 일부는 잃으므로
-실제 보존 데이터가 있는 환경에서는 downgrade 대신 복구 계획을 먼저 마련한다.
+배치는 비활성으로 등록되며 예약 프로세스를 배포한 것만으로 활성화되지 않는다.
 
 ## 활성화·중지 API
 
@@ -57,16 +53,19 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 첫 활성화와 재활성화는 DB의 현재 시각보다 **뒤인** 첫 유효 일정을 선택한다.
 사용자가 중지한 동안의 일정은 소급 실행하지 않는다. 이미 지난 ONCE, 종료 기간이
 지난 일정처럼 앞으로 실행할 시각이 없으면 422 `NO_FUTURE_OCCURRENCE`다.
-Executor 주소가 없으면 503, 선택 커널이 허용 목록에 없으면 422로 거절한다.
+일정이 없는 배치는 409 `SCHEDULE_REQUIRED`, Executor 주소가 없으면 503,
+선택 커널이 허용 목록에 없으면 422로 거절한다.
 
 중지는 이미 접수·대기·실행 중인 작업을 취소하지 않는다. 중지할 때 아직 접수하지
 못한 과거 예약은 `DISABLED` 생략 구간으로 보존한다. 중지 이후의 예약은 생성하지
 않으며 재활성화 시에도 복구 대상에 포함하지 않는다.
 
-활성화 상태에서 일정·버전·커널을 변경하면 새 revision은 변경 시각 이후의 첫
-일정부터 적용한다. 옛 revision의 아직 접수되지 않은 과거 일정은
-`SCHEDULE_REPLACED` 구간으로 기록한다. 접수된 실행은 원래 snapshot을 유지한다.
+활성화 상태에서 배치 PATCH로 일정을 바꾸면 새 실행 설정(`config_number`)은 변경
+시각 이후의 첫 일정부터 적용한다. 옛 설정의 아직 접수되지 않은 과거 일정은
+`SCHEDULE_REPLACED` 구간으로 기록한다. 버전·커널·정책만 바꾸면 예약 포인터는
+그대로이고 다음 접수부터 새 설정을 쓴다. 접수된 실행은 원래 snapshot을 유지한다.
 새 일정에 미래 발생 시각이 없으면 변경 전체를 거절하고 기존 예약을 유지한다.
+활성 상태에서는 일정을 제거(`schedule: null`)할 수 없다.
 
 ## 배치 응답의 예약 필드
 
@@ -74,13 +73,11 @@ Executor 주소가 없으면 503, 선택 커널이 허용 목록에 없으면 42
 | --- | --- |
 | enabled | 사용자가 선택한 예약 활성화 상태 |
 | next_run_at | 처리할 다음 예약 시각. 장애 시 과거일 수 있음 |
-| scheduling_state | DISABLED, ACTIVE, EXHAUSTED |
-| upcoming_runs | 조회 시각 이후의 유효 일정 최대 5개 |
+| preview_runs | 조회 시각 이후의 유효 일정 최대 5개. 일정이 없으면 빈 배열 |
 
-비활성 상태에서도 upcoming_runs는 설정 미리보기로 제공한다. 실행 접수나 성공을
-보장하는 목록은 아니다. ONCE 처리 완료나 종료 기간 도달 후에는 enabled를 유지하고
-next_run_at을 null, scheduling_state를 EXHAUSTED로 표시한다. enabled만 보고
-앞으로 실행이 남아 있다고 판단하지 않는다. 새 미래 일정으로 변경하면 ACTIVE가 된다.
+preview_runs는 "활성화하면 돌 시각" 미리보기이며 실행 접수나 성공을 보장하지 않는다.
+ONCE 처리 완료나 종료 기간 도달 후에는 enabled=true, next_run_at=null로 남는다.
+enabled만 보고 앞으로 실행이 남아 있다고 판단하지 않는다.
 
 예약 포인터 이동은 설정 revision을 증가시키지 않는다. ETag는 설정 변경 충돌을
 막는 용도이며 예약 진행 상황을 새로 읽으려면 GET을 사용한다.
@@ -106,11 +103,11 @@ Cron의 일과 요일을 모두 제한하면 OR다. 일요일은 0 또는 7이�
 
 ## 누락 일정 복구
 
-예약 시각이 `현재 시각 - misfire_grace_seconds`보다 **앞이면** 누락 일정이다.
+예약 시각이 `현재 시각 - policy.misfire_grace_seconds`보다 **앞이면** 누락 일정이다.
 경계와 같으면 정상 접수 대상이다. 누락 일정 복구를 먼저 처리한 뒤 정상 구간을
 예약 시각 순서로 접수한다.
 
-| misfire_policy | 복구 동작 |
+| policy.misfire | 복구 동작 |
 | --- | --- |
 | SKIP | 늦은 일정 전체 생략 |
 | LATEST | 늦은 일정 중 가장 최근 1개 접수 |
@@ -131,7 +128,7 @@ LATEST는 나이 제한을 적용하지 않는다. 정상 유예 구간의 일�
 
 예약 실행은 `trigger=SCHEDULED`, `scheduled_for=<예약 시각>`으로 기존 실행
 이력에 저장한다. 수동 실행은 `trigger=MANUAL`, scheduled_for=null이다.
-`batch_id + schedule_number + scheduled_for`에 DB 고유 제약을 둔다.
+`batch_id + config_number + scheduled_for`에 DB 고유 제약을 둔다.
 
 스케줄러는 도래한 배치 행을 `FOR UPDATE SKIP LOCKED`로 잠근다. 실행 접수,
 제출 명령, 생략 구간, 다음 예약 포인터를 한 트랜잭션으로 커밋한다. 실행 도중
@@ -140,7 +137,7 @@ LATEST는 나이 제한을 적용하지 않는다. 정상 유예 구간의 일�
 스케줄러 트랜잭션 안에서 수행하지 않는다.
 
 장기간 생략된 예약을 실행 행으로 모두 만들지 않는다. skipped-windows 응답은
-`from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, 일정 revision,
+`from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, `config_number`,
 reason을 반환한다. 사유는 MISFIRE_SKIP, MISFIRE_LATEST, MISFIRE_CATCH_UP,
 DISABLED, SCHEDULE_REPLACED다. limit 1~100, UUID cursor로 페이지를 넘긴다.
 소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은

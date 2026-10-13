@@ -27,7 +27,7 @@ make worker
 운영에서는 API와 워커 프로세스를 각각 감독하고 미처리 명령의 체류 시간을 관찰한다.
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
-`batch-input/users/.../batches/.../versions/.../cells/*.py`를 같은 상대경로로
+`batch-input/users/.../notebooks/.../versions/.../cells/*.py`를 같은 상대경로로
 읽을 수 있어야 한다. 두 서비스의 절대 마운트 경로는 달라도 된다.
 허용 커널 목록은 Executor BATCH 풀의 실제 프로필과 일치시킨다.
 Executor HTTP 인증 헤더는 현재 계약에 없어 추가하지 않았다. 내부망 접근과 서비스
@@ -51,9 +51,10 @@ Executor HTTP 인증 헤더는 현재 계약에 없어 추가하지 않았다. �
 | GET | /{batch_id}/runs/{run_id} | 상태·snapshot·원본 셀/Step·결과 참조 |
 
 POST에는 `Idempotency-Key`가 필수다. 본문은 생략하거나 `{}`를 보낸다.
-버전·커널 등의 임의 override는 422로 거절한다. 원하는 버전은 등록 API에서 먼저
-선택한다. 실행 접수 트랜잭션에서 선택된 일정 revision과 버전·커널·정책을 고정하므로
-접수 후 배치 설정을 바꿔도 대기 중인 실행에는 영향을 주지 않는다.
+버전·커널 등의 임의 override는 422로 거절한다. 원하는 버전은 배치 PATCH로 먼저
+선택한다. 실행 접수 트랜잭션에서 현재 실행 설정(`config_number`)의 노트북 버전·커널·
+정책을 고정하므로 접수 후 배치 설정을 바꿔도 대기 중인 실행에는 영향을 주지 않는다.
+일정이 없는 배치도 수동 실행할 수 있다.
 
 ```sh
 curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs" \
@@ -93,7 +94,8 @@ SKIPPED도 이력을 남기며 Executor에는 제출하지 않는다. 409 용량
 | report_status | 초기 NOT_REQUESTED, 실행 실패·취소·생략은 NOT_APPLICABLE |
 | result_status | PENDING, READY, UNAVAILABLE, NOT_APPLICABLE |
 | notebook_status | Executor의 노트북 projection 상태 |
-| snapshot | 접수 당시 일정·정책, 원본 해시, 코드 해시 |
+| notebook_id / notebook_version_id / config_number | 실행한 노트북 버전과 배치 설정 이력 번호 |
+| snapshot | 접수 당시 노트북 버전, 원본·코드 해시, 일정(schedule), 정책(policy) |
 | observed_version / observed_at | 마지막 유효한 Executor 상태 버전·확인 시각 |
 | tracking_error | 통신·계약 오류. 코드 실패와 별개 |
 | failure_type | Executor 코드 실행 실패 분류 |

@@ -27,6 +27,52 @@ class Base(DeclarativeBase):
     metadata = MetaData(schema="batch")
 
 
+class Notebook(Base):
+    __tablename__ = "notebooks"
+    __table_args__ = (
+        CheckConstraint("revision >= 1", name="notebook_revision_positive"),
+        Index("ix_notebooks_owner_created", "owner_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(255))
+    revision: Mapped[int] = mapped_column(default=1)
+    latest_version_number: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class NotebookVersion(Base):
+    __tablename__ = "notebook_versions"
+    __table_args__ = (
+        UniqueConstraint("notebook_id", "number", name="uq_version_number"),
+        UniqueConstraint("notebook_id", "sha256", name="uq_version_content"),
+        UniqueConstraint("notebook_id", "id", name="uq_version_notebook_id"),
+        CheckConstraint("number >= 1", name="version_number_positive"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    notebook_id: Mapped[UUID] = mapped_column(ForeignKey("batch.notebooks.id"))
+    number: Mapped[int]
+    filename: Mapped[str] = mapped_column(String(255))
+    original_path: Mapped[str]
+    sha256: Mapped[str] = mapped_column(String(64))
+    code_hash: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int]
+    # Executable code cells submitted to the Executor, in order.
+    cell_map: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    # Every original cell with its type and whether it is executed.
+    cell_list: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class Batch(Base):
     __tablename__ = "batches"
     __table_args__ = (
@@ -46,8 +92,7 @@ class Batch(Base):
         DateTime(timezone=True)
     )
     revision: Mapped[int] = mapped_column(default=1)
-    latest_version_number: Mapped[int] = mapped_column(default=1)
-    schedule_number: Mapped[int] = mapped_column(default=1)
+    config_number: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -56,47 +101,32 @@ class Batch(Base):
     )
 
 
-class NotebookVersion(Base):
-    __tablename__ = "notebook_versions"
-    __table_args__ = (
-        UniqueConstraint("batch_id", "number", name="uq_version_number"),
-        UniqueConstraint("batch_id", "sha256", name="uq_version_content"),
-        UniqueConstraint("batch_id", "id", name="uq_version_batch_id"),
-        CheckConstraint("number >= 1", name="version_number_positive"),
-    )
+class BatchConfig(Base):
+    """Immutable run configuration history; runs point at one revision."""
 
-    id: Mapped[UUID] = mapped_column(primary_key=True)
-    batch_id: Mapped[UUID] = mapped_column(ForeignKey("batch.batches.id"))
-    number: Mapped[int]
-    original_path: Mapped[str]
-    sha256: Mapped[str] = mapped_column(String(64))
-    code_hash: Mapped[str] = mapped_column(String(64))
-    size_bytes: Mapped[int]
-    code_cells: Mapped[int]
-    cell_map: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-
-
-class ScheduleRevision(Base):
-    __tablename__ = "schedule_revisions"
+    __tablename__ = "batch_configs"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["batch_id", "version_id"],
-            ["batch.notebook_versions.batch_id", "batch.notebook_versions.id"],
-            name="fk_schedule_version_in_batch",
+            ["notebook_id", "notebook_version_id"],
+            [
+                "batch.notebook_versions.notebook_id",
+                "batch.notebook_versions.id",
+            ],
+            name="fk_config_version_in_notebook",
         ),
-        CheckConstraint("number >= 1", name="schedule_number_positive"),
+        CheckConstraint("number >= 1", name="config_number_positive"),
+        Index("ix_configs_notebook", "notebook_id"),
     )
 
     batch_id: Mapped[UUID] = mapped_column(
         ForeignKey("batch.batches.id"), primary_key=True
     )
     number: Mapped[int] = mapped_column(primary_key=True)
-    version_id: Mapped[UUID]
+    notebook_id: Mapped[UUID]
+    notebook_version_id: Mapped[UUID]
     kernel_profile: Mapped[str] = mapped_column(String(128))
-    config: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -120,15 +150,15 @@ class BatchRun(Base):
     __tablename__ = "batch_runs"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["batch_id", "schedule_number"],
-            [
-                "batch.schedule_revisions.batch_id",
-                "batch.schedule_revisions.number",
-            ],
+            ["batch_id", "config_number"],
+            ["batch.batch_configs.batch_id", "batch.batch_configs.number"],
         ),
         ForeignKeyConstraint(
-            ["batch_id", "version_id"],
-            ["batch.notebook_versions.batch_id", "batch.notebook_versions.id"],
+            ["notebook_id", "notebook_version_id"],
+            [
+                "batch.notebook_versions.notebook_id",
+                "batch.notebook_versions.id",
+            ],
         ),
         CheckConstraint(
             "dispatch_status IN ('PENDING', 'WAITING_CAPACITY', "
@@ -139,7 +169,7 @@ class BatchRun(Base):
         Index("ix_runs_capacity", "batch_id", "dispatch_status"),
         UniqueConstraint(
             "batch_id",
-            "schedule_number",
+            "config_number",
             "scheduled_for",
             name="uq_run_occurrence",
         ),
@@ -148,8 +178,9 @@ class BatchRun(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True)
     batch_id: Mapped[UUID] = mapped_column(ForeignKey("batch.batches.id"))
     owner_id: Mapped[str] = mapped_column(String(255))
-    version_id: Mapped[UUID]
-    schedule_number: Mapped[int]
+    notebook_id: Mapped[UUID]
+    notebook_version_id: Mapped[UUID]
+    config_number: Mapped[int]
     kernel_profile: Mapped[str] = mapped_column(String(128))
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
     trigger: Mapped[str] = mapped_column(String(16), default="MANUAL")
@@ -239,11 +270,8 @@ class SkippedWindow(Base):
     __tablename__ = "skipped_windows"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["batch_id", "schedule_number"],
-            [
-                "batch.schedule_revisions.batch_id",
-                "batch.schedule_revisions.number",
-            ],
+            ["batch_id", "config_number"],
+            ["batch.batch_configs.batch_id", "batch.batch_configs.number"],
         ),
         CheckConstraint("occurrences > 0", name="skipped_count_positive"),
         CheckConstraint("from_at < until_at", name="skipped_window_order"),
@@ -252,7 +280,7 @@ class SkippedWindow(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     batch_id: Mapped[UUID] = mapped_column(ForeignKey("batch.batches.id"))
-    schedule_number: Mapped[int]
+    config_number: Mapped[int]
     from_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     until_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     occurrences: Mapped[int] = mapped_column(BigInteger)

@@ -32,7 +32,7 @@ class NotebookStorage:
         return candidate
 
     def save(
-        self, owner: str, batch: UUID, version: UUID, notebook: Notebook
+        self, owner: str, notebook_id: UUID, version: UUID, notebook: Notebook
     ) -> tuple[str, list[dict[str, Any]]]:
         if not self.root.is_dir():
             raise ServiceError(
@@ -40,7 +40,7 @@ class NotebookStorage:
             )
         owner_hash = hashlib.sha256(owner.encode()).hexdigest()
         directory = (
-            f"batch-input/users/{owner_hash}/batches/{batch}"
+            f"batch-input/users/{owner_hash}/notebooks/{notebook_id}"
             f"/versions/{version}"
         )
         destination = self.safe_path(directory)

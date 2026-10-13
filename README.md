@@ -1,11 +1,12 @@
 # pr-batch
 
 Python 3.12 기반 배치 서비스 프로젝트입니다.
-사용자별 노트북 등록·버전·일정 설정과 수동 실행·실행 이력을 제공합니다.
+사용자별 노트북 업로드·버전 관리와, 업로드한 노트북을 언제·어떻게 돌릴지 정하는
+배치 등록(일정·정책), 수동 실행·실행 이력을 제공합니다.
 별도 워커가 Executor 제출과 상태·결과 참조 수집을 담당합니다.
 예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 리포트 생성 연동은 다음 단계입니다.
 
-[등록 API 안내](docs/registration-api.md)와
+[노트북·배치 등록 API 안내](docs/registration-api.md)와
 [수동 실행·워커 안내](docs/execution-api.md),
 [예약 실행 안내](docs/scheduling-api.md)를 따릅니다.
 
@@ -15,6 +16,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 
 - [확정 요구사항](docs/requirements.md)
 - [확정 실행 이력 저장 계약](docs/execution-history.md)
+- [노트북·배치 분리 설계](docs/notebook-batch-design.md)
 - [API·데이터 모델·상태 흐름 설계 초안](docs/design.md)
 - [Executor·prj_re 연동 계약과 확인 사항](docs/integrations.md)
 
@@ -69,7 +71,7 @@ pr-batch는 외부 네트워크 `shared-infra`에 붙어 `postgres`와 `executor
 
 ```sh
 make docker-up      # DB 준비, migration, API·워커·스케줄러 기동
-make docker-smoke   # 샘플 노트북 등록 → 수동 실행 → Executor 결과 확인
+make docker-smoke   # 노트북 업로드 → 배치 등록 → 수동 실행 → Executor 결과 확인
 make docker-logs
 make docker-down
 ```

@@ -17,14 +17,16 @@ from pr_batch.models import Batch, SkippedWindow
 from pr_batch.runs import admit_run
 from pr_batch.schedule_clock import EPSILON, ScheduleClock
 from pr_batch.schedule_state import database_now, record_skipped
-from pr_batch.schemas import ScheduleConfig
 from pr_batch.service import (
     MutationResult,
     RegistrationService,
     batch_view,
     check_revision,
-    current_schedule,
+    config_version,
+    current_config,
     owned_batch,
+    policy_of,
+    schedule_of,
 )
 from pr_batch.settings import Settings
 
@@ -35,7 +37,7 @@ class SkippedView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     batch_id: UUID
-    schedule_number: int
+    config_number: int
     from_at: datetime
     until_at: datetime
     occurrences: int
@@ -63,19 +65,23 @@ class SchedulingService:
     ) -> MutationResult:
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
-            check_revision(batch, expected)
-            schedule = current_schedule(session, batch)
+            check_revision(batch.revision, expected)
+            config = current_config(session, batch)
             if batch.enabled != enabled:
                 now = database_now(session)
                 if enabled:
-                    if schedule.kernel_profile not in allowed_kernels:
+                    schedule = schedule_of(config)
+                    if schedule is None:
+                        raise ServiceError(
+                            409,
+                            "SCHEDULE_REQUIRED",
+                            "Set a schedule before enabling.",
+                        )
+                    if config.kernel_profile not in allowed_kernels:
                         raise ServiceError(
                             422, "UNKNOWN_KERNEL", "Kernel is not allowed."
                         )
-                    clock = ScheduleClock(
-                        ScheduleConfig.model_validate(schedule.config)
-                    )
-                    following = clock.find(now)
+                    following = ScheduleClock(schedule).find(now)
                     if following is None:
                         raise ServiceError(
                             422,
@@ -88,7 +94,7 @@ class SchedulingService:
                         record_skipped(
                             session,
                             batch,
-                            schedule,
+                            config,
                             batch.next_run_at,
                             now + EPSILON,
                             "DISABLED",
@@ -98,7 +104,9 @@ class SchedulingService:
                 batch.enabled = enabled
                 batch.revision += 1
                 batch.updated_at = now
-            return 200, batch_view(batch, schedule).model_dump(mode="json")
+            return 200, batch_view(
+                batch, config, config_version(session, config)
+            ).model_dump(mode="json")
 
         return self.registration.mutate(
             owner,
@@ -165,24 +173,29 @@ class Scheduler:
             )
             if batch is None:
                 return False
-            schedule = current_schedule(session, batch)
-            config = ScheduleConfig.model_validate(schedule.config)
-            clock = ScheduleClock(config)
+            config = current_config(session, batch)
+            schedule = schedule_of(config)
+            if schedule is None:
+                # Enabling and editing reject this; stop rather than spin.
+                batch.next_run_at = None
+                return True
+            policy = policy_of(config)
+            clock = ScheduleClock(schedule)
             cursor = batch.next_run_at
             assert cursor is not None
-            cutoff = now - timedelta(seconds=config.misfire_grace_seconds)
+            cutoff = now - timedelta(seconds=policy.misfire_grace_seconds)
             if cursor < cutoff:
                 recovered = []
                 count = 0
                 lower = cursor
-                if config.misfire_policy == "LATEST":
+                if policy.misfire == "LATEST":
                     count = 1
-                elif config.misfire_policy == "CATCH_UP":
-                    count = config.catch_up_max_runs
+                elif policy.misfire == "CATCH_UP":
+                    count = policy.catch_up_max_runs
                     lower = max(
                         lower,
                         now
-                        - timedelta(seconds=config.catch_up_max_age_seconds),
+                        - timedelta(seconds=policy.catch_up_max_age_seconds),
                     )
                 previous = clock.find(cutoff, reverse=True)
                 for _ in range(count):
@@ -195,21 +208,21 @@ class Scheduler:
                 record_skipped(
                     session,
                     batch,
-                    schedule,
+                    config,
                     cursor,
                     until,
-                    f"MISFIRE_{config.misfire_policy}",
+                    f"MISFIRE_{policy.misfire}",
                     now,
                 )
                 for scheduled_for in recovered:
-                    admit_run(session, batch, schedule, scheduled_for)
+                    admit_run(session, batch, config, scheduled_for)
                 cursor = clock.find(cutoff, inclusive=True)
             # Bound timely admissions too: a long grace period is not an
             # excuse for unbounded row creation in a single transaction.
             for _ in range(100):
                 if cursor is None or cursor > now:
                     break
-                admit_run(session, batch, schedule, cursor)
+                admit_run(session, batch, config, cursor)
                 cursor = clock.find(cursor)
             batch.next_run_at = cursor
             return True

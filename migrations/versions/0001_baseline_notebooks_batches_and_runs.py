@@ -1,0 +1,352 @@
+"""Baseline: notebooks, versions, batches, configs, runs and schedules.
+
+Replaces the pre-release 0001-0003 chain; reset local `batch` schemas.
+"""
+
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects import postgresql
+
+revision = "0001_baseline"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "batches",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("owner_id", sa.String(length=255), nullable=False),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column("next_run_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("revision", sa.Integer(), nullable=False),
+        sa.Column("config_number", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "enabled OR next_run_at IS NULL", name="disabled_has_no_next_run"
+        ),
+        sa.CheckConstraint("revision >= 1", name="batch_revision_positive"),
+        sa.PrimaryKeyConstraint("id"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_batches_due",
+        "batches",
+        ["enabled", "next_run_at"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_index(
+        "ix_batches_owner_created",
+        "batches",
+        ["owner_id", "created_at", "id"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_table(
+        "idempotency_records",
+        sa.Column("owner_id", sa.String(length=255), nullable=False),
+        sa.Column("operation", sa.String(length=128), nullable=False),
+        sa.Column("key", sa.String(length=255), nullable=False),
+        sa.Column("request_hash", sa.String(length=64), nullable=False),
+        sa.Column(
+            "response", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column("status_code", sa.Integer(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint("owner_id", "operation", "key"),
+        schema="batch",
+    )
+    op.create_table(
+        "notebooks",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("owner_id", sa.String(length=255), nullable=False),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("revision", sa.Integer(), nullable=False),
+        sa.Column("latest_version_number", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("revision >= 1", name="notebook_revision_positive"),
+        sa.PrimaryKeyConstraint("id"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_notebooks_owner_created",
+        "notebooks",
+        ["owner_id", "created_at", "id"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_table(
+        "notebook_versions",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("notebook_id", sa.Uuid(), nullable=False),
+        sa.Column("number", sa.Integer(), nullable=False),
+        sa.Column("filename", sa.String(length=255), nullable=False),
+        sa.Column("original_path", sa.String(), nullable=False),
+        sa.Column("sha256", sa.String(length=64), nullable=False),
+        sa.Column("code_hash", sa.String(length=64), nullable=False),
+        sa.Column("size_bytes", sa.Integer(), nullable=False),
+        sa.Column(
+            "cell_map", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column(
+            "cell_list",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("number >= 1", name="version_number_positive"),
+        sa.ForeignKeyConstraint(
+            ["notebook_id"],
+            ["batch.notebooks.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "notebook_id", "id", name="uq_version_notebook_id"
+        ),
+        sa.UniqueConstraint("notebook_id", "number", name="uq_version_number"),
+        sa.UniqueConstraint(
+            "notebook_id", "sha256", name="uq_version_content"
+        ),
+        schema="batch",
+    )
+    op.create_table(
+        "batch_configs",
+        sa.Column("batch_id", sa.Uuid(), nullable=False),
+        sa.Column("number", sa.Integer(), nullable=False),
+        sa.Column("notebook_id", sa.Uuid(), nullable=False),
+        sa.Column("notebook_version_id", sa.Uuid(), nullable=False),
+        sa.Column("kernel_profile", sa.String(length=128), nullable=False),
+        sa.Column(
+            "schedule", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
+        sa.Column(
+            "policy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("number >= 1", name="config_number_positive"),
+        sa.ForeignKeyConstraint(
+            ["batch_id"],
+            ["batch.batches.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["notebook_id", "notebook_version_id"],
+            [
+                "batch.notebook_versions.notebook_id",
+                "batch.notebook_versions.id",
+            ],
+            name="fk_config_version_in_notebook",
+        ),
+        sa.PrimaryKeyConstraint("batch_id", "number"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_configs_notebook",
+        "batch_configs",
+        ["notebook_id"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_table(
+        "batch_runs",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("batch_id", sa.Uuid(), nullable=False),
+        sa.Column("owner_id", sa.String(length=255), nullable=False),
+        sa.Column("notebook_id", sa.Uuid(), nullable=False),
+        sa.Column("notebook_version_id", sa.Uuid(), nullable=False),
+        sa.Column("config_number", sa.Integer(), nullable=False),
+        sa.Column("kernel_profile", sa.String(length=128), nullable=False),
+        sa.Column(
+            "snapshot", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column("trigger", sa.String(length=16), nullable=False),
+        sa.Column("scheduled_for", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("dispatch_status", sa.String(length=32), nullable=False),
+        sa.Column("execution_id", sa.Uuid(), nullable=True),
+        sa.Column("operation_id", sa.Uuid(), nullable=True),
+        sa.Column("execution_status", sa.String(length=32), nullable=True),
+        sa.Column("observed_version", sa.Integer(), nullable=True),
+        sa.Column("report_status", sa.String(length=32), nullable=False),
+        sa.Column("skip_reason", sa.String(length=64), nullable=True),
+        sa.Column("failure_type", sa.String(length=128), nullable=True),
+        sa.Column("tracking_error", sa.String(length=64), nullable=True),
+        sa.Column("notebook_status", sa.String(length=32), nullable=True),
+        sa.Column("result_status", sa.String(length=32), nullable=False),
+        sa.Column(
+            "artifacts",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+        ),
+        sa.Column(
+            "attempts", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column(
+            "retry_info",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=True,
+        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("observed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "dispatch_status IN ('PENDING', 'WAITING_CAPACITY', "
+            "'SUBMITTED', 'SKIPPED')",
+            name="run_dispatch_status",
+        ),
+        sa.ForeignKeyConstraint(
+            ["batch_id", "config_number"],
+            ["batch.batch_configs.batch_id", "batch.batch_configs.number"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["batch_id"],
+            ["batch.batches.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["notebook_id", "notebook_version_id"],
+            [
+                "batch.notebook_versions.notebook_id",
+                "batch.notebook_versions.id",
+            ],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "batch_id",
+            "config_number",
+            "scheduled_for",
+            name="uq_run_occurrence",
+        ),
+        sa.UniqueConstraint("execution_id"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_runs_batch_created",
+        "batch_runs",
+        ["batch_id", "created_at", "id"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_index(
+        "ix_runs_capacity",
+        "batch_runs",
+        ["batch_id", "dispatch_status"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_table(
+        "skipped_windows",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("batch_id", sa.Uuid(), nullable=False),
+        sa.Column("config_number", sa.Integer(), nullable=False),
+        sa.Column("from_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("until_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("occurrences", sa.BigInteger(), nullable=False),
+        sa.Column("reason", sa.String(length=64), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("from_at < until_at", name="skipped_window_order"),
+        sa.CheckConstraint("occurrences > 0", name="skipped_count_positive"),
+        sa.ForeignKeyConstraint(
+            ["batch_id", "config_number"],
+            ["batch.batch_configs.batch_id", "batch.batch_configs.number"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["batch_id"],
+            ["batch.batches.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_skipped_batch_created",
+        "skipped_windows",
+        ["batch_id", "created_at", "id"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_table(
+        "run_commands",
+        sa.Column("run_id", sa.Uuid(), nullable=False),
+        sa.Column(
+            "payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column("phase", sa.String(length=16), nullable=False),
+        sa.Column("available_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("lease_token", sa.Uuid(), nullable=True),
+        sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("failures", sa.Integer(), nullable=False),
+        sa.CheckConstraint(
+            "phase IN ('SUBMIT', 'POLL', 'RESULT', 'DONE')",
+            name="command_phase",
+        ),
+        sa.ForeignKeyConstraint(
+            ["run_id"],
+            ["batch.batch_runs.id"],
+        ),
+        sa.PrimaryKeyConstraint("run_id"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_commands_due",
+        "run_commands",
+        ["available_at", "run_id"],
+        unique=False,
+        schema="batch",
+    )
+    op.create_table(
+        "run_step_bindings",
+        sa.Column("run_id", sa.Uuid(), nullable=False),
+        sa.Column("sequence", sa.Integer(), nullable=False),
+        sa.Column("original_index", sa.Integer(), nullable=False),
+        sa.Column("source_sha256", sa.String(length=64), nullable=False),
+        sa.Column("step_id", sa.Uuid(), nullable=True),
+        sa.Column("status", sa.String(length=32), nullable=True),
+        sa.Column(
+            "result_ref",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=True,
+        ),
+        sa.ForeignKeyConstraint(
+            ["run_id"],
+            ["batch.batch_runs.id"],
+        ),
+        sa.PrimaryKeyConstraint("run_id", "sequence"),
+        sa.UniqueConstraint("run_id", "step_id"),
+        schema="batch",
+    )
+
+
+def downgrade() -> None:
+    op.drop_table("run_step_bindings", schema="batch")
+    op.drop_index("ix_commands_due", table_name="run_commands", schema="batch")
+    op.drop_table("run_commands", schema="batch")
+    op.drop_index(
+        "ix_skipped_batch_created",
+        table_name="skipped_windows",
+        schema="batch",
+    )
+    op.drop_table("skipped_windows", schema="batch")
+    op.drop_index("ix_runs_capacity", table_name="batch_runs", schema="batch")
+    op.drop_index(
+        "ix_runs_batch_created", table_name="batch_runs", schema="batch"
+    )
+    op.drop_table("batch_runs", schema="batch")
+    op.drop_index(
+        "ix_configs_notebook", table_name="batch_configs", schema="batch"
+    )
+    op.drop_table("batch_configs", schema="batch")
+    op.drop_table("notebook_versions", schema="batch")
+    op.drop_index(
+        "ix_notebooks_owner_created", table_name="notebooks", schema="batch"
+    )
+    op.drop_table("notebooks", schema="batch")
+    op.drop_table("idempotency_records", schema="batch")
+    op.drop_index(
+        "ix_batches_owner_created", table_name="batches", schema="batch"
+    )
+    op.drop_index("ix_batches_due", table_name="batches", schema="batch")
+    op.drop_table("batches", schema="batch")

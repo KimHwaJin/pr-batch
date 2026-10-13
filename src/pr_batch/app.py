@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from pr_batch.api import router
+from pr_batch.api import batches, notebooks
 from pr_batch.errors import ServiceError
 from pr_batch.service import RegistrationService
 from pr_batch.settings import Settings
@@ -112,7 +112,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {
                 "code": "VALIDATION_ERROR",
                 "errors": [
-                    {"loc": error["loc"], "type": error["type"]}
+                    {
+                        "loc": error["loc"],
+                        "type": error["type"],
+                        "msg": error["msg"],
+                    }
                     for error in exc.errors()
                 ],
             },
@@ -141,7 +145,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             revision = connection.scalar(
                 text("SELECT version_num FROM batch.alembic_version")
             )
-        if revision != "0003_scheduling":
+        if revision != "0001_baseline":
             raise ServiceError(503, "MIGRATION_REQUIRED", "Apply migrations.")
         if not settings.storage_root.is_dir():
             raise ServiceError(
@@ -149,5 +153,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return {"status": "ready"}
 
-    app.include_router(router)
+    app.include_router(notebooks)
+    app.include_router(batches)
     return app

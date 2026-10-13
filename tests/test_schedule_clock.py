@@ -6,7 +6,7 @@ import pytest
 from croniter import croniter
 
 from pr_batch.schedule_clock import SEOUL, ScheduleClock
-from pr_batch.schemas import ScheduleConfig
+from pr_batch.schemas import Schedule
 
 
 def dt(value):
@@ -14,7 +14,7 @@ def dt(value):
 
 
 def clock(definition, **options):
-    return ScheduleClock(ScheduleConfig(definition=definition, **options))
+    return ScheduleClock(Schedule(definition=definition, **options))
 
 
 def test_interval_anchor_precision_and_exclusive_end():

@@ -11,16 +11,16 @@ from sqlalchemy.orm import Session
 from pr_batch.errors import ServiceError
 from pr_batch.models import (
     Batch,
+    BatchConfig,
     BatchRun,
     NotebookVersion,
     RunCommand,
     RunStepBinding,
-    ScheduleRevision,
 )
 from pr_batch.service import (
     MutationResult,
     RegistrationService,
-    current_schedule,
+    current_config,
     owned_batch,
 )
 
@@ -41,8 +41,9 @@ class RunView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     batch_id: UUID
-    version_id: UUID
-    schedule_number: int
+    notebook_id: UUID
+    notebook_version_id: UUID
+    config_number: int
     kernel_profile: str
     snapshot: dict[str, Any]
     trigger: str
@@ -112,23 +113,23 @@ def waiting(session: Session, batch_id: UUID) -> int:
 def admit_run(
     session: Session,
     batch: Batch,
-    schedule: ScheduleRevision,
+    config: BatchConfig,
     scheduled_for: datetime | None = None,
 ) -> tuple[int, BatchRun]:
     """Caller must hold the batch row lock; never performs remote I/O."""
     batch_id, owner = batch.id, batch.owner_id
-    version = session.get(NotebookVersion, schedule.version_id)
+    version = session.get(NotebookVersion, config.notebook_version_id)
     assert version is not None
-    config = schedule.config
+    policy = config.policy
     active = occupied(session, batch_id)
     pending = waiting(session, batch_id)
     dispatch = "PENDING"
     reason = None
     status = 202
-    if config["overlap_policy"] == "SKIP" and active:
+    if policy["overlap"] == "SKIP" and active:
         dispatch, reason = "SKIPPED", "OVERLAP"
-    elif active >= config["max_concurrent"] or pending:
-        if pending >= config["max_pending"]:
+    elif active >= policy["max_concurrent"] or pending:
+        if pending >= policy["max_pending"]:
             dispatch, reason = "SKIPPED", "SKIPPED_CAPACITY"
             status = 409
         else:
@@ -140,13 +141,17 @@ def admit_run(
         scheduled_for=scheduled_for,
         trigger="SCHEDULED" if scheduled_for else "MANUAL",
         owner_id=owner,
-        version_id=version.id,
-        schedule_number=schedule.number,
-        kernel_profile=schedule.kernel_profile,
+        notebook_id=version.notebook_id,
+        notebook_version_id=version.id,
+        config_number=config.number,
+        kernel_profile=config.kernel_profile,
         snapshot={
-            "schedule": config,
+            "notebook_id": str(version.notebook_id),
+            "notebook_version_id": str(version.id),
             "sha256": version.sha256,
             "code_hash": version.code_hash,
+            "schedule": config.schedule,
+            "policy": policy,
         },
         dispatch_status=dispatch,
         skip_reason=reason,
@@ -174,7 +179,7 @@ def admit_run(
             },
             "runtime": {
                 "type": "JUPYTER",
-                "profile": schedule.kernel_profile,
+                "profile": config.kernel_profile,
             },
             "context": {"user_id": owner, "task_id": str(run.id)},
             "operation": {
@@ -198,6 +203,7 @@ def admit_run(
             },
             "metadata": {
                 "batch_id": str(batch_id),
+                "notebook_id": str(version.notebook_id),
                 "notebook_version_id": str(version.id),
             },
         }
@@ -214,8 +220,8 @@ class RunService:
     def create(self, owner: str, batch_id: UUID, key: str) -> MutationResult:
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
-            schedule = current_schedule(session, batch)
-            status, run = admit_run(session, batch, schedule)
+            config = current_config(session, batch)
+            status, run = admit_run(session, batch, config)
             return status, RunView.model_validate(run).model_dump(mode="json")
 
         return self.registration.mutate(

@@ -5,14 +5,14 @@ import time
 from uuid import uuid4
 
 import pytest
-from conftest import API, notebook_bytes, token
+from conftest import API, NOTEBOOKS, notebook_bytes, token
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from pr_batch.app import create_app
 from pr_batch.errors import ServiceError
 from pr_batch.notebooks import parse_notebook
-from pr_batch.schemas import ScheduleConfig
+from pr_batch.schemas import Policy, Schedule
 from pr_batch.storage import NotebookStorage
 
 
@@ -44,10 +44,34 @@ def test_code_only_blank_cells_and_source_lines(settings):
         "id": "markdown",
         "cell_type": "markdown",
         "metadata": {},
-        "source": "unsupported",
+        "source": "skipped",
     }
-    with pytest.raises(ServiceError, match="Only code"):
-        parse_notebook(json.dumps(doc).encode(), "x.ipynb", settings)
+    notebook = parse_notebook(json.dumps(doc).encode(), "x.ipynb", settings)
+    assert [c.original_index for c in notebook.cells] == [1]
+    assert notebook.cell_list[0] == {
+        "index": 0,
+        "type": "markdown",
+        "executed": False,
+    }
+
+
+def test_code_cell_limit_ignores_skipped_cells(settings):
+    doc = json.loads(notebook_bytes())
+    markdown = {"cell_type": "markdown", "metadata": {}, "source": "m"}
+    doc["cells"] += [{**markdown, "id": f"m{n}"} for n in range(5)]
+    limited = settings.model_copy(update={"max_code_cells": 1})
+    raw = json.dumps(doc).encode()
+    assert len(parse_notebook(raw, "x.ipynb", limited).cells) == 1
+    doc["cells"].append({**doc["cells"][0], "id": "second"})
+    with pytest.raises(ServiceError, match="Cell limit"):
+        parse_notebook(json.dumps(doc).encode(), "x.ipynb", limited)
+
+
+def test_display_filename_is_sanitized(settings):
+    raw = notebook_bytes()
+    assert parse_notebook(raw, "../a/b\\c.ipynb", settings).filename == (
+        "c.ipynb"
+    )
 
 
 def test_limits_empty_and_invalid_unicode(settings):
@@ -87,7 +111,7 @@ def test_limits_empty_and_invalid_unicode(settings):
     ],
 )
 def test_supported_schedules(definition):
-    config = ScheduleConfig(definition=definition)
+    config = Schedule(definition=definition)
     assert config.timezone == "Asia/Seoul"
 
 
@@ -111,7 +135,14 @@ def test_supported_schedules(definition):
 )
 def test_invalid_schedules(definition):
     with pytest.raises(ValidationError):
-        ScheduleConfig(definition=definition)
+        Schedule(definition=definition)
+
+
+def test_policy_defaults_and_parallel_rule():
+    assert Policy().overlap == "SKIP"
+    assert Policy(overlap="PARALLEL", max_concurrent=3).max_concurrent == 3
+    with pytest.raises(ValidationError):
+        Policy(overlap="QUEUE", max_concurrent=2)
 
 
 @pytest.mark.parametrize(
@@ -139,7 +170,7 @@ def test_owner_header_is_not_authentication(settings):
         assert client.get(API, headers=token(scope="other")).status_code == 403
         assert (
             client.post(
-                API,
+                NOTEBOOKS,
                 headers=token(),
                 content=b"x" * (settings.upload_max_bytes + 65537),
             ).status_code
@@ -176,7 +207,7 @@ def test_missing_storage_root_is_not_created(settings, tmp_path):
 def test_chunked_request_size_limit(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
-            API,
+            NOTEBOOKS,
             headers=token(),
             content=iter([b"x" * 65536] * 162),
         )

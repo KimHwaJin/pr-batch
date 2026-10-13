@@ -1,7 +1,8 @@
-# 노트북 등록 API 실행과 연동
+# 노트북·배치 등록 API
 
-구현 범위는 사용자별 등록·목록·상세, 이름 변경, 원본 버전 업로드·다운로드,
-커널·일정·실행 정책 저장이다. 새 등록은 비활성 상태로 생성한다.
+노트북 업로드·버전 관리와, 업로드한 노트북 중 어떤 것을 언제·어떻게 돌릴지 정하는
+배치 등록을 분리해 제공한다. 설계 근거는 [노트북·배치 분리 설계](notebook-batch-design.md)다.
+새 배치는 비활성 상태로 생성한다.
 수동 실행·Executor 제출·상태 확인은 [실행 API 안내](execution-api.md)를 따른다.
 활성화·스케줄러는 [예약 실행 안내](scheduling-api.md)를 따른다.
 보고서 생성은 아직 제공하지 않는다.
@@ -27,7 +28,7 @@ DB 초기화는 앱 기동과 분리한다. 되돌리기 명령은 등록 데이
 `alembic downgrade`는 보존할 데이터가 있는 환경에서 실행하지 않는다.
 
 `BATCH_STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
-`batch-input/users/<owner-hash>/batches/<id>/versions/<version>/` 아래 저장한다.
+`batch-input/users/<owner-hash>/notebooks/<id>/versions/<version>/` 아래 저장한다.
 사용자 파일명은 경로로 사용하지 않는다. 버전 디렉터리는 0750, 파일은 0640이며
 Executor가 읽을 공유 그룹·UID/GID·마운트 권한을 운영 환경에서 맞춘다.
 서비스는 자기 저장 영역에 쓰기 권한이 필요하다. 다른 사용자 코드가 이 등록
@@ -69,102 +70,109 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 같은 키·본문으로 재요청한다. 명령 재전송 응답은 최초 snapshot이므로 최신 상태는
 상세 GET으로 읽는다. 멱등성 기록은 자동 삭제하지 않는다.
 
-이름 및 일정 변경에는 상세 GET의 `ETag` 값을 `If-Match`에 넣는다.
-현재 revision과 다르면 409다. 새 버전 업로드는 배치 행 잠금으로 번호를 할당하므로
-If-Match 없이 사용할 수 있고, 실제 새 버전이 생성되면 revision이 증가한다.
+노트북 이름 변경, 배치 수정·활성화·비활성화에는 상세 GET의 `ETag` 값을
+`If-Match`에 넣는다. 현재 revision과 다르면 409다. 새 버전 업로드는 노트북 행
+잠금으로 번호를 할당하므로 If-Match 없이 사용할 수 있고, 실제 새 버전이 생성되면
+노트북 revision이 증가한다.
 
 ## API 목록
 
-공통 prefix는 `/api/v1/batches`다. 경로의 UUID는 해당 사용자에게 속해야 하며
-다른 사용자 자원은 존재 여부를 드러내지 않는 404를 반환한다.
+경로의 UUID는 해당 사용자에게 속해야 하며 다른 사용자 자원은 존재 여부를 드러내지
+않는 404를 반환한다. 목록은 최신순, limit 기본 50·최대 100이며 응답은 `items`와
+`next_cursor`를 갖는다. 생성(201) 응답은 `Location` 헤더를 준다.
+
+### 노트북 `/api/v1/notebooks`
 
 | Method | 경로 | 동작 |
 | --- | --- | --- |
-| POST | 공통 prefix | multipart file + metadata로 비활성 등록. 201 |
-| GET | 공통 prefix | 사용자별 목록, limit/cursor |
-| GET | /{batch_id} | 현재 설정·선택 버전·revision과 ETag |
-| PATCH | /{batch_id} | 이름 변경. Idempotency-Key와 If-Match 필수 |
-| POST | /{batch_id}/versions | 새 원본 업로드. 새 버전 201, 같은 원본 200 |
-| GET | /{batch_id}/versions | 버전 목록, limit/cursor |
-| GET | /{batch_id}/versions/{version_id}/content | 해시를 검증한 등록 원본 다운로드 |
-| PUT | /{batch_id}/schedule | 지정 버전·커널·일정의 불변 이력 추가 |
+| POST | / | multipart `file`(.ipynb)과 선택 `name`. 201 |
+| GET | / | 내 노트북 목록 |
+| GET | /{notebook_id} | 상세 + 최신 버전 요약, ETag |
+| PATCH | /{notebook_id} | `{"name"}` 변경. If-Match |
+| POST | /{notebook_id}/versions | 수정본 업로드. 새 버전 201, 같은 원본 200 |
+| GET | /{notebook_id}/versions | 버전 목록 (번호 역순, 번호 cursor) |
+| GET | /{notebook_id}/versions/{version_id} | 버전 상세 + 셀 목록 |
+| GET | /{notebook_id}/versions/{version_id}/content | 해시를 검증한 원본 다운로드 |
 
-목록은 최신순으로 반환하고 limit은 기본 50, 최대 100이다. 응답은 `items`와
-`next_cursor`를 갖는다. next_cursor가 null이면 마지막 페이지다.
-원본 다운로드와 향후 Executor의 실행 결과 다운로드는 서로 다른 파일이다.
+`name`을 생략하면 파일명에서 `.ipynb`를 뗀 값을 쓴다. 파일명은 표시용으로만
+저장하고 저장 경로에는 쓰지 않는다.
 
-## 등록 예시
+```sh
+curl --fail-with-body http://127.0.0.1:8100/api/v1/notebooks \
+  -H "Authorization: Bearer $BATCH_SERVICE_TOKEN" \
+  -H 'Idempotency-Key: upload-daily-1' \
+  -F 'file=@daily.ipynb' -F 'name=생산라인 일일 분석'
+```
 
-`metadata`는 아래 JSON을 문자열로 전달하는 multipart 필드다.
-`file`은 `.ipynb` 파일이다. owner_id나 enabled를 넣으면 검증 오류다.
+응답의 `latest_version.cells`는 `{total, executable, skipped}`이고, 버전 상세의
+`cell_list`는 원본 셀마다 `{index, type, executed, sequence}`를 준다.
+
+### 배치 `/api/v1/batches`
+
+| Method | 경로 | 동작 |
+| --- | --- | --- |
+| POST | / | JSON으로 비활성 등록. 201 |
+| GET | / | 내 배치 목록. 선택 필터 `notebook_id` |
+| GET | /{batch_id} | 상세, ETag |
+| PATCH | /{batch_id} | 보낸 필드만 변경. If-Match |
+| POST | /{batch_id}/enable, /disable | [예약 안내](scheduling-api.md) |
+| POST·GET | /{batch_id}/runs | [실행 안내](execution-api.md) |
+| GET | /{batch_id}/skipped-windows | 생략된 예약 구간 |
+
+등록 예시:
 
 ```json
 {
-  "name": "생산라인 일일 분석",
+  "name": "A라인 매일 8시",
+  "notebook_id": "00000000-0000-0000-0000-000000000001",
   "kernel_profile": "python3",
-  "schedule": {
-    "definition": {"kind": "CRON", "expression": "0 8 * * *"},
-    "timezone": "Asia/Seoul",
-    "overlap_policy": "QUEUE",
-    "max_concurrent": 1,
-    "max_pending": 100,
-    "misfire_policy": "LATEST",
-    "misfire_grace_seconds": 60,
-    "catch_up_max_runs": 10,
-    "catch_up_max_age_seconds": 86400
-  }
+  "schedule": {"definition": {"kind": "CRON", "expression": "0 8 * * *"}},
+  "policy": {"overlap": "QUEUE", "misfire": "LATEST"}
 }
 ```
 
-이를 `registration.json`으로 저장한 호출 예시:
+| 필드 | 필수 | 규칙 |
+| --- | --- | --- |
+| name | O | 1~255자 |
+| notebook_id | O | 내 노트북 |
+| notebook_version_id | X | 생략하면 등록 시점 최신 버전으로 고정 |
+| kernel_profile | O | `BATCH_ALLOWED_KERNEL_PROFILES` 중 하나 |
+| schedule | X | 없으면 수동 실행 전용. 활성화하려면 필요 |
+| policy | X | 보낸 값만 적용하고 나머지는 기본값 |
 
-```sh
-curl --fail-with-body http://127.0.0.1:8000/api/v1/batches \
-  -H "Authorization: Bearer $BATCH_SERVICE_TOKEN" \
-  -H 'Idempotency-Key: register-line-1' \
-  -F 'file=@analysis.ipynb' \
-  -F 'metadata=<registration.json'
-```
+응답(BatchView)은 등록 요청과 같은 모양에 `notebook_version_number`, `enabled`,
+`next_run_at`, `preview_runs`, `config_number`, `revision`, 생성·수정 시각을 더한다.
+응답을 고쳐 그대로 PATCH 본문으로 쓸 수 있다.
 
-응답에는 id, name, enabled=false, revision, latest_version_number,
-selected_schedule, created_at, updated_at이 있다. selected_schedule의
-version_id로 처음 등록된 노트북 버전을 식별한다.
+### 배치 수정 규칙
 
-커널은 `BATCH_ALLOWED_KERNEL_PROFILES`의 이름과 일치해야 한다. 등록 시 Executor
-상태를 조회하지 않으므로 허용 목록과 실제 BATCH 커널을 운영자가 맞춰야 한다.
-노트북 메타데이터에 다른 언어가 명시되면 거절한다. 코드 문법은 서버에서 실행·변환하지
-않으며 IPython 문법도 원문으로 보관한다. 실제 커널 호환성은 실행 연동 단계에서
-검증한다. 외부 파일·데이터 접근 설정과 라이브러리는 업로드로 설치하지 않는다.
+- 보낸 필드만 바뀐다. 빈 본문과 `name`·`notebook_id`·`kernel_profile`·`policy`의
+  null은 422다.
+- `name`만 바꾸면 실행 설정 이력(`config_number`)은 늘지 않는다.
+- `notebook_id`만 바꾸면 그 노트북의 최신 버전으로, `notebook_version_id: null`이면
+  현재 노트북의 최신 버전으로 다시 고정한다.
+- `schedule: null`은 일정 제거다. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
+- `policy`는 보낸 하위 필드만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
+- 새 노트북 버전을 올려도 기존 배치는 바뀌지 않는다. 이미 접수된 실행은 접수 당시
+  설정을 유지한다.
 
-## 버전과 일정 변경
+커널은 등록 시 Executor 상태를 조회하지 않으므로 허용 목록과 실제 BATCH 커널을
+운영자가 맞춰야 한다. 노트북 메타데이터에 다른 언어가 명시되면 거절한다. 코드
+문법은 서버에서 실행·변환하지 않으며 IPython 문법도 원문으로 보관한다.
+
+## 노트북 처리 규칙
 
 동일한 원본 바이트를 다시 업로드하면 기존 버전을 반환한다. 파일명이 같더라도
 바이트가 다르면 새 버전이다. 과거 출력만 바뀐 경우도 원본 버전은 구분하고,
 code_hash로 실제 실행 코드가 같음을 확인할 수 있다.
-원본은 과거 출력을 포함한 그대로 보관하지만 실행용 `.py`에는 코드만 저장한다.
-Markdown·raw 셀, 코드가 전혀 없는 파일, 정규화가 필요한 손상된 노트북은 거절한다.
 
-새 버전을 올려도 현재 일정은 기존 버전에 고정된다. 아래 body로 schedule PUT을
-호출해야 선택 버전이 바뀐다. 현재 Batch ETag를 If-Match로 전달한다.
+- 원본은 과거 출력과 Markdown·raw 셀을 포함해 바이트 그대로 보관한다.
+- 실행용 `.py`에는 비어 있지 않은 코드 셀만 저장한다. Markdown·raw 셀과 빈 코드
+  셀은 실행에서만 제외한다.
+- cell id 누락처럼 정규화가 필요한 노트북은 복사본을 정규화해 검증하고 받는다.
+- 실행할 코드 셀이 없으면 422 `EMPTY_NOTEBOOK`.
 
-```json
-{
-  "version_id": "00000000-0000-0000-0000-000000000001",
-  "kernel_profile": "python3",
-  "schedule": {
-    "definition": {
-      "kind": "CALENDAR",
-      "frequency": "MONTHLY",
-      "at": "08:00:00",
-      "last_day": true
-    }
-  }
-}
-```
-
-## 일정 저장 규칙
-
-현재는 정의를 검증·저장하며 실행 예정 시각 계산과 실제 실행은 제공하지 않는다.
+## 일정과 정책
 
 | kind | 필드와 규칙 |
 | --- | --- |
@@ -174,29 +182,32 @@ Markdown·raw 셀, 코드가 전혀 없는 파일, 정규화가 필요한 손상
 | CRON | 숫자 기반 5필드 expression, 목록·범위·간격. 일/요일 OR 의미 |
 
 WEEKLY는 weekdays가 필요하며 월요일=0, 일요일=6이다. MONTHLY는 month_days
-(1~31) 또는 last_day=true를 받는다. 다른 주기에 적용되지 않는 필드는 거절한다.
-Cron의 초 필드, 이름, L/W/# 확장은 받지 않고 존재하지 않는 날짜 조합도 거절한다.
-시간대는 Asia/Seoul이다. start_at/end_at은 선택이며 시작 포함·끝 미포함이다.
-ONCE는 기간 안에 있어야 한다. 비활성 초안에는 과거 시각을 저장할 수 있으며
-활성화 기능에서 미래 시각을 검증할 예정이다.
+(1~31) 또는 last_day=true를 받는다. Cron의 초 필드, 이름, L/W/# 확장은 받지
+않는다. 시간대는 Asia/Seoul이다. start_at/end_at은 선택이며 시작 포함·끝 미포함이다.
 
-겹침 옵션은 SKIP/QUEUE/PARALLEL, 누락 일정은 SKIP/LATEST/CATCH_UP이다.
-생략 시 두 정책 모두 SKIP이며 응답에는 적용된 모든 기본값을 반환한다.
-max_concurrent는 PARALLEL일 때만 1보다 크게 설정할 수 있다.
-초기 상한은 동시 실행 100, 대기 10000, 보충 1000회이며 실행 처리량 보장이 아니다.
-실제 예약 접수 한도는 [스케줄러 안내](scheduling-api.md)를 따른다.
-운영 부하 검증에 따른 한도 조정은 별도다.
+| policy 필드 | 값 | 기본 |
+| --- | --- | --- |
+| overlap | SKIP / QUEUE / PARALLEL | SKIP |
+| max_concurrent | 1~100, PARALLEL만 1 초과 | 1 |
+| max_pending | 1~10000 | 100 |
+| misfire | SKIP / LATEST / CATCH_UP | SKIP |
+| misfire_grace_seconds | 1~86400 | 60 |
+| catch_up_max_runs | 1~1000 | 10 |
+| catch_up_max_age_seconds | 60~31536000 | 86400 |
+
+수동 실행도 overlap 정책을 따르므로 일정이 없는 배치에도 policy가 적용된다.
 
 ## 검증과 오류
 
-업로드 기본 10 MiB, 코드 셀 수 100, 셀당 코드 1 MiB다. 설정으로 조정 가능하다.
-HTTP 요청 전체는 업로드 상한 + 64 KiB를 넘으면 multipart 파싱 전에 413이다.
-chunked 요청도 실제 수신 바이트로 제한한다. 요청 본문은 이 한도 안에서 메모리에
-버퍼링하므로 운영 동시 요청 수와 프록시 제한을 함께 설정한다.
+업로드 기본 10 MiB, 실행할 코드 셀 100개, 셀당 코드 1 MiB다. 설정으로 조정 가능하다.
+HTTP 요청 전체는 업로드 상한 + 64 KiB를 넘으면 본문 파싱 전에 413이다.
+chunked 요청도 실제 수신 바이트로 제한한다.
 
-401은 서비스 토큰 오류, 403은 scope 오류, 404는 접근 불가능한 자원,
-409는 멱등성·revision 충돌, 413은 크기 상한, 422는 입력 오류다.
-DB·PV 사용 불가와 원본 해시 불일치는 503이며 내부 경로나 코드 본문을 반환하지 않는다.
+JSON 본문 오류는 422 `VALIDATION_ERROR`와 `errors[]`의 `loc`, `type`, `msg`를
+준다. 사용자가 보낸 값은 되돌려주지 않는다. 401은 서비스 토큰 오류, 403은 scope 오류,
+404는 접근 불가능한 자원, 409는 멱등성·revision 충돌과 `SCHEDULE_REQUIRED`,
+413은 크기 상한이다. DB·PV 사용 불가와 원본 해시 불일치는 503이며 내부 경로나
+코드 본문을 반환하지 않는다.
 
 실제 PostgreSQL 테스트는 별도의 삭제 가능한 DB에서 수행한다.
 
@@ -206,10 +217,8 @@ export BATCH_TEST_DATABASE_URL='postgresql+psycopg://USER:PASS@HOST/pr_batch_tes
 make check
 ```
 
-테스트는 batch 스키마에 migration을 적용하고 테스트마다 등록 테이블을 비운다.
+테스트는 batch 스키마에 migration을 적용하고 테스트마다 테이블을 비운다.
 변수를 생략하면 PostgreSQL 테스트는 skip하고 입력·인증·저장소 단위 검증만 실행한다.
-CI에는 일회성 PostgreSQL을 연결해 통합 테스트 누락을 방지한다.
 
-참고: [FastAPI 업로드](https://fastapi.tiangolo.com/tutorial/request-files/),
-[SQLAlchemy PostgreSQL](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html),
-[Alembic 스키마 필터](https://alembic.sqlalchemy.org/en/latest/autogenerate.html).
+DB migration은 출시 전 정리로 `0001_baseline` 하나다. 이전 0001~0003을 적용한
+로컬 DB는 `batch` 스키마를 지운 뒤 다시 migration한다.

@@ -94,7 +94,7 @@ class Worker:
                     )
                     .limit(1)
                 )
-                maximum = run.snapshot["schedule"]["max_concurrent"]
+                maximum = run.snapshot["policy"]["max_concurrent"]
                 if earlier or occupied(session, run.batch_id) >= maximum:
                     command.available_at = now + timedelta(
                         seconds=self.poll_seconds
