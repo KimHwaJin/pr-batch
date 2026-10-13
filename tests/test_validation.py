@@ -4,6 +4,7 @@ import json
 import time
 from uuid import uuid4
 
+import httpx2
 import pytest
 from conftest import API, SCRIPTS, notebook_bytes, token
 from fastapi.testclient import TestClient
@@ -11,8 +12,12 @@ from pydantic import ValidationError
 
 from app.core.exceptions import ServiceError
 from app.domain.notebook_parser import parse_notebook
+from app.domain.scripts import ScriptType
+from app.integrations.executor import ExecutorClient
 from app.main import create_app
+from app.schemas.batch import RuntimeSpec
 from app.schemas.schedule import Policy, Schedule
+from app.services.runtime_catalog import RuntimeCatalog, check_runtime
 from app.storage.script_storage import ScriptStorage
 
 
@@ -212,3 +217,53 @@ def test_chunked_request_size_limit(settings):
             content=iter([b"x" * 65536] * 162),
         )
     assert response.status_code == 413
+
+
+def test_runtime_catalog_reads_batch_targets_and_caches():
+    calls = []
+
+    def handle(request):
+        calls.append(str(request.url))
+        cursor = request.url.params.get("cursor")
+        profiles = ["default", "gpu"] if cursor else ["default"]
+        target = {
+            "runtime": {
+                "type": "JUPYTER",
+                "pool": "BATCH",
+                "supported_profiles": profiles,
+            },
+            "state": {"status": "ACTIVE", "enabled": True},
+        }
+        return httpx2.Response(
+            200,
+            json={"items": [target], "next_cursor": None if cursor else "p2"},
+        )
+
+    executor = ExecutorClient(
+        "http://executor.test", transport=httpx2.MockTransport(handle)
+    )
+    catalog = RuntimeCatalog(executor, ttl_seconds=60)
+    assert [r.profile for r in catalog.available()] == ["default", "gpu"]
+    assert catalog.available()
+    assert len(calls) == 2
+    assert "pool=BATCH" in calls[0] and "enabled=true" in calls[0]
+    with pytest.raises(ServiceError) as exc:
+        check_runtime(
+            RuntimeSpec(type="JUPYTER", profile="missing"),
+            ScriptType.NOTEBOOK,
+            catalog.available(),
+        )
+    assert exc.value.code == "UNKNOWN_RUNTIME"
+    broken = RuntimeCatalog(
+        ExecutorClient(
+            "http://executor.test",
+            transport=httpx2.MockTransport(
+                lambda request: httpx2.Response(503)
+            ),
+        ),
+        ttl_seconds=60,
+    )
+    with pytest.raises(ServiceError) as exc:
+        broken.available()
+    assert exc.value.status == 503
+    executor.close()

@@ -83,7 +83,7 @@ def schedule(owner: str, count: int, delay: int, sleep: int) -> None:
         registration = {
             "name": f"multi-{index}",
             "script_id": script["id"],
-            "kernel_profile": "default",
+            "runtime": {"type": "JUPYTER", "profile": "default"},
             "schedule": {"definition": {"kind": "ONCE", "at": at}},
         }
         batch = call(

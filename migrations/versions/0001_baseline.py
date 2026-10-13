@@ -134,7 +134,9 @@ def upgrade() -> None:
         sa.Column("number", sa.Integer(), nullable=False),
         sa.Column("script_id", sa.Uuid(), nullable=False),
         sa.Column("script_version_id", sa.Uuid(), nullable=False),
-        sa.Column("kernel_profile", sa.String(length=128), nullable=False),
+        sa.Column(
+            "runtime", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column(
             "schedule", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
@@ -175,7 +177,9 @@ def upgrade() -> None:
         sa.Column("script_id", sa.Uuid(), nullable=False),
         sa.Column("script_version_id", sa.Uuid(), nullable=False),
         sa.Column("config_number", sa.Integer(), nullable=False),
-        sa.Column("kernel_profile", sa.String(length=128), nullable=False),
+        sa.Column(
+            "runtime", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column(
             "snapshot", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),

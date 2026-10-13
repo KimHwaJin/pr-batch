@@ -384,7 +384,7 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
         headers={**token(), "Idempotency-Key": "config", "If-Match": '"1"'},
         json={
             "script_version_number": uploaded["version_number"],
-            "kernel_profile": "analytics",
+            "runtime": {"type": "JUPYTER", "profile": "analytics"},
         },
     )
     assert changed.json()["config_number"] == 2

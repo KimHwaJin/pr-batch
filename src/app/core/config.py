@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
     max_code_cells: int = Field(default=100, ge=1, le=10000)
     cell_max_bytes: int = Field(default=1024 * 1024, ge=1)
-    allowed_kernel_profiles: list[str] = Field(min_length=1)
     # Remote calls never hold a connection, so a small pool suffices.
     db_pool_size: int = Field(default=3, ge=1, le=100)
     db_max_overflow: int = Field(default=3, ge=0, le=100)
@@ -32,6 +31,8 @@ class Settings(BaseSettings):
     db_auto_migrate: bool = True
 
     executor_base_url: str | None = None
+    # BATCH runtimes come from the Executor; cache them this long.
+    runtime_catalog_ttl_seconds: float = Field(default=30, ge=1, le=3600)
     # prj_re report API; when unset, successful runs complete unreported.
     report_base_url: str | None = None
     report_token_secret: SecretStr | None = None
@@ -55,8 +56,6 @@ class Settings(BaseSettings):
             raise ValueError("storage_root must be an absolute path.")
         if len(self.auth_secret.get_secret_value().encode()) < 32:
             raise ValueError("auth_secret must contain at least 32 bytes.")
-        if any(not name.strip() for name in self.allowed_kernel_profiles):
-            raise ValueError("Kernel profile names must not be blank.")
         for name in ("executor_base_url", "report_base_url"):
             value = getattr(self, name)
             if value is None:

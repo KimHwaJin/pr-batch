@@ -86,7 +86,7 @@ def admit_run(
         script_id=version.script_id,
         script_version_id=version.id,
         config_number=config.number,
-        kernel_profile=config.kernel_profile,
+        runtime=config.runtime,
         snapshot={
             "script_id": str(version.script_id),
             "script_version_id": str(version.id),
@@ -157,7 +157,7 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "type": "BATCH",
             "actor": {"type": "BATCH", "id": str(run.batch_id)},
         },
-        "runtime": {"type": "JUPYTER", "profile": run.kernel_profile},
+        "runtime": dict(run.runtime),
         "context": {"user_id": run.owner_id, "task_id": str(run.id)},
         "operation": {
             "spec": {

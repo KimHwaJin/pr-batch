@@ -6,8 +6,22 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.runtimes import RuntimeType
 from app.schemas.common import Audited, Contract, KernelName, Name
 from app.schemas.schedule import Policy, PolicyPatch, Schedule
+
+
+class RuntimeSpec(Contract):
+    """Same shape as the Executor's execution `runtime` object."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: RuntimeType = "JUPYTER"
+    profile: KernelName
+
+
+class RuntimeList(Contract):
+    items: list[RuntimeSpec]
 
 
 class CreateBatch(Contract):
@@ -15,7 +29,7 @@ class CreateBatch(Contract):
     script_id: UUID
     # v1, v2, ...; omitted: pin the script's latest version at this time.
     script_version_number: int | None = Field(default=None, ge=1)
-    kernel_profile: KernelName
+    runtime: RuntimeSpec
     schedule: Schedule | None = None
     policy: Policy = Field(default_factory=Policy)
 
@@ -27,7 +41,7 @@ class UpdateBatch(Contract):
     script_id: UUID | None = None
     # null (or script_id alone): re-pin to the latest version.
     script_version_number: int | None = Field(default=None, ge=1)
-    kernel_profile: KernelName | None = None
+    runtime: RuntimeSpec | None = None
     schedule: Schedule | None = None
     policy: PolicyPatch | None = None
 
@@ -35,7 +49,7 @@ class UpdateBatch(Contract):
     def validate_patch(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("Send at least one field to change.")
-        for field in ("name", "script_id", "kernel_profile", "policy"):
+        for field in ("name", "script_id", "runtime", "policy"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null.")
         return self
@@ -47,7 +61,7 @@ class BatchView(Audited, Contract):
     script_id: UUID
     script_version_id: UUID
     script_version_number: int
-    kernel_profile: str
+    runtime: RuntimeSpec
     schedule: Schedule | None
     policy: Policy
     enabled: bool

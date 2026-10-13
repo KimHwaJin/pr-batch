@@ -1,0 +1,96 @@
+"""Available BATCH runtimes, read from the Executor and cached briefly.
+
+Registration and activation validate against this instead of a static
+allowlist, so kernels added to the Executor are usable without redeploying
+pr-batch. If the Executor cannot be reached, callers get 503 rather than
+storing a runtime that may not exist.
+"""
+
+import threading
+import time
+
+from app.core.exceptions import ServiceError
+from app.domain.runtimes import BATCH_POOL, SCRIPT_RUNTIMES
+from app.domain.scripts import ScriptType
+from app.integrations.executor import ExecutorClient, ExecutorError
+from app.schemas.batch import RuntimeSpec
+
+
+def check_runtime(
+    runtime: RuntimeSpec,
+    script_type: ScriptType,
+    available: list[RuntimeSpec],
+) -> None:
+    """Script type must fit the runtime; the Executor must offer it."""
+    if runtime.type not in SCRIPT_RUNTIMES[script_type]:
+        raise ServiceError(
+            422,
+            "RUNTIME_NOT_SUPPORTED",
+            f"{script_type} scripts cannot run on {runtime.type}.",
+        )
+    if runtime not in available:
+        raise ServiceError(
+            422,
+            "UNKNOWN_RUNTIME",
+            "The Executor BATCH pool does not offer this runtime.",
+        )
+
+
+class RuntimeCatalog:
+    def __init__(self, executor: ExecutorClient, ttl_seconds: float) -> None:
+        self.executor = executor
+        self.ttl = ttl_seconds
+        self.lock = threading.Lock()
+        self.cached: tuple[float, list[RuntimeSpec]] | None = None
+
+    def available(self) -> list[RuntimeSpec]:
+        with self.lock:
+            now = time.monotonic()
+            if self.cached and now - self.cached[0] < self.ttl:
+                return self.cached[1]
+            try:
+                targets = self.executor.runtime_targets(BATCH_POOL)
+            except ExecutorError as exc:
+                raise ServiceError(
+                    503,
+                    "RUNTIME_CATALOG_UNAVAILABLE",
+                    "Cannot read available runtimes from the Executor.",
+                ) from exc
+            specs = sorted(
+                {
+                    (target.runtime.type, profile)
+                    for target in targets
+                    if target.runtime.pool == BATCH_POOL
+                    and target.state.enabled
+                    for profile in target.runtime.supported_profiles
+                }
+            )
+            result = [
+                RuntimeSpec(type=kind, profile=profile)  # type: ignore[arg-type]
+                for kind, profile in specs
+                if kind in ("JUPYTER",)
+            ]
+            self.cached = (now, result)
+            return result
+
+
+class StaticRuntimeCatalog(RuntimeCatalog):
+    """Fixed catalog for tests and Executor-less local runs."""
+
+    def __init__(self, specs: list[RuntimeSpec]) -> None:
+        self.specs = specs
+
+    def available(self) -> list[RuntimeSpec]:
+        return list(self.specs)
+
+
+class UnconfiguredRuntimeCatalog(RuntimeCatalog):
+    """No Executor configured: runtimes cannot be validated."""
+
+    def __init__(self) -> None:
+        pass
+
+    def available(self) -> list[RuntimeSpec]:
+        raise ServiceError(
+            503, "EXECUTOR_NOT_CONFIGURED", "Configure Executor first."
+        )

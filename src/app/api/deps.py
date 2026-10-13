@@ -14,6 +14,7 @@ from app.domain.scripts import ParsedScript, ScriptType
 from app.services.batch_service import BatchService
 from app.services.idempotency import MutationResult
 from app.services.run_service import RunService
+from app.services.runtime_catalog import RuntimeCatalog
 from app.services.script_service import ScriptService
 
 Owner = Annotated[str, Depends(current_owner)]
@@ -39,7 +40,12 @@ def get_script_service(request: Request) -> ScriptService:
 
 
 def get_batch_service(request: Request) -> BatchService:
-    return BatchService(request.app.state.sessions)
+    state = request.app.state
+    return BatchService(state.sessions, state.runtime_catalog)
+
+
+def get_runtime_catalog(request: Request) -> RuntimeCatalog:
+    return cast(RuntimeCatalog, request.app.state.runtime_catalog)
 
 
 def get_run_service(request: Request) -> RunService:
@@ -54,6 +60,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 Scripts = Annotated[ScriptService, Depends(get_script_service)]
 Batches = Annotated[BatchService, Depends(get_batch_service)]
 Runs = Annotated[RunService, Depends(get_run_service)]
+Catalog = Annotated[RuntimeCatalog, Depends(get_runtime_catalog)]
 
 
 def expected_revision(
@@ -65,11 +72,6 @@ def expected_revision(
 
 
 Revision = Annotated[int, Depends(expected_revision)]
-
-
-def check_kernel(settings: Settings, kernel: str | None) -> None:
-    if kernel is not None and kernel not in settings.allowed_kernel_profiles:
-        raise ServiceError(422, "UNKNOWN_KERNEL", "Kernel is not allowed.")
 
 
 def require_executor(settings: Settings) -> None:

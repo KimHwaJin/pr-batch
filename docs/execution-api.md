@@ -29,7 +29,7 @@ make serve   # http://127.0.0.1:8100
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 `batch-input/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
-허용 커널 목록은 Executor BATCH 풀의 실제 프로필과 맞춘다. Executor 호출에는 인증이 없으며(내부 서비스)
+런타임 선택지는 Executor BATCH 풀에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목). Executor 호출에는 인증이 없으며(내부 서비스)
 사용자 JWT를 Executor에 넘기지 않는다.
 
 ## HTTP 계약
@@ -44,7 +44,7 @@ Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 | POST | /{run_id}/cancel | 취소 요청. 202 |
 | POST | /{run_id}/report-retries | 리포트만 재시도 (코드 재실행 없음). 202 |
 
-쓰기에는 `Idempotency-Key`가 필수다. 수동 실행 본문은 생략하거나 `{}`이며 버전·커널 override는 422다.
+쓰기에는 `Idempotency-Key`가 필수다. 수동 실행 본문은 생략하거나 `{}`이며 버전·런타임 override는 422다.
 일정이 없는 배치나 비활성 배치도 수동 실행할 수 있다.
 
 | 접수 결과 | HTTP | status | skip_reason |

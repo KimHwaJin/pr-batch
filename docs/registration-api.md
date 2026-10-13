@@ -15,7 +15,7 @@ Python 3.12와 uv, PostgreSQL, 공유 PV가 필요하다. Redis는 사용하지 
 ```sh
 uv sync --locked
 cp .env.example .env
-# .env의 DB URL, 공유 PV 절대경로, 인증 비밀키, 커널 목록 수정
+# .env의 DB URL, 공유 PV 절대경로, 인증 비밀키, Executor 주소 수정
 uv run --locked alembic upgrade head
 uv run --locked uvicorn app.main:create_app --factory
 ```
@@ -120,6 +120,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | --- | --- | --- |
 | POST | / | JSON으로 비활성 등록. 201 |
 | GET | / | 내 배치 목록. 선택 필터 `script_id` |
+| GET | `/api/v1/runtimes` | 등록 가능한 런타임 `{type, profile}` 목록 (Executor BATCH 풀 기준) |
 | GET | /{batch_id} | 상세, ETag |
 | PATCH | /{batch_id} | 보낸 필드만 변경. If-Match |
 | POST | /{batch_id}/enable, /disable | [예약 안내](scheduling-api.md) |
@@ -132,7 +133,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 {
   "name": "A라인 매일 8시",
   "script_id": "00000000-0000-0000-0000-000000000001",
-  "kernel_profile": "python3",
+  "runtime": {"type": "JUPYTER", "profile": "default"},
   "schedule": {"definition": {"kind": "CRON", "expression": "0 8 * * *"}},
   "policy": {"overlap": "QUEUE", "misfire": "LATEST"}
 }
@@ -143,7 +144,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | name | O | 1~255자 |
 | script_id | O | 내 스크립트 |
 | script_version_number | X | 버전 번호(v1=1, v2=2 …). 생략하면 등록 시점 최신 버전으로 고정(이후 새 버전을 올려도 따라가지 않음) |
-| kernel_profile | O | `BATCH_ALLOWED_KERNEL_PROFILES` 중 하나 |
+| runtime | O | Executor 실행 요청의 `runtime`과 같은 `{type, profile}`. `GET /api/v1/runtimes` 목록 중 하나 |
 | schedule | X | 없으면 수동 실행 전용. 활성화하려면 필요 |
 | policy | X | 보낸 값만 적용하고 나머지는 기본값 |
 
@@ -153,7 +154,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 
 ### 배치 수정 규칙
 
-- 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`kernel_profile`·`policy`의
+- 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`runtime`·`policy`의
   null은 422다.
 - `name`만 바꾸면 실행 설정 이력(`config_number`)은 늘지 않는다.
 - `script_id`만 바꾸면 그 스크립트의 최신 버전으로, `script_version_number: null`이면
@@ -163,9 +164,24 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 - 새 스크립트 버전을 올려도 기존 배치는 바뀌지 않는다. 이미 접수된 실행은 접수 당시
   설정을 유지한다.
 
-커널은 등록 시 Executor 상태를 조회하지 않으므로 허용 목록과 실제 BATCH 커널을
-운영자가 맞춰야 한다. 노트북 메타데이터에 다른 언어가 명시되면 거절한다. 코드
-문법은 서버에서 실행·변환하지 않으며 IPython 문법도 원문으로 보관한다.
+### 런타임 (`runtime`)
+
+배치가 어떤 런타임에서 돌지는 Executor 실행 요청의 `runtime` 객체와 같은 모양으로 지정한다.
+
+```json
+"runtime": {"type": "JUPYTER", "profile": "default"}
+```
+
+- 쓸 수 있는 조합은 `GET /api/v1/runtimes`가 돌려준다. Executor `GET /api/v1/runtime-targets`에서 BATCH 풀의
+  활성(enabled) 대상들이 지원하는 프로필을 모은 것이며 `BATCH_RUNTIME_CATALOG_TTL_SECONDS`(기본 30초) 동안 캐시한다.
+  Executor에 커널이 추가되면 pr-batch 설정 변경 없이 바로 쓸 수 있다.
+- 등록·런타임 변경·활성화 때 이 목록으로 검증한다. 없는 조합은 422 `UNKNOWN_RUNTIME`, 스크립트 타입이 돌 수 없는
+  런타임은 422 `RUNTIME_NOT_SUPPORTED`(NOTEBOOK은 JUPYTER만), Executor를 조회할 수 없으면 503
+  `RUNTIME_CATALOG_UNAVAILABLE`로 거절해 잘못된 런타임이 저장되지 않게 한다.
+- 풀은 항상 BATCH라 지정하지 않는다. Executor에 런타임 종류나 옵션이 늘면 이 객체에 필드를 추가한다.
+
+노트북 메타데이터에 Python 외 언어가 명시되면 거절한다. 코드 문법은 서버에서 실행·변환하지 않으며
+IPython 문법도 원문으로 보관한다.
 
 ## 감사 필드 (모든 자원 응답 공통)
 

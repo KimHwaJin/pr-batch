@@ -64,7 +64,8 @@ class BatchConfig(AuditMixin, Base):
     number: Mapped[int] = mapped_column(primary_key=True)
     script_id: Mapped[UUID]
     script_version_id: Mapped[UUID]
-    kernel_profile: Mapped[str] = mapped_column(String(128))
+    # Executor runtime object, e.g. {"type": "JUPYTER", "profile": "x"}.
+    runtime: Mapped[dict[str, Any]] = mapped_column(JSONB)
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
 

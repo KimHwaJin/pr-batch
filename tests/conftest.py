@@ -17,6 +17,8 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
 from app.main import create_app
+from app.schemas.batch import RuntimeSpec
+from app.services.runtime_catalog import StaticRuntimeCatalog
 
 TEST_SECRET = "local-test-only-" * 4
 API = "/api/v1/batches"
@@ -70,7 +72,7 @@ def metadata(**updates: object) -> dict:
     """Batch registration body; create_batch fills script_id."""
     result = {
         "name": "생산라인 분석",
-        "kernel_profile": "python3",
+        "runtime": {"type": "JUPYTER", "profile": "python3"},
         "schedule": {
             "definition": {"kind": "CRON", "expression": "0 8 * * *"}
         },
@@ -88,7 +90,6 @@ def settings(tmp_path: Path) -> Settings:
         ),
         storage_root=tmp_path,
         auth_secret=SecretStr(TEST_SECRET),
-        allowed_kernel_profiles=["python3", "analytics"],
         db_auto_migrate=False,
         background_enabled=False,
     )
@@ -131,7 +132,14 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
     configured = settings.model_copy(
         update={"database_url": SecretStr(database_url)}
     )
-    with TestClient(create_app(configured)) as result:
+    app = create_app(configured)
+    app.state.runtime_catalog = StaticRuntimeCatalog(
+        [
+            RuntimeSpec(type="JUPYTER", profile="python3"),
+            RuntimeSpec(type="JUPYTER", profile="analytics"),
+        ]
+    )
+    with TestClient(app) as result:
         yield result
 
 

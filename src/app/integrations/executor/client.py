@@ -12,6 +12,8 @@ from app.integrations.executor.contracts import (
     Detail,
     Receipt,
     Result,
+    RuntimeTarget,
+    RuntimeTargetPage,
 )
 
 
@@ -101,3 +103,20 @@ class ExecutorClient:
                 return False
             raise
         return True
+
+    def runtime_targets(self, pool: str) -> list[RuntimeTarget]:
+        """Enabled runtime targets of a pool, following pagination."""
+        targets: list[RuntimeTarget] = []
+        cursor: str | None = None
+        for _ in range(50):  # hard stop against a misbehaving cursor
+            query = f"pool={pool}&enabled=true&limit=100"
+            if cursor:
+                query += f"&cursor={cursor}"
+            page = self.request(
+                "GET", f"api/v1/runtime-targets?{query}", RuntimeTargetPage
+            )
+            targets.extend(page.items)
+            cursor = page.next_cursor
+            if not cursor:
+                return targets
+        raise ExecutorError("EXECUTOR_CONTRACT_MISMATCH")

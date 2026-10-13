@@ -139,3 +139,24 @@ class Result(BaseModel):
 class CommandAck(BaseModel):
     execution_id: UUID
     state: State
+
+
+class TargetRuntime(BaseModel):
+    type: str = Field(max_length=32)
+    pool: str = Field(max_length=32)
+    supported_profiles: list[str] = Field(default_factory=list)
+
+
+class TargetState(BaseModel):
+    status: str = Field(max_length=32)
+    enabled: bool
+
+
+class RuntimeTarget(BaseModel):
+    runtime: TargetRuntime
+    state: TargetState
+
+
+class RuntimeTargetPage(BaseModel):
+    items: list[RuntimeTarget]
+    next_cursor: str | None = None

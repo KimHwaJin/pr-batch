@@ -95,7 +95,12 @@ def main() -> None:
     settings = Settings()
     api = os.environ.get("SMOKE_API_URL", "http://127.0.0.1:8000")
     base = f"{api}/api/v1/batches"
-    kernel = settings.allowed_kernel_profiles[0]
+    runtimes = call(
+        "GET",
+        f"{api}/api/v1/runtimes",
+        {"Authorization": f"Bearer {token(settings)}"},
+    )["items"]
+    kernel = runtimes[0]["profile"]
     nonce = uuid.uuid4().hex
     auth = {"Authorization": f"Bearer {token(settings)}"}
     body, content_type = multipart(
@@ -121,7 +126,7 @@ def main() -> None:
     registration = {
         "name": f"docker-smoke-{nonce[:8]}",
         "script_id": script["id"],
-        "kernel_profile": kernel,
+        "runtime": {"type": "JUPYTER", "profile": kernel},
         "schedule": {
             "definition": {"kind": "CRON", "expression": "0 8 * * *"}
         },

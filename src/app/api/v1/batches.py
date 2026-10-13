@@ -13,7 +13,6 @@ from app.api.deps import (
     Owner,
     Revision,
     SettingsDep,
-    check_kernel,
     mutation_response,
     require_executor,
 )
@@ -37,7 +36,6 @@ def create_batch(
     service: Batches,
     data: CreateBatch,
 ) -> JSONResponse:
-    check_kernel(settings, data.kernel_profile)
     return mutation_response(
         service.create_batch(owner, key, data), request.url.path
     )
@@ -73,7 +71,6 @@ def update_batch(
     expected: Revision,
     data: UpdateBatch,
 ) -> JSONResponse:
-    check_kernel(settings, data.kernel_profile)
     return mutation_response(
         service.update_batch(owner, batch_id, key, expected, data)
     )
@@ -96,7 +93,6 @@ def enable_batch(
             key,
             expected,
             True,
-            settings.allowed_kernel_profiles,
         )
     )
 
@@ -117,7 +113,6 @@ def disable_batch(
             key,
             expected,
             False,
-            settings.allowed_kernel_profiles,
         )
     )
 

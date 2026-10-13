@@ -354,7 +354,7 @@ def test_active_schedule_change_preserves_old_run_snapshot(client, scheduling):
     ).json()
     replacement = {
         "script_version_number": version["version_number"],
-        "kernel_profile": "analytics",
+        "runtime": {"type": "JUPYTER", "profile": "analytics"},
         "schedule": config()["schedule"],
     }
     response = client.patch(
@@ -371,7 +371,7 @@ def test_active_schedule_change_preserves_old_run_snapshot(client, scheduling):
     assert scheduling.tick(now=first_at(changed))
     latest = runs(client, batch)[-1]
     assert latest["script_version_id"] == version["id"]
-    assert latest["kernel_profile"] == "analytics"
+    assert latest["runtime"]["profile"] == "analytics"
     assert latest["config_number"] == 2
 
 

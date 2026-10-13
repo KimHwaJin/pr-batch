@@ -52,8 +52,6 @@ spec:
               value: /workspace/shared
             - name: BATCH_EXECUTOR_BASE_URL
               value: http://executor:8000
-            - name: BATCH_ALLOWED_KERNEL_PROFILES
-              value: '["default"]'
             - name: BATCH_DB_AUTO_MIGRATE
               value: "true"
             # Connection budget: (3 + 3) per pod x maxReplicas 4 = 24.

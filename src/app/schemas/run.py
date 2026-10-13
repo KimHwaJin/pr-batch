@@ -45,7 +45,7 @@ class RunView(Audited, BaseModel):
     script_id: UUID
     script_version_id: UUID
     config_number: int
-    kernel_profile: str
+    runtime: dict[str, Any]
     snapshot: dict[str, Any]
     trigger: str
     scheduled_for: datetime | None

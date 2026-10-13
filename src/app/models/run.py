@@ -56,7 +56,8 @@ class BatchRun(AuditMixin, Base):
     script_id: Mapped[UUID]
     script_version_id: Mapped[UUID]
     config_number: Mapped[int]
-    kernel_profile: Mapped[str] = mapped_column(String(128))
+    # Executor runtime object, e.g. {"type": "JUPYTER", "profile": "x"}.
+    runtime: Mapped[dict[str, Any]] = mapped_column(JSONB)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
     trigger: Mapped[str] = mapped_column(String(16), default="MANUAL")
     scheduled_for: Mapped[datetime | None] = mapped_column(

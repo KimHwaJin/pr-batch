@@ -17,6 +17,7 @@ from conftest import (
 from sqlalchemy import create_engine, select, text
 
 from app.models import ScriptVersion
+from app.services.runtime_catalog import UnconfiguredRuntimeCatalog
 
 
 def mixed_notebook() -> bytes:
@@ -289,9 +290,11 @@ def test_batch_validation_reports_fields(client):
             config=metadata(**{"script_id": script_id, **updates}),
         )
 
-    unknown = register("kernel", kernel_profile="not-registered")
+    unknown = register(
+        "kernel", runtime={"type": "JUPYTER", "profile": "not-registered"}
+    )
     assert unknown.status_code == 422
-    assert unknown.json()["code"] == "UNKNOWN_KERNEL"
+    assert unknown.json()["code"] == "UNKNOWN_RUNTIME"
     for key, updates in [
         ("owner", {"owner_id": "someone-else"}),
         ("enabled", {"enabled": True}),
@@ -484,3 +487,25 @@ def test_resources_report_created_and_updated_by(client):
     ).json()
     assert renamed["updated_at"] > batch["updated_at"]
     assert renamed["created_at"] == batch["created_at"]
+
+
+def test_runtime_choices_and_unreachable_catalog(client):
+    listed = client.get("/api/v1/runtimes", headers=token())
+    assert listed.json()["items"] == [
+        {"type": "JUPYTER", "profile": "python3"},
+        {"type": "JUPYTER", "profile": "analytics"},
+    ]
+    batch = create_batch(client).json()
+    assert batch["runtime"] == {"type": "JUPYTER", "profile": "python3"}
+    client.app.state.runtime_catalog = UnconfiguredRuntimeCatalog()
+    rejected = create_batch(client, key="no-executor")
+    assert rejected.status_code == 503
+    renamed = patch_batch(client, batch, "rename", {"name": "still ok"})
+    assert renamed.status_code == 200
+    moved = patch_batch(
+        client,
+        renamed.json(),
+        "runtime",
+        {"runtime": {"type": "JUPYTER", "profile": "analytics"}},
+    )
+    assert moved.status_code == 503

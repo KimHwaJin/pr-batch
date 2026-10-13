@@ -11,11 +11,13 @@ from app.core.exceptions import ServiceError
 from app.db.base import Actor, utcnow
 from app.db.session import database_now
 from app.domain.schedule_clock import EPSILON, ScheduleClock
-from app.models import Batch, BatchConfig, ScriptVersion, SkippedWindow
+from app.domain.scripts import ScriptType
+from app.models import Batch, BatchConfig, Script, ScriptVersion, SkippedWindow
 from app.schemas.batch import (
     BatchPage,
     BatchView,
     CreateBatch,
+    RuntimeSpec,
     SkippedPage,
     SkippedView,
     UpdateBatch,
@@ -35,6 +37,7 @@ from app.services.common import (
     script_version,
 )
 from app.services.idempotency import Idempotency, MutationResult
+from app.services.runtime_catalog import RuntimeCatalog, check_runtime
 from app.services.schedule_history import record_skipped
 
 
@@ -48,7 +51,7 @@ def batch_view(
         script_id=config.script_id,
         script_version_id=config.script_version_id,
         script_version_number=version.version_number,
-        kernel_profile=config.kernel_profile,
+        runtime=RuntimeSpec.model_validate(config.runtime),
         schedule=schedule,
         policy=policy_of(config),
         enabled=batch.enabled,
@@ -71,10 +74,31 @@ def merged_policy(current: Policy, patch: dict[str, Any]) -> Policy:
         ) from exc
 
 
+def script_type_of(session: Session, version: ScriptVersion) -> ScriptType:
+    script = session.get(Script, version.script_id)
+    assert script is not None
+    return ScriptType(script.type)
+
+
+def check_config_runtime(
+    session: Session, config: BatchConfig, available: list[RuntimeSpec]
+) -> None:
+    version = config_version(session, config)
+    check_runtime(
+        RuntimeSpec.model_validate(config.runtime),
+        script_type_of(session, version),
+        available,
+    )
+
+
 class BatchService:
-    def __init__(self, sessions: sessionmaker[Session]) -> None:
+    def __init__(
+        self, sessions: sessionmaker[Session], catalog: RuntimeCatalog
+    ) -> None:
         self.sessions = sessions
         self.idempotency = Idempotency(sessions)
+        # Read outside transactions: the lookup may call the Executor.
+        self.catalog = catalog
 
     def resolve_version(
         self,
@@ -92,9 +116,14 @@ class BatchService:
     def create_batch(
         self, owner: str, key: str, data: CreateBatch
     ) -> MutationResult:
+        available = self.catalog.available()
+
         def action(session: Session) -> MutationResult:
             version = self.resolve_version(
                 session, owner, data.script_id, data.script_version_number
+            )
+            check_runtime(
+                data.runtime, script_type_of(session, version), available
             )
             actor = Actor.user(owner)
             batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
@@ -106,7 +135,7 @@ class BatchService:
                 number=1,
                 script_id=version.script_id,
                 script_version_id=version.id,
-                kernel_profile=data.kernel_profile,
+                runtime=data.runtime.model_dump(mode="json"),
                 schedule=(
                     data.schedule.model_dump(mode="json")
                     if data.schedule
@@ -138,6 +167,10 @@ class BatchService:
         data: UpdateBatch,
     ) -> MutationResult:
         fields = data.model_fields_set
+        runtime_fields = {"runtime", "script_id", "script_version_number"}
+        available = (
+            self.catalog.available() if fields & runtime_fields else None
+        )
 
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
@@ -148,6 +181,8 @@ class BatchService:
                 batch.name = data.name
             if fields - {"name"}:
                 config = self.next_config(session, owner, batch, config, data)
+                if available is not None:
+                    check_config_runtime(session, config, available)
             batch.revision += 1
             batch.stamp_updated(Actor.user(owner), now)
             return 200, batch_view(
@@ -221,7 +256,11 @@ class BatchService:
             number=batch.config_number,
             script_id=version.script_id,
             script_version_id=version.id,
-            kernel_profile=data.kernel_profile or current.kernel_profile,
+            runtime=(
+                data.runtime.model_dump(mode="json")
+                if data.runtime
+                else current.runtime
+            ),
             schedule=schedule.model_dump(mode="json") if schedule else None,
             policy=policy.model_dump(mode="json"),
         )
@@ -280,8 +319,9 @@ class BatchService:
         key: str,
         expected: int,
         enabled: bool,
-        allowed_kernels: list[str],
     ) -> MutationResult:
+        available = self.catalog.available() if enabled else None
+
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
             check_revision(batch.revision, expected)
@@ -296,10 +336,8 @@ class BatchService:
                             "SCHEDULE_REQUIRED",
                             "Set a schedule before enabling.",
                         )
-                    if config.kernel_profile not in allowed_kernels:
-                        raise ServiceError(
-                            422, "UNKNOWN_KERNEL", "Kernel is not allowed."
-                        )
+                    assert available is not None
+                    check_config_runtime(session, config, available)
                     following = ScheduleClock(schedule).find(now)
                     if following is None:
                         raise ServiceError(
