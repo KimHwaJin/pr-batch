@@ -244,16 +244,16 @@ code_hash로 실제 실행 코드가 같음을 확인할 수 있다.
 {"mode": "REPLACE"}                                            // 실행 중인 것 취소 후 새로
 
 // misfire: 장애 등으로 grace_seconds 넘게 놓친 일정
-{"mode": "SKIP", "grace_seconds": 60}                           // 기본: 버림
-{"mode": "LATEST", "grace_seconds": 60}                         // 가장 최근 1회
-{"mode": "CATCH_UP", "grace_seconds": 60, "max_runs": 10, "max_age_seconds": 86400}
+{"mode": "SKIP", "grace_seconds": 300}                           // 기본: 버림
+{"mode": "LATEST", "grace_seconds": 300}                         // 가장 최근 1회
+{"mode": "CATCH_UP", "grace_seconds": 300, "max_runs": 10, "max_age_seconds": 86400}
 ```
 
 | 값 | 쓰는 모드 | 범위 | 기본 |
 | --- | --- | --- | --- |
 | `max_concurrent` | PARALLEL (필수) | 1~100 | — |
 | `max_queued` | QUEUE, PARALLEL | 1~10000 | 100 |
-| `grace_seconds` | misfire 모든 모드 | 1~86400 | 60 |
+| `grace_seconds` | misfire 모든 모드 | 1~86400 | 300 (재배포·Pod 재시작 지연을 정상으로 보도록 5분) |
 | `max_runs`, `max_age_seconds` | CATCH_UP | 1~1000, 60~31536000 | 10, 86400 |
 
 - 수동 실행도 overlap 정책을 따른다.

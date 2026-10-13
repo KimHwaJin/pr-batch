@@ -54,7 +54,8 @@ def config(**options):
     }
     policy: dict[str, dict] = {
         "overlap": {"mode": "QUEUE"},
-        "misfire": {"mode": "SKIP"},
+        # Tests reason in minutes; pin the old 60 s grace explicitly.
+        "misfire": {"mode": "SKIP", "grace_seconds": 60},
     }
     for key, value in options.items():
         section, name = POLICY_KEYS[key]

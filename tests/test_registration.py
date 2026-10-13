@@ -325,7 +325,7 @@ def test_batch_validation_reports_fields(client):
     assert queue.status_code == 201
     assert queue.json()["policy"] == {
         "overlap": {"mode": "QUEUE", "max_queued": 100},
-        "misfire": {"mode": "LATEST", "grace_seconds": 60},
+        "misfire": {"mode": "LATEST", "grace_seconds": 300},
     }
     missing = register("missing", script_id=str(uuid4()))
     assert missing.status_code == 404

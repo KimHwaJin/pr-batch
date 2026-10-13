@@ -222,21 +222,21 @@ class SkipMisfire(Contract):
     """Drop missed occurrences."""
 
     mode: Literal["SKIP"]
-    grace_seconds: int = Field(default=60, ge=1, le=86400)
+    grace_seconds: int = Field(default=300, ge=1, le=86400)
 
 
 class LatestMisfire(Contract):
     """Run only the most recent missed occurrence."""
 
     mode: Literal["LATEST"]
-    grace_seconds: int = Field(default=60, ge=1, le=86400)
+    grace_seconds: int = Field(default=300, ge=1, le=86400)
 
 
 class CatchUpMisfire(Contract):
     """Run up to max_runs missed occurrences younger than max_age_seconds."""
 
     mode: Literal["CATCH_UP"]
-    grace_seconds: int = Field(default=60, ge=1, le=86400)
+    grace_seconds: int = Field(default=300, ge=1, le=86400)
     max_runs: int = Field(default=10, ge=1, le=1000)
     max_age_seconds: int = Field(default=86400, ge=60, le=31_536_000)
 
