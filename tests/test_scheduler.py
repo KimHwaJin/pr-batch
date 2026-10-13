@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import httpx2
 import pytest
 from conftest import (
+    ALICE,
     API,
     SCRIPTS,
     create_batch,
@@ -48,7 +49,8 @@ def config(**options):
         schedule={
             "definition": {
                 "kind": "INTERVAL",
-                "anchor": utcnow().isoformat(),
+                # Slightly past: host and DB clocks may differ by ms.
+                "anchor": (utcnow() - timedelta(seconds=1)).isoformat(),
                 "seconds": 60,
             },
             **window,
@@ -468,7 +470,7 @@ def test_schedule_is_optional_but_required_to_enable(client, scheduling):
 def test_scheduled_runs_are_created_by_the_system(client, scheduling):
     batch = enabled_batch(client)
     assert batch["created_by_type"] == "USER"
-    assert batch["updated_by"] == "alice"
+    assert batch["updated_by"] == ALICE
     assert scheduling.tick(now=first_at(batch))
     run = runs(client, batch)[0]
     assert (run["created_by_type"], run["created_by"]) == (
@@ -487,5 +489,5 @@ def test_scheduled_runs_are_created_by_the_system(client, scheduling):
     ).json()
     assert (window["updated_by_type"], window["updated_by"]) == (
         "USER",
-        "alice",
+        ALICE,
     )

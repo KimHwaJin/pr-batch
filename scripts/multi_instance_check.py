@@ -27,7 +27,7 @@ def auth(owner: str) -> dict[str, str]:
     settings = Settings()
     now = int(time.time())
     claims = {
-        "sub": owner,
+        "sub": str(uuid.uuid5(uuid.NAMESPACE_URL, f"user:{owner}")),
         "iss": settings.auth_issuer,
         "aud": settings.auth_audience,
         "iat": now,

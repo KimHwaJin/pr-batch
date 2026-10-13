@@ -1,6 +1,7 @@
 """Trusted gateway identity via short-lived, audience-bound service tokens."""
 
 from typing import Annotated, cast
+from uuid import UUID
 
 import jwt
 from fastapi import Depends, Request
@@ -30,14 +31,12 @@ def current_owner(
             issuer=settings.auth_issuer,
             options={"require": ["exp", "iat", "sub", "iss", "aud"]},
         )
-        owner = claims["sub"]
+        # prj_re user IDs are UUIDs; storage paths and ownership use the
+        # canonical form, so "ABC…" and "abc…" are the same user.
+        owner = str(UUID(claims["sub"]))
         issued, expires = claims["iat"], claims["exp"]
         if (
-            not isinstance(owner, str)
-            or not owner.strip()
-            or not owner.isprintable()
-            or len(owner) > 255
-            or type(issued) is not int
+            type(issued) is not int
             or type(expires) is not int
             or not 0 < expires - issued <= settings.auth_max_lifetime_seconds
         ):

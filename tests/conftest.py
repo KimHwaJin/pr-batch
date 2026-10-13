@@ -5,6 +5,7 @@ import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import jwt
 import pytest
@@ -25,10 +26,21 @@ API = "/api/v1/batches"
 SCRIPTS = "/api/v1/scripts"
 
 
+def user_id(name: str) -> str:
+    """Stable UUID for a readable test user name (prj_re IDs are UUIDs)."""
+    try:
+        return str(UUID(name))
+    except ValueError:
+        return str(uuid5(NAMESPACE_URL, f"user:{name}"))
+
+
+ALICE, BOB = user_id("alice"), user_id("bob")
+
+
 def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
     now = int(time.time())
     claims = {
-        "sub": owner,
+        "sub": user_id(owner),
         "iss": "prj_re",
         "aud": "pr-batch",
         "iat": now,

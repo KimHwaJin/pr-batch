@@ -9,7 +9,9 @@ from uuid import UUID, uuid4
 import httpx2
 import pytest
 from conftest import (
+    ALICE,
     API,
+    BOB,
     SCRIPTS,
     create_batch,
     metadata,
@@ -391,7 +393,7 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     tick(worker, run)
     payload = fake.payloads[0]
     assert payload["runtime"] == {"type": "JUPYTER", "profile": "python3"}
-    assert payload["context"] == {"user_id": "alice", "task_id": run["id"]}
+    assert payload["context"] == {"user_id": ALICE, "task_id": run["id"]}
     assert payload["metadata"]["script_version_id"] == run["script_version_id"]
     assert payload["metadata"]["script_id"] == batch["script_id"]
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
@@ -684,7 +686,7 @@ def test_foreign_executor_context_is_not_applied(client, execution):
     fake, worker = execution
     run = run_request(client, create_batch(client).json()["id"]).json()
     tick(worker, run)
-    fake.owner_override = "bob"
+    fake.owner_override = BOB
     tick(worker, run)
     detail = run_get(client, run).json()
     assert detail["execution_status"] == "QUEUED"
@@ -911,8 +913,8 @@ def test_audit_fields_follow_who_changed_the_run(client, execution):
     fake, worker = execution
     batch = create_batch(client).json()
     run = run_request(client, batch["id"]).json()
-    assert (run["created_by_type"], run["created_by"]) == ("USER", "alice")
-    assert run["updated_by"] == "alice"
+    assert (run["created_by_type"], run["created_by"]) == ("USER", ALICE)
+    assert run["updated_by"] == ALICE
     tick(worker, run)
     detail = run_get(client, run).json()
     assert (detail["updated_by_type"], detail["updated_by"]) == (
@@ -920,9 +922,9 @@ def test_audit_fields_follow_who_changed_the_run(client, execution):
         "dispatcher",
     )
     assert detail["updated_at"] > run["updated_at"]
-    assert detail["created_by"] == "alice"
+    assert detail["created_by"] == ALICE
     cancelled = command(client, run, "cancel", "cancel").json()
     assert (cancelled["updated_by_type"], cancelled["updated_by"]) == (
         "USER",
-        "alice",
+        ALICE,
     )

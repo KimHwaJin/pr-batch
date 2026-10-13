@@ -159,6 +159,7 @@ def test_policy_defaults_and_parallel_rule():
         {"iat": int(time.time()) + 1000},
         {"exp": int(time.time()) + 10000},
         {"sub": ""},
+        {"sub": "alice"},
     ],
 )
 def test_invalid_gateway_identity(settings, overrides):
@@ -193,8 +194,11 @@ def test_storage_escape_and_symlink(settings, tmp_path):
     with pytest.raises(ServiceError):
         storage.safe_path("link/file")
     notebook = parse_notebook(notebook_bytes(), "x.ipynb", settings)
-    path, _ = storage.save("../../alice", uuid4(), uuid4(), notebook)
-    assert "alice" not in path
+    with pytest.raises(ValueError):
+        storage.save("../../alice", uuid4(), uuid4(), notebook)
+    owner = uuid4()
+    path, _ = storage.save(str(owner), uuid4(), uuid4(), notebook)
+    assert path.startswith(f"batch-input/users/{owner}/scripts/")
     assert (
         storage.read(path, notebook.sha256, len(notebook.raw)) == notebook.raw
     )
@@ -205,7 +209,7 @@ def test_missing_storage_root_is_not_created(settings, tmp_path):
     storage = ScriptStorage(root)
     notebook = parse_notebook(notebook_bytes(), "x.ipynb", settings)
     with pytest.raises(ServiceError, match="Mount storage"):
-        storage.save("alice", uuid4(), uuid4(), notebook)
+        storage.save(str(uuid4()), uuid4(), uuid4(), notebook)
     assert not root.exists()
 
 

@@ -46,7 +46,7 @@ NOTEBOOK = {
 def token(settings: Settings) -> str:
     now = int(time.time())
     claims = {
-        "sub": "docker-smoke",
+        "sub": "00000000-0000-4000-8000-00000000050c",
         "iss": settings.auth_issuer,
         "aud": settings.auth_audience,
         "iat": now,

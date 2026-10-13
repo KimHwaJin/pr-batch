@@ -83,6 +83,19 @@ Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자
 취소: WAITING은 즉시 CANCELLED. QUEUED는 제출 전에 멈추고 CANCELLED. RUNNING은 Executor에 취소를
 요청하고 실제 종료를 확인한 뒤 CANCELLED. COLLECTING 이후는 409 `NOT_CANCELLABLE`.
 
+## 실행과 Executor Execution 연결
+
+pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서로를 찾을 수 있다.
+
+| 방향 | 방법 |
+| --- | --- |
+| pr-batch → Executor | 실행 응답의 `execution_id`(제출 후 채워짐, QUEUED 동안은 null), `operation_id`, 상세의 셀별 `steps[].step_id` |
+| Executor → pr-batch | Execution의 `context.task_id` = pr-batch `run_id`, `context.user_id` = 사용자 UUID, `metadata`에 `batch_id`, `script_id`, `script_version_id` |
+
+예: Executor에서 `GET /api/v1/executions?task_id=<run_id>`로 해당 실행을 찾거나, pr-batch 실행 응답의
+`execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
+자세히 볼 수 있다. Executor는 인증이 없는 내부 서비스이므로 사용자에게는 prj_re가 소유권 확인 후 중계한다.
+
 ## 내부 Task 파이프라인
 
 상태를 바꾸는 트랜잭션 안에서 그 결과로 필요한 외부 호출을 `tasks` 테이블에 넣는다(트랜잭션 outbox).

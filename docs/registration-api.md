@@ -28,7 +28,8 @@ DB 초기화는 앱 기동과 분리한다. 되돌리기 명령은 등록 데이
 `alembic downgrade`는 보존할 데이터가 있는 환경에서 실행하지 않는다.
 
 `BATCH_STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
-`batch-input/users/<owner-hash>/scripts/<id>/versions/<version>/` 아래 저장한다.
+`batch-input/users/<사용자 UUID>/scripts/<id>/versions/<version>/` 아래 저장한다.
+사용자 UUID는 인증 토큰의 `sub`를 표준 형식(소문자, 하이픈)으로 바꾼 값이다.
 사용자 파일명은 경로로 사용하지 않는다. 버전 디렉터리는 0750, 파일은 0640이며
 Executor가 읽을 공유 그룹·UID/GID·마운트 권한을 운영 환경에서 맞춘다.
 서비스는 자기 저장 영역에 쓰기 권한이 필요하다. 다른 사용자 코드가 이 등록
@@ -51,7 +52,7 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 
 | JWT claim | 값 |
 | --- | --- |
-| sub | 로그인 검증이 끝난 사용자 ID. 1~255자 |
+| sub | 로그인 검증이 끝난 사용자 UUID (prj_re 사용자 ID). UUID가 아니면 401 |
 | iss | 기본 `prj_re`, `BATCH_AUTH_ISSUER`로 설정 |
 | aud | 기본 `pr-batch`, `BATCH_AUTH_AUDIENCE`로 설정 |
 | iat | 발급 UTC Unix 초, 정수 |

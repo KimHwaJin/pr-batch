@@ -6,7 +6,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from conftest import (
+    ALICE,
     API,
+    BOB,
     SCRIPTS,
     create_batch,
     metadata,
@@ -477,11 +479,11 @@ def test_resources_report_created_and_updated_by(client):
     for record in (script, script["latest_version"]):
         assert (record["created_by_type"], record["created_by"]) == (
             "USER",
-            "alice",
+            ALICE,
         )
-        assert record["updated_by"] == "alice"
+        assert record["updated_by"] == ALICE
     batch = create_batch(client, owner="bob").json()
-    assert batch["created_by"] == batch["updated_by"] == "bob"
+    assert batch["created_by"] == batch["updated_by"] == BOB
     renamed = patch_batch(
         client, batch, "rename", {"name": "renamed"}, owner="bob"
     ).json()

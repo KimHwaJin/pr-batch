@@ -38,9 +38,9 @@ class ScriptStorage:
             raise ServiceError(
                 503, "STORAGE_UNAVAILABLE", "Mount storage before registering."
             )
-        owner_hash = hashlib.sha256(owner.encode()).hexdigest()
+        user_id = UUID(owner)  # authenticated user UUID; never raw input
         directory = (
-            f"batch-input/users/{owner_hash}/scripts/{script_id}"
+            f"batch-input/users/{user_id}/scripts/{script_id}"
             f"/versions/{version}"
         )
         destination = self.safe_path(directory)
