@@ -32,7 +32,7 @@ DB migration `0003_scheduling`은 기존 배치를 비활성 상태로 보존한
 
 ## 활성화·중지 API
 
-공통 prefix는 `/internal/v1/batches`다. prj_re가 기존 사용자 JWT를 전달한다.
+공통 prefix는 `/api/v1/batches`다. prj_re가 기존 사용자 JWT를 전달한다.
 
 | Method | 경로 | 기능 |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ ETag를 반환한다. 실제 활성화 상태를 바꿀 때 revision을 증가�
 최초 응답을 돌려주므로 현재 상태는 GET으로 읽는다.
 
 ```sh
-curl -X POST "$BATCH_URL/internal/v1/batches/$BATCH_ID/enable" \
+curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
   -H "Authorization: Bearer $GATEWAY_TOKEN" \
   -H "Idempotency-Key: enable-request-001" \
   -H 'If-Match: "1"'

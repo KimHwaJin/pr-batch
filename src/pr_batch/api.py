@@ -37,7 +37,7 @@ from pr_batch.schemas import (
 from pr_batch.service import MutationResult, RegistrationService
 from pr_batch.settings import Settings
 
-router = APIRouter(prefix="/internal/v1/batches", tags=["batches"])
+router = APIRouter(prefix="/api/v1/batches", tags=["batches"])
 Owner = Annotated[str, Depends(current_owner)]
 Key = Annotated[
     str,

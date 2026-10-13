@@ -19,7 +19,7 @@ from pr_batch.app import create_app
 from pr_batch.settings import Settings
 
 TEST_SECRET = "local-test-only-" * 4
-API = "/internal/v1/batches"
+API = "/api/v1/batches"
 
 
 def token(owner: str = "alice", **overrides: object) -> dict[str, str]:

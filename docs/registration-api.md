@@ -75,7 +75,7 @@ If-Match 없이 사용할 수 있고, 실제 새 버전이 생성되면 revision
 
 ## API 목록
 
-공통 prefix는 `/internal/v1/batches`다. 경로의 UUID는 해당 사용자에게 속해야 하며
+공통 prefix는 `/api/v1/batches`다. 경로의 UUID는 해당 사용자에게 속해야 하며
 다른 사용자 자원은 존재 여부를 드러내지 않는 404를 반환한다.
 
 | Method | 경로 | 동작 |
@@ -119,7 +119,7 @@ If-Match 없이 사용할 수 있고, 실제 새 버전이 생성되면 revision
 이를 `registration.json`으로 저장한 호출 예시:
 
 ```sh
-curl --fail-with-body http://127.0.0.1:8000/internal/v1/batches \
+curl --fail-with-body http://127.0.0.1:8000/api/v1/batches \
   -H "Authorization: Bearer $BATCH_SERVICE_TOKEN" \
   -H 'Idempotency-Key: register-line-1' \
   -F 'file=@analysis.ipynb' \

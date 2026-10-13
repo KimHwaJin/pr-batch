@@ -41,7 +41,7 @@ Executor HTTP 인증 헤더는 현재 계약에 없어 추가하지 않았다. �
 
 ## HTTP 계약
 
-공통 prefix는 `/internal/v1/batches`이며 기존과 동일한 사용자 JWT가 필요하다.
+공통 prefix는 `/api/v1/batches`이며 기존과 동일한 사용자 JWT가 필요하다.
 다른 사용자의 배치·실행에는 404를 반환한다.
 
 | Method | 경로 | 동작 |
@@ -56,7 +56,7 @@ POST에는 `Idempotency-Key`가 필수다. 본문은 생략하거나 `{}`를 보
 접수 후 배치 설정을 바꿔도 대기 중인 실행에는 영향을 주지 않는다.
 
 ```sh
-curl -X POST "$BATCH_URL/internal/v1/batches/$BATCH_ID/runs" \
+curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs" \
   -H "Authorization: Bearer $GATEWAY_TOKEN" \
   -H "Idempotency-Key: manual-request-001"
 ```

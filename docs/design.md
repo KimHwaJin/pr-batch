@@ -222,8 +222,9 @@ DB와 네트워크 사이에서 전역 exactly-once를 주장하지 않는다. �
 
 ## 내부 배치 API 제안
 
-공개 경로는 `prj_re /api/v1/batches`, 내부 prefix는 `/internal/v1`을 제안한다.
-아래 경로 앞에 내부 prefix를 붙인다. 기존 서비스에 이미 있는 API가 아니다.
+pr-batch의 API prefix는 Executor와 같은 형식의 `/api/v1`이다.
+아래 경로 앞에 `/api/v1`을 붙인다. 사용자 진입점은 여전히 `prj_re`이며, pr-batch는
+내부망에서 `prj_re`가 발급한 서비스 토큰으로만 호출한다.
 
 | Method | 경로 | 동작 |
 | --- | --- | --- |

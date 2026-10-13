@@ -91,7 +91,7 @@ def multipart(fields: dict[str, tuple[str | None, str, bytes]]):
 def main() -> None:
     settings = Settings()
     api = os.environ.get("SMOKE_API_URL", "http://127.0.0.1:8000")
-    base = f"{api}/internal/v1/batches"
+    base = f"{api}/api/v1/batches"
     kernel = settings.allowed_kernel_profiles[0]
     nonce = uuid.uuid4().hex
     auth = {"Authorization": f"Bearer {token(settings)}"}
