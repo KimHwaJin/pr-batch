@@ -43,8 +43,6 @@ Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 | GET | /{run_id} | 상태·스냅샷·셀별 Step·리포트 |
 | POST | /{run_id}/cancel | 취소 요청. 202 |
 | POST | /{run_id}/report-retries | 리포트만 재시도 (코드 재실행 없음). 202 |
-| GET | /{run_id}/notebook/content | 결과 노트북 다운로드 (리포트가 붙은 노트북이 있으면 그것) |
-| GET | /{run_id}/report/content | 리포트 Markdown 다운로드 |
 
 쓰기에는 `Idempotency-Key`가 필수다. 수동 실행 본문은 생략하거나 `{}`이며 버전·커널 override는 422다.
 일정이 없는 배치나 비활성 배치도 수동 실행할 수 있다.
@@ -73,8 +71,14 @@ Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 
 응답의 다른 필드: `execution_status`(Executor 원본 상태), `failure_type`, `notebook_status`,
 `last_error`(통신·계약 오류. 코드 실패와 별개), `cancel_requested`, `artifacts`, `attempts`,
-`retry_info`, `report`(최신 generation의 상태·오류·artifact), `steps`(상세만). 출력 원문·표·이미지는
+`retry_info`, `report`(최신 generation의 상태·오류·artifact), `result`, `steps`(상세만). 출력 원문·표·이미지는
 복제하지 않고 `result_ref`와 artifact ID로만 가리킨다.
+
+**결과 다운로드는 pr-batch가 중계하지 않는다.** `result.notebook_artifact_id`(리포트가 붙은 노트북이
+있으면 그것, 없으면 실행 결과 노트북)와 `result.report_artifact_id`(리포트 Markdown)를 보고, prj_re가
+Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자에게 전달한다. Executor는 인증이
+없는 내부 서비스이므로 브라우저에 직접 노출하지 않고, prj_re는 먼저 pr-batch에서 사용자 JWT로 실행을
+조회해 소유권을 확인한 뒤 그 artifact만 내려받는다.
 
 취소: WAITING은 즉시 CANCELLED. QUEUED는 제출 전에 멈추고 CANCELLED. RUNNING은 Executor에 취소를
 요청하고 실제 종료를 확인한 뒤 CANCELLED. COLLECTING 이후는 409 `NOT_CANCELLABLE`.

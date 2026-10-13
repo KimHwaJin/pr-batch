@@ -1,7 +1,6 @@
 """Bounded Executor HTTP client."""
 
 import time
-from collections.abc import Iterator
 from typing import Any
 from uuid import UUID
 
@@ -102,29 +101,3 @@ class ExecutorClient:
                 return False
             raise
         return True
-
-    def artifact_content(
-        self, artifact_id: UUID
-    ) -> tuple[str, Iterator[bytes]]:
-        """Open an artifact download; the iterator closes the response."""
-        try:
-            request = self.client.build_request(
-                "GET", f"api/v1/artifacts/{artifact_id}/content"
-            )
-            response = self.client.send(request, stream=True)
-        except httpx2.HTTPError as exc:
-            raise ExecutorError("EXECUTOR_UNREACHABLE") from exc
-        if not 200 <= response.status_code < 300:
-            response.close()
-            raise ExecutorError(f"EXECUTOR_HTTP_{response.status_code}")
-        media_type = response.headers.get(
-            "content-type", "application/octet-stream"
-        )
-
-        def chunks() -> Iterator[bytes]:
-            try:
-                yield from response.iter_bytes()
-            finally:
-                response.close()
-
-        return media_type, chunks()

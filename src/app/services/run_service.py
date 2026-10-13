@@ -2,7 +2,6 @@
 owner-scoped history. Nothing here calls a remote service; outbound calls
 are enqueued as tasks in the same transaction as the state change."""
 
-from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,7 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.exceptions import ServiceError
 from app.db.session import database_now
 from app.domain.run_state import CANCELLABLE, OCCUPYING, RunStatus
-from app.integrations.executor import ExecutorClient, ExecutorError
 from app.models import (
     Batch,
     BatchConfig,
@@ -22,7 +20,14 @@ from app.models import (
     RunReport,
     RunStepBinding,
 )
-from app.schemas.run import ReportView, RunDetail, RunPage, RunView, StepView
+from app.schemas.run import (
+    ReportView,
+    ResultRefs,
+    RunDetail,
+    RunPage,
+    RunView,
+    StepView,
+)
 from app.services.common import current_config, owned_batch
 from app.services.idempotency import Idempotency, MutationResult
 from app.tasks.queue import TaskKind, enqueue
@@ -187,6 +192,10 @@ def run_view(session: Session, run: BatchRun) -> RunView:
     view = RunView.model_validate(run)
     if report is not None:
         view.report = ReportView.model_validate(report)
+    view.result = ResultRefs(
+        notebook_artifact_id=result_artifact(run, report, "NOTEBOOK"),
+        report_artifact_id=result_artifact(run, report, "REPORT"),
+    )
     return view
 
 
@@ -323,35 +332,15 @@ class RunService:
                 next_cursor=(items[-1].id if len(rows) > limit else None),
             )
 
-    def content(
-        self,
-        owner: str,
-        batch_id: UUID,
-        run_id: UUID,
-        kind: str,
-        executor: ExecutorClient,
-    ) -> tuple[str, Iterator[bytes]]:
-        """Relay the result notebook or report from the Executor."""
-        with self.sessions() as session:
-            owned_batch(session, owner, batch_id)
-            run = self.owned_run(session, owner, batch_id, run_id)
-            artifact_id = result_artifact(
-                run, latest_report(session, run), kind
-            )
-        if artifact_id is None:
-            raise ServiceError(409, "NOT_READY", "Result is not available.")
-        try:
-            return executor.artifact_content(UUID(artifact_id))
-        except (ExecutorError, ValueError) as exc:
-            raise ServiceError(
-                502, "EXECUTOR_UNAVAILABLE", "Could not fetch the result."
-            ) from exc
-
 
 def result_artifact(
     run: BatchRun, report: RunReport | None, kind: str
 ) -> str | None:
-    """Prefer the report-appended notebook; reports come from the report."""
+    """Prefer the report-appended notebook; reports come from the report.
+
+    pr-batch does not relay downloads: prj_re checks ownership through this
+    service, then streams the artifact from the Executor download API.
+    """
     if report is not None and report.status == "SUCCEEDED":
         for artifact in report.artifacts:
             if artifact.get("type") == kind:

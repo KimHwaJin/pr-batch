@@ -33,6 +33,13 @@ class ReportView(BaseModel):
     updated_at: datetime
 
 
+class ResultRefs(BaseModel):
+    """Executor artifact IDs; download via Executor after ownership check."""
+
+    notebook_artifact_id: str | None = None
+    report_artifact_id: str | None = None
+
+
 class RunView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -58,6 +65,7 @@ class RunView(BaseModel):
     attempts: list[dict[str, Any]]
     retry_info: dict[str, Any] | None
     report: ReportView | None = None
+    result: ResultRefs = ResultRefs()
     created_at: datetime
     submitted_at: datetime | None
     started_at: datetime | None

@@ -239,8 +239,9 @@ API: `GET /batches/{id}/skipped-windows`
 /api/v1/batches/{batch_id}/runs
 /api/v1/batches/{batch_id}/runs/{run_id}
 /api/v1/batches/{batch_id}/runs/{run_id}/report-retries      (변경: 신규)
-/api/v1/batches/{batch_id}/runs/{run_id}/notebook/content    (변경: 신규, 결과 노트북 중계)
-/api/v1/batches/{batch_id}/runs/{run_id}/report/content      (변경: 신규, 리포트 Markdown 중계)
 ```
+
+결과 노트북·리포트 다운로드는 pr-batch가 중계하지 않는다. 실행 응답의 `result`에 있는 Executor artifact ID로
+prj_re가 소유권 확인 후 Executor 다운로드 API를 호출한다.
 
 Run은 항상 배치 아래에서 접근한다. 사용자 전체 실행 목록(`/api/v1/runs`)은 화면 요구가 생기면 추가한다.

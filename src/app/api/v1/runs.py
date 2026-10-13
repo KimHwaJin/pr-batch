@@ -1,10 +1,9 @@
-"""Run admission, cancellation, report retry, history and result relay."""
+"""Run admission, cancellation, report retry and history."""
 
-from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from app.api.deps import (
     Key,
@@ -66,71 +65,4 @@ def retry_report(
 ) -> JSONResponse:
     return mutation_response(
         service.retry_report(owner, batch_id, run_id, key)
-    )
-
-
-def relay(
-    request: Request,
-    owner: str,
-    service: Runs,
-    settings: SettingsDep,
-    batch_id: UUID,
-    run_id: UUID,
-    kind: Literal["NOTEBOOK", "REPORT"],
-    filename: str,
-) -> StreamingResponse:
-    require_executor(settings)
-    media_type, chunks = service.content(
-        owner, batch_id, run_id, kind, request.app.state.executor
-    )
-    return StreamingResponse(
-        chunks,
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "private, no-store",
-        },
-    )
-
-
-@router.get("/{run_id}/notebook/content")
-def notebook_content(
-    request: Request,
-    owner: Owner,
-    service: Runs,
-    settings: SettingsDep,
-    batch_id: UUID,
-    run_id: UUID,
-) -> StreamingResponse:
-    return relay(
-        request,
-        owner,
-        service,
-        settings,
-        batch_id,
-        run_id,
-        "NOTEBOOK",
-        f"{run_id}.ipynb",
-    )
-
-
-@router.get("/{run_id}/report/content")
-def report_content(
-    request: Request,
-    owner: Owner,
-    service: Runs,
-    settings: SettingsDep,
-    batch_id: UUID,
-    run_id: UUID,
-) -> StreamingResponse:
-    return relay(
-        request,
-        owner,
-        service,
-        settings,
-        batch_id,
-        run_id,
-        "REPORT",
-        f"{run_id}-report.md",
     )

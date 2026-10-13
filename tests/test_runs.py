@@ -270,7 +270,6 @@ def execution(client):
     remote = ExecutorClient(
         "http://executor.test", transport=httpx2.MockTransport(fake.handle)
     )
-    client.app.state.executor = remote
     worker = Dispatcher(
         client.app.state.sessions, Clients(remote, None, 5, 60)
     )
@@ -858,38 +857,27 @@ def test_report_retry_requires_configuration(client, execution):
     assert response.json()["code"] == "REPORT_NOT_CONFIGURED"
 
 
-def test_result_and_report_content_relay(client, reporting):
+def test_result_artifact_ids_for_executor_download(client, reporting):
     fake, report, worker = reporting
     run = run_request(client, create_batch(client).json()["id"]).json()
-    url = f"{API}/{run['batch_id']}/runs/{run['id']}"
-    assert (
-        client.get(f"{url}/notebook/content", headers=token()).status_code
-        == 409
-    )
+    assert run["result"] == {
+        "notebook_artifact_id": None,
+        "report_artifact_id": None,
+    }
     tick(worker, run)
     fake.state, fake.version = "SUCCEEDED", 3
-    fake.contents = {
-        fake.artifact_id: b'{"raw": true}',
-        report.NOTEBOOK: b'{"report": true}',
-        report.REPORT: b"# report",
-    }
     for _ in range(3):
         tick(worker, run)
-    assert run_get(client, run).json()["status"] == "REPORTING"
-    raw = client.get(f"{url}/notebook/content", headers=token())
-    assert raw.content == b'{"raw": true}'
-    assert (
-        client.get(f"{url}/report/content", headers=token()).status_code == 409
-    )
+    detail = run_get(client, run).json()
+    assert detail["status"] == "REPORTING"
+    assert detail["result"]["notebook_artifact_id"] == fake.artifact_id
+    assert detail["result"]["report_artifact_id"] is None
     drain(worker, run)
-    reported = client.get(f"{url}/notebook/content", headers=token())
-    assert reported.content == b'{"report": true}'
-    markdown = client.get(f"{url}/report/content", headers=token())
-    assert markdown.content == b"# report"
-    assert (
-        client.get(f"{url}/report/content", headers=token("bob")).status_code
-        == 404
-    )
+    detail = run_get(client, run).json()
+    assert detail["result"] == {
+        "notebook_artifact_id": report.NOTEBOOK,
+        "report_artifact_id": report.REPORT,
+    }
 
 
 def test_background_runtime_drives_runs_and_stops(client, execution):

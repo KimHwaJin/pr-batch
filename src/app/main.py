@@ -16,7 +16,6 @@ from app.core.exceptions import ServiceError, register_exception_handlers
 from app.core.middleware import RequestSizeLimit
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_db_engine, create_sessions
-from app.integrations.executor import ExecutorClient
 from app.runtime.runtime import BackgroundRuntime, build_clients
 from app.storage.notebook_storage import NotebookStorage
 
@@ -50,8 +49,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.ready = False
             if runtime is not None:
                 await run_in_threadpool(runtime.stop)
-            if app.state.executor is not None:
-                app.state.executor.close()
             engine.dispose()
 
     app = FastAPI(
@@ -62,12 +59,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = NotebookStorage(settings.storage_root)
     app.state.runtime = None
     app.state.ready = False
-    # Separate client for API-side relays (result downloads).
-    app.state.executor = (
-        ExecutorClient(settings.executor_base_url)
-        if settings.executor_base_url
-        else None
-    )
     app.add_middleware(
         RequestSizeLimit, max_bytes=settings.upload_max_bytes + 64 * 1024
     )
