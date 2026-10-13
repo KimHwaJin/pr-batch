@@ -248,3 +248,15 @@ prj_re에 요청할 변경: ① pr-batch 호출 시 사용자 bearer token 대�
 | PVC 공유 | 가능 | Executor와 RWX PVC 공유 (8장) |
 | DB 커넥션 | 직접 설정 가능, 자원 넉넉하지 않음 | 전체 상한 24, 원격 호출 중 커넥션 미점유 (9장) |
 | 서비스 인증 | Executor 없음. prj_re는 SSO 필수, 나머지는 변경 요청 가능 | 서비스 간 단기 JWT (10장) |
+
+## 13. 여러 인스턴스 검증 (2026-10-13)
+
+`make docker-multi`로 같은 이미지의 app 3개를 한 DB에 띄우고(lease 30초로 단축)
+`scripts/multi_instance_check.py`로 확인했다. 로컬 Executor BATCH 풀에서 실제로 실행했다.
+
+| 시나리오 | 결과 |
+| --- | --- |
+| 같은 시각 ONCE 예약 30건 | 배치마다 Run 1개, Executor 실행 30개(멱등성 키 중복 0). 3개 인스턴스가 제출을 10/11/9건 분담 |
+| 제출 중 lease를 쥔 인스턴스를 멈춤(`docker pause`) 후 강제 종료(SIGKILL) | 멈춘 시점에 lease 8건 보유. 30초 뒤 다른 인스턴스가 회수해 30건 모두 COMPLETED, Executor 중복 실행 0 |
+| 처리 중 인스턴스 정상 종료(SIGTERM) | 1초 안에 종료("Background runtime stopped"), 남은 lease 0, 30건 모두 COMPLETED |
+| 빈 스키마에서 3개 동시 기동 | 1개만 migration 수행, 나머지는 advisory lock 대기 후 정상 기동 |

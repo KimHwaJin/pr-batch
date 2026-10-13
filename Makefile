@@ -28,7 +28,7 @@ serve:
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.
-.PHONY: docker-up docker-down docker-smoke docker-logs
+.PHONY: docker-up docker-down docker-smoke docker-logs docker-multi
 
 docker-up:
 	docker compose up -d --build --wait --remove-orphans app
@@ -41,3 +41,9 @@ docker-smoke:
 
 docker-logs:
 	docker compose logs -f app
+
+# Three identical app replicas on one database (HPA-like); see
+# scripts/multi_instance_check.py for the scheduling/recovery checks.
+docker-multi:
+	docker compose -f compose.yaml -f compose.multi.yaml up -d --build \
+		--wait --remove-orphans app app-2 app-3

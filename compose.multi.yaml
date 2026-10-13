@@ -1,0 +1,27 @@
+# Multi-replica check: three identical app instances share one database,
+# like HPA replicas. Usage: make docker-multi && make docker-multi-check
+services:
+  app:
+    environment: &multi-env
+      BATCH_DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
+      BATCH_STORAGE_ROOT: /workspace/shared
+      BATCH_AUTH_SECRET: ${PR_BATCH_AUTH_SECRET:-local-only-insecure-secret-change-me-0123456789}
+      BATCH_ALLOWED_KERNEL_PROFILES: ${PR_BATCH_KERNEL_PROFILES:-["default"]}
+      BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
+      BATCH_SYNC_INITIAL_SECONDS: "2"
+      BATCH_SYNC_MAX_SECONDS: "5"
+      # Short lease so recovery after a frozen/killed replica is observable.
+      BATCH_TASK_LEASE_SECONDS: "30"
+      BATCH_DB_AUTO_MIGRATE: "true"
+  app-2:
+    extends:
+      file: compose.yaml
+      service: app
+    ports: !reset []
+    environment: *multi-env
+  app-3:
+    extends:
+      file: compose.yaml
+      service: app
+    ports: !reset []
+    environment: *multi-env
