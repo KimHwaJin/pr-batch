@@ -76,14 +76,14 @@ services:
 
   worker:
     <<: *batch-app
-    command: ["python", "-m", "pr_batch.worker"]
+    command: ["python", "-m", "src.workers.executor_worker"]
     depends_on:
       migrate:
         condition: service_completed_successfully
 
   scheduler:
     <<: *batch-app
-    command: ["python", "-m", "pr_batch.scheduler"]
+    command: ["python", "-m", "src.workers.scheduler"]
     depends_on:
       migrate:
         condition: service_completed_successfully

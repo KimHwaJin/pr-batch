@@ -1,4 +1,4 @@
-"""Restartable PostgreSQL dispatcher/reconciler, separate from the API."""
+"""Restartable PostgreSQL dispatcher/reconciler for Executor runs."""
 
 import argparse
 import logging
@@ -10,11 +10,13 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, func, or_, select, tuple_
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from pr_batch.executor import (
+from src.core.config import Settings
+from src.db.session import create_db_engine, create_sessions, database_now
+from src.integrations.executor import (
     Detail,
     ExecutorClient,
     ExecutorError,
@@ -22,17 +24,10 @@ from pr_batch.executor import (
     Result,
     require,
 )
-from pr_batch.models import Batch, BatchRun, RunCommand, RunStepBinding
-from pr_batch.runs import TERMINAL, occupied
-from pr_batch.settings import Settings
+from src.models import Batch, BatchRun, RunCommand, RunStepBinding
+from src.services.run_service import TERMINAL, occupied
 
 logger = logging.getLogger(__name__)
-
-
-def database_now(session: Session) -> datetime:
-    value = session.scalar(select(func.clock_timestamp()))
-    assert isinstance(value, datetime)
-    return value
 
 
 @dataclass(frozen=True)
@@ -303,17 +298,10 @@ def main() -> None:
     settings = Settings()
     if settings.executor_base_url is None:
         parser.error("Set BATCH_EXECUTOR_BASE_URL before starting the worker.")
-    engine = create_engine(
-        settings.database_url.get_secret_value(),
-        pool_pre_ping=True,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_timeout=10,
-        connect_args={"connect_timeout": 5},
-    )
+    engine = create_db_engine(settings)
     client = ExecutorClient(settings.executor_base_url)
     worker = Worker(
-        sessionmaker(engine, expire_on_commit=False),
+        create_sessions(engine),
         client,
         poll_seconds=settings.executor_poll_seconds,
     )

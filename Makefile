@@ -23,13 +23,13 @@ migrate:
 	uv run --locked alembic upgrade head
 
 serve:
-	uv run --locked uvicorn pr_batch.app:create_app --factory
+	uv run --locked uvicorn src.main:create_app --factory
 
 worker:
-	uv run --locked python -m pr_batch.worker
+	uv run --locked python -m src.workers.executor_worker
 
 scheduler:
-	uv run --locked python -m pr_batch.scheduler
+	uv run --locked python -m src.workers.scheduler
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.

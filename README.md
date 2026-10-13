@@ -22,6 +22,35 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 
 설계 초안은 전체 목표이며 실제 구현 범위는 각 API 안내에서 구분합니다.
 
+## 디렉토리 구조
+
+`src`가 최상위 패키지이며 저장소 루트에서 `src.*`로 실행합니다(라이브러리로 빌드하지 않음).
+
+```text
+src/
+  main.py                 앱 생성: 라우터·미들웨어·예외 핸들러·헬스체크
+  core/                   config(환경 설정), security(JWT), exceptions, middleware
+  db/                     Base, 엔진·세션 생성, DB 시각
+  models/                 SQLAlchemy 테이블: notebook, batch, run, idempotency
+  schemas/                Pydantic 계약: common, schedule, notebook, batch, run
+  api/
+    deps.py               인증·Idempotency-Key·If-Match·서비스 주입
+    router.py             /api/v1 라우터 묶음
+    v1/                   notebooks, batches, runs 엔드포인트
+  services/               notebook, batch, run, idempotency, 공용 조회
+  domain/                 순수 로직: schedule_clock, notebook_parser
+  storage/                공유 PV 노트북 저장소
+  integrations/executor/  Executor HTTP 클라이언트와 응답 계약
+  workers/                executor_worker(제출·상태 수집), scheduler(예약 접수)
+migrations/               Alembic (batch 스키마)
+scripts/                  Docker smoke 테스트
+tests/
+```
+
+API(`uvicorn src.main:create_app --factory`), Executor 워커
+(`python -m src.workers.executor_worker`), 스케줄러(`python -m src.workers.scheduler`)는
+같은 DB와 설정을 쓰는 별도 프로세스입니다.
+
 ## 개발 도구
 
 - Python 3.12 (`>=3.12,<3.13`)

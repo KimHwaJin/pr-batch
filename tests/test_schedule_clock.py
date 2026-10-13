@@ -5,8 +5,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from croniter import croniter
 
-from pr_batch.schedule_clock import SEOUL, ScheduleClock
-from pr_batch.schemas import Schedule
+from src.domain.schedule_clock import SEOUL, ScheduleClock
+from src.schemas.schedule import Schedule
 
 
 def dt(value):

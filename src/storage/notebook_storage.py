@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from pr_batch.errors import ServiceError
-from pr_batch.notebooks import Notebook
+from src.core.exceptions import ServiceError
+from src.domain.notebook_parser import Notebook
 
 
 class NotebookStorage:

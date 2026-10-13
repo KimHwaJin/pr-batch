@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 
 import jwt
 
-from pr_batch.settings import Settings
+from src.core.config import Settings
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 NOTEBOOK = {

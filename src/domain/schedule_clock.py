@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
-from pr_batch.schemas import Calendar, Cron, Interval, Once, Schedule
+from src.schemas.schedule import Calendar, Cron, Interval, Once, Schedule
 
 EPSILON = timedelta(microseconds=1)
 SEOUL = ZoneInfo("Asia/Seoul")

@@ -1,15 +1,13 @@
-"""Durable manual execution admission and owner-scoped history."""
+"""Durable run admission (manual and scheduled) and owner-scoped history."""
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, or_, select, tuple_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from pr_batch.errors import ServiceError
-from pr_batch.models import (
+from src.core.exceptions import ServiceError
+from src.models import (
     Batch,
     BatchConfig,
     BatchRun,
@@ -17,65 +15,11 @@ from pr_batch.models import (
     RunCommand,
     RunStepBinding,
 )
-from pr_batch.service import (
-    MutationResult,
-    RegistrationService,
-    current_config,
-    owned_batch,
-)
+from src.schemas.run import RunDetail, RunPage, RunView, StepView
+from src.services.common import current_config, owned_batch
+from src.services.idempotency import Idempotency, MutationResult
 
 TERMINAL = ("SUCCEEDED", "FAILED", "CANCELLED")
-
-
-class StepView(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    sequence: int
-    original_index: int
-    source_sha256: str
-    step_id: UUID | None
-    status: str | None
-    result_ref: dict[str, Any] | None
-
-
-class RunView(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: UUID
-    batch_id: UUID
-    notebook_id: UUID
-    notebook_version_id: UUID
-    config_number: int
-    kernel_profile: str
-    snapshot: dict[str, Any]
-    trigger: str
-    scheduled_for: datetime | None
-    dispatch_status: str
-    execution_id: UUID | None
-    operation_id: UUID | None
-    execution_status: str | None
-    observed_version: int | None
-    report_status: str
-    skip_reason: str | None
-    failure_type: str | None
-    tracking_error: str | None
-    notebook_status: str | None
-    result_status: str
-    artifacts: list[dict[str, Any]]
-    attempts: list[dict[str, Any]]
-    retry_info: dict[str, Any] | None
-    created_at: datetime
-    submitted_at: datetime | None
-    started_at: datetime | None
-    finished_at: datetime | None
-    observed_at: datetime | None
-
-
-class RunDetail(RunView):
-    steps: list[StepView]
-
-
-class RunPage(BaseModel):
-    items: list[RunView]
-    next_cursor: UUID | None
 
 
 def occupied(session: Session, batch_id: UUID) -> int:
@@ -213,9 +157,9 @@ def admit_run(
 
 
 class RunService:
-    def __init__(self, registration: RegistrationService) -> None:
-        self.registration = registration
-        self.sessions = registration.sessions
+    def __init__(self, sessions: sessionmaker[Session]) -> None:
+        self.sessions = sessions
+        self.idempotency = Idempotency(sessions)
 
     def create(self, owner: str, batch_id: UUID, key: str) -> MutationResult:
         def action(session: Session) -> MutationResult:
@@ -224,9 +168,7 @@ class RunService:
             status, run = admit_run(session, batch, config)
             return status, RunView.model_validate(run).model_dump(mode="json")
 
-        return self.registration.mutate(
-            owner, f"run:{batch_id}", key, {}, action
-        )
+        return self.idempotency.run(owner, f"run:{batch_id}", key, {}, action)
 
     def get(self, owner: str, batch_id: UUID, run_id: UUID) -> RunDetail:
         with self.sessions() as session:

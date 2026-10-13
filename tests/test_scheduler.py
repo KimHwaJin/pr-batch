@@ -18,18 +18,19 @@ from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from test_runs import FakeExecutor
 
-from pr_batch.executor import ExecutorClient
-from pr_batch.models import Batch, BatchRun, RunCommand, utcnow
-from pr_batch.runs import admit_run
-from pr_batch.scheduler import Scheduler
-from pr_batch.service import current_config
-from pr_batch.worker import Worker
+from src.db.base import utcnow
+from src.integrations.executor import ExecutorClient
+from src.models import Batch, BatchRun, RunCommand
+from src.services.common import current_config
+from src.services.run_service import admit_run
+from src.workers.executor_worker import Worker
+from src.workers.scheduler import Scheduler
 
 
 @pytest.fixture
 def scheduling(client):
     client.app.state.settings.executor_base_url = "http://executor.test"
-    return Scheduler(client.app.state.registration.sessions)
+    return Scheduler(client.app.state.sessions)
 
 
 RENAMED = {"misfire_policy": "misfire", "overlap_policy": "overlap"}

@@ -11,8 +11,8 @@ import nbformat
 from jsonschema import ValidationError
 from nbformat.validator import normalize
 
-from pr_batch.errors import ServiceError
-from pr_batch.settings import Settings
+from src.core.config import Settings
+from src.core.exceptions import ServiceError
 
 
 @dataclass(frozen=True)

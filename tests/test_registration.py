@@ -16,7 +16,7 @@ from conftest import (
 )
 from sqlalchemy import create_engine, select, text
 
-from pr_batch.models import NotebookVersion
+from src.models import NotebookVersion
 
 
 def mixed_notebook() -> bytes:
@@ -364,7 +364,7 @@ def test_pagination_and_invalid_cursor(client):
 
 
 def test_database_rollback_after_storage_failure(client, monkeypatch):
-    storage = client.app.state.registration.storage
+    storage = client.app.state.storage
 
     def fail(*args, **kwargs):
         raise OSError("private path must not leak")

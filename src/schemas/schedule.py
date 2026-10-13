@@ -1,43 +1,13 @@
-"""Registration and schedule configuration contracts."""
+"""When a batch runs (Schedule) and how runs interact (Policy)."""
 
 import re
 from datetime import datetime, time
 from typing import Annotated, Literal, Self
-from uuid import UUID
 
 from croniter import croniter
-from pydantic import (
-    AwareDatetime,
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    field_validator,
-    model_validator,
-)
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
-Name = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        max_length=255,
-        pattern=r"^[^\x00-\x1f\x7f]+$",
-    ),
-]
-KernelName = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        max_length=128,
-        pattern=r"^[^\x00-\x1f\x7f]+$",
-    ),
-]
-
-
-class Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+from src.schemas.common import Contract
 
 
 class Once(Contract):
@@ -160,111 +130,3 @@ class PolicyPatch(Contract):
     catch_up_max_age_seconds: int | None = Field(
         default=None, ge=60, le=31_536_000
     )
-
-
-class ManualRun(Contract):
-    """Run the selected immutable configuration without overrides."""
-
-
-class RenameNotebook(Contract):
-    name: Name
-
-
-class CreateBatch(Contract):
-    name: Name
-    notebook_id: UUID
-    notebook_version_id: UUID | None = None
-    kernel_profile: KernelName
-    schedule: Schedule | None = None
-    policy: Policy = Field(default_factory=Policy)
-
-
-class UpdateBatch(Contract):
-    """Only fields present in the request change; schedule=null removes."""
-
-    name: Name | None = None
-    notebook_id: UUID | None = None
-    notebook_version_id: UUID | None = None
-    kernel_profile: KernelName | None = None
-    schedule: Schedule | None = None
-    policy: PolicyPatch | None = None
-
-    @model_validator(mode="after")
-    def validate_patch(self) -> Self:
-        if not self.model_fields_set:
-            raise ValueError("Send at least one field to change.")
-        for field in ("name", "notebook_id", "kernel_profile", "policy"):
-            if field in self.model_fields_set and getattr(self, field) is None:
-                raise ValueError(f"{field} cannot be null.")
-        return self
-
-
-class CellCounts(Contract):
-    total: int
-    executable: int
-    skipped: int
-
-
-class CellEntry(Contract):
-    index: int
-    type: str
-    executed: bool
-    sequence: int | None = None
-
-
-class VersionView(Contract):
-    id: UUID
-    notebook_id: UUID
-    number: int
-    filename: str
-    sha256: str
-    code_hash: str
-    size_bytes: int
-    cells: CellCounts
-    created_at: datetime
-
-
-class VersionDetail(VersionView):
-    cell_list: list[CellEntry]
-
-
-class NotebookView(Contract):
-    id: UUID
-    name: str
-    revision: int
-    latest_version: VersionView
-    created_at: datetime
-    updated_at: datetime
-
-
-class BatchView(Contract):
-    id: UUID
-    name: str
-    notebook_id: UUID
-    notebook_version_id: UUID
-    notebook_version_number: int
-    kernel_profile: str
-    schedule: Schedule | None
-    policy: Policy
-    enabled: bool
-    next_run_at: datetime | None
-    preview_runs: list[datetime]
-    config_number: int
-    revision: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class NotebookPage(Contract):
-    items: list[NotebookView]
-    next_cursor: str | None
-
-
-class BatchPage(Contract):
-    items: list[BatchView]
-    next_cursor: str | None
-
-
-class VersionPage(Contract):
-    items: list[VersionView]
-    next_cursor: int | None

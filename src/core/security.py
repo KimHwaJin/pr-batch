@@ -6,8 +6,8 @@ import jwt
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from pr_batch.errors import ServiceError
-from pr_batch.settings import Settings
+from src.core.config import Settings
+from src.core.exceptions import ServiceError
 
 bearer = HTTPBearer(auto_error=False)
 

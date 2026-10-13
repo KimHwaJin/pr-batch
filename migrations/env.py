@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, pool, text
 from sqlalchemy.engine import make_url
 
-from pr_batch.models import Base
+from src.models import Base
 
 load_dotenv()
 url = os.environ["BATCH_DATABASE_URL"]

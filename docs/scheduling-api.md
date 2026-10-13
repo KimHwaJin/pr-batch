@@ -21,7 +21,7 @@ make worker
 스케줄러만 실행하면 예약 접수까지 처리하며 실제 제출은 워커가 담당한다.
 API는 두 프로세스를 자동 실행하지 않는다. 스케줄러는 유휴 상태에서 기본 1초마다
 확인한다. `BATCH_SCHEDULER_POLL_SECONDS`로 1~60초 범위에서 조절할 수 있다.
-`uv run --locked python -m pr_batch.scheduler --once`는 도래한 배치 하나를
+`uv run --locked python -m src.workers.scheduler --once`는 도래한 배치 하나를
 처리하고 종료한다. DB 오류나 누락된 Executor 설정은 실패로 종료한다.
 
 배치는 비활성으로 등록되며 예약 프로세스를 배포한 것만으로 활성화되지 않는다.

@@ -17,14 +17,14 @@ from conftest import (
 )
 from sqlalchemy import func, select, update
 
-from pr_batch.executor import ExecutorClient, ExecutorError
-from pr_batch.models import (
+from src.db.base import utcnow
+from src.integrations.executor import ExecutorClient, ExecutorError
+from src.models import (
     BatchRun,
     RunCommand,
     RunStepBinding,
-    utcnow,
 )
-from pr_batch.worker import Worker
+from src.workers.executor_worker import Worker
 
 
 class FakeExecutor:
@@ -199,7 +199,7 @@ def execution(client):
     remote = ExecutorClient(
         "http://executor.test", transport=httpx2.MockTransport(fake.handle)
     )
-    sessions = client.app.state.registration.sessions
+    sessions = client.app.state.sessions
     worker = Worker(sessions, remote)
     yield fake, worker
     remote.close()

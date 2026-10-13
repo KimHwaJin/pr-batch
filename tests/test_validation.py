@@ -9,11 +9,11 @@ from conftest import API, NOTEBOOKS, notebook_bytes, token
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from pr_batch.app import create_app
-from pr_batch.errors import ServiceError
-from pr_batch.notebooks import parse_notebook
-from pr_batch.schemas import Policy, Schedule
-from pr_batch.storage import NotebookStorage
+from src.core.exceptions import ServiceError
+from src.domain.notebook_parser import parse_notebook
+from src.main import create_app
+from src.schemas.schedule import Policy, Schedule
+from src.storage.notebook_storage import NotebookStorage
 
 
 @pytest.mark.parametrize("raw", [b"no-json", b"[]", b"{}", b"\xff"])

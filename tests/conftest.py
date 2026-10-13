@@ -15,8 +15,8 @@ from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from pr_batch.app import create_app
-from pr_batch.settings import Settings
+from src.core.config import Settings
+from src.main import create_app
 
 TEST_SECRET = "local-test-only-" * 4
 API = "/api/v1/batches"
