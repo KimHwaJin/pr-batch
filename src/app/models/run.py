@@ -1,8 +1,8 @@
-"""Run history, Executor step bindings and durable worker commands."""
+"""Run history, report attempts, Executor step bindings and the task queue."""
 
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     CheckConstraint,
@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -34,12 +35,13 @@ class BatchRun(Base):
             ],
         ),
         CheckConstraint(
-            "dispatch_status IN ('PENDING', 'WAITING_CAPACITY', "
-            "'SUBMITTED', 'SKIPPED')",
-            name="run_dispatch_status",
+            "status IN ('WAITING', 'QUEUED', 'RUNNING', 'COLLECTING', "
+            "'REPORTING', 'COMPLETED', 'FAILED', 'REPORT_FAILED', "
+            "'CANCELLED', 'SKIPPED')",
+            name="run_status",
         ),
         Index("ix_runs_batch_created", "batch_id", "created_at", "id"),
-        Index("ix_runs_capacity", "batch_id", "dispatch_status"),
+        Index("ix_runs_batch_status", "batch_id", "status"),
         UniqueConstraint(
             "batch_id",
             "config_number",
@@ -60,24 +62,24 @@ class BatchRun(Base):
     scheduled_for: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
-    dispatch_status: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    skip_reason: Mapped[str | None] = mapped_column(String(64))
+    cancel_requested: Mapped[bool] = mapped_column(default=False)
+    # Executor-side facts, kept verbatim for diagnosis.
     execution_id: Mapped[UUID | None] = mapped_column(unique=True)
     operation_id: Mapped[UUID | None]
     execution_status: Mapped[str | None] = mapped_column(String(32))
     observed_version: Mapped[int | None]
-    report_status: Mapped[str] = mapped_column(
-        String(32), default="NOT_REQUESTED"
-    )
-    skip_reason: Mapped[str | None] = mapped_column(String(64))
     failure_type: Mapped[str | None] = mapped_column(String(128))
-    tracking_error: Mapped[str | None] = mapped_column(String(64))
     notebook_status: Mapped[str | None] = mapped_column(String(32))
-    result_status: Mapped[str] = mapped_column(String(32), default="PENDING")
     artifacts: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list
     )
     attempts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     retry_info: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Latest communication/contract error while progressing the run.
+    last_error: Mapped[str | None] = mapped_column(String(64))
+    report_generation: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
@@ -91,6 +93,9 @@ class BatchRun(Base):
         DateTime(timezone=True)
     )
     observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
 
@@ -110,28 +115,68 @@ class RunStepBinding(Base):
     result_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
-class RunCommand(Base):
-    """Durable submit/poll/result job; token fences expired workers."""
+class RunReport(Base):
+    """One report attempt; a retry adds a generation, never re-runs code."""
 
-    __tablename__ = "run_commands"
+    __tablename__ = "run_reports"
     __table_args__ = (
         CheckConstraint(
-            "phase IN ('SUBMIT', 'POLL', 'RESULT', 'DONE')",
-            name="command_phase",
+            "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
+            name="report_status",
         ),
-        Index("ix_commands_due", "available_at", "run_id"),
+        CheckConstraint("generation >= 1", name="report_generation"),
     )
 
     run_id: Mapped[UUID] = mapped_column(
         ForeignKey("batch.batch_runs.id"), primary_key=True
     )
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    phase: Mapped[str] = mapped_column(String(16), default="SUBMIT")
-    available_at: Mapped[datetime] = mapped_column(
+    generation: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="REQUESTED")
+    job_id: Mapped[str | None] = mapped_column(String(128))
+    artifacts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class Task(Base):
+    """One outbound call, enqueued in the transaction that requires it.
+
+    The run status is the source of truth; handlers re-check it and finish
+    as no-ops when a task is stale. Leases with tokens fence expired pods.
+    """
+
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint("status IN ('PENDING', 'DONE')", name="task_status"),
+        Index(
+            "ix_tasks_due",
+            "run_at",
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        Index("ix_tasks_run", "run_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    kind: Mapped[str] = mapped_column(String(32))
+    run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("batch.batch_runs.id")
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING")
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(default=0)
     lease_token: Mapped[UUID | None]
     lease_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
-    failures: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )

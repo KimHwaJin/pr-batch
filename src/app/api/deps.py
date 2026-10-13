@@ -42,7 +42,11 @@ def get_batch_service(request: Request) -> BatchService:
 
 
 def get_run_service(request: Request) -> RunService:
-    return RunService(request.app.state.sessions)
+    settings = cast(Settings, request.app.state.settings)
+    return RunService(
+        request.app.state.sessions,
+        reports_enabled=settings.report_base_url is not None,
+    )
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

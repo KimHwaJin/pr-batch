@@ -1,4 +1,4 @@
-.PHONY: setup check lint format typecheck test migrate serve worker scheduler
+.PHONY: setup check lint format typecheck test migrate serve
 
 setup:
 	uv sync --locked
@@ -23,20 +23,15 @@ migrate:
 	uv run --locked alembic upgrade head
 
 serve:
-	uv run --locked uvicorn app.main:create_app --factory
-
-worker:
-	uv run --locked python -m app.workers.executor_worker
-
-scheduler:
-	uv run --locked python -m app.workers.scheduler
+	# API + scheduler + task dispatcher in one process (as deployed).
+	uv run --locked uvicorn app.main:create_app --factory --port 8100
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.
 .PHONY: docker-up docker-down docker-smoke docker-logs
 
 docker-up:
-	docker compose up -d --build --wait api worker scheduler
+	docker compose up -d --build --wait --remove-orphans app
 
 docker-down:
 	docker compose down
@@ -45,4 +40,4 @@ docker-smoke:
 	docker compose --profile smoke run --rm smoke
 
 docker-logs:
-	docker compose logs -f api worker scheduler
+	docker compose logs -f app

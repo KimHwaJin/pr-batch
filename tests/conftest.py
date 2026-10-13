@@ -89,6 +89,8 @@ def settings(tmp_path: Path) -> Settings:
         storage_root=tmp_path,
         auth_secret=SecretStr(TEST_SECRET),
         allowed_kernel_profiles=["python3", "analytics"],
+        db_auto_migrate=False,
+        background_enabled=False,
     )
 
 
@@ -118,8 +120,8 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
     with engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE batch.skipped_windows, batch.run_commands, "
-                "batch.run_step_bindings, "
+                "TRUNCATE batch.skipped_windows, batch.tasks, "
+                "batch.run_reports, batch.run_step_bindings, "
                 "batch.batch_runs, batch.batch_configs, "
                 "batch.batches, batch.notebook_versions, batch.notebooks, "
                 "batch.idempotency_records"

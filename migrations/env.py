@@ -1,4 +1,8 @@
-"""Explicit migrations for our schema only; never migrate at app startup."""
+"""Migrations for our schema only.
+
+The API runs them at startup (no Jobs or init containers are available);
+an advisory lock lets exactly one replica migrate while others wait.
+"""
 
 import os
 
@@ -9,8 +13,13 @@ from sqlalchemy.engine import make_url
 
 from app.models import Base
 
+MIGRATION_LOCK = 7_301_202_610  # arbitrary, stable advisory lock key
+
 load_dotenv()
-url = os.environ["BATCH_DATABASE_URL"]
+url = (
+    context.config.attributes.get("database_url")
+    or os.environ["BATCH_DATABASE_URL"]
+)
 if make_url(url).drivername != "postgresql+psycopg":
     raise ValueError("Migrations require postgresql+psycopg.")
 
@@ -44,6 +53,9 @@ else:
         connect_args={"options": "-c search_path=public"},
     )
     with engine.connect() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK}
+        )
         connection.execute(text("CREATE SCHEMA IF NOT EXISTS batch"))
         connection.commit()
         context.configure(

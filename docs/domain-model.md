@@ -1,7 +1,6 @@
 # pr-batch 서비스 체계 (도메인 모델)
 
-상태: 제안. [목표 아키텍처](architecture.md)의 실행 파이프라인을 포함한 최종 체계다.
-현재 구현과 다른 부분(Run 상태 단일화, Task, Report)은 "변경"으로 표시했다.
+상태: 구현됨(2026-10-13). "변경" 표시는 이전 구현 대비 바뀐 부분이다.
 
 ## 1. 한눈에 보기
 
@@ -123,10 +122,9 @@ Run 상태 (변경: 지금은 상태 문자열 4개로 흩어져 있음 → 하�
 
 | 상태 | 의미 | 다음 실행을 막는가 |
 | --- | --- | --- |
-| QUEUED | 접수됨, 제출 대기 | 아니오 |
 | WAITING | 동시 실행 한도 때문에 대기 (QUEUE/PARALLEL) | 아니오 |
 | SKIPPED | 겹침·대기열 초과로 실행 안 함 (사유 기록) | — |
-| SUBMITTING | Executor에 제출 중 | 예 |
+| QUEUED | 자리 확보, Executor 제출 대기·진행 | 예 |
 | RUNNING | Executor에서 코드 실행 중 | 예 |
 | COLLECTING | 실행 종료, 셀별 결과·결과 노트북 수집 중 | 아니오 (요건: 겹침은 코드 실행 종료 기준) |
 | REPORTING | 리포트 생성 중 | **아니오** (요건: 리포트는 다음 실행을 막지 않음) |
@@ -136,7 +134,7 @@ Run 상태 (변경: 지금은 상태 문자열 4개로 흩어져 있음 → 하�
 | REPORT_FAILED | 실행은 성공, 리포트만 실패 → 리포트만 재시도 가능 | — |
 
 ```text
-QUEUED ─▶ SUBMITTING ─▶ RUNNING ─▶ COLLECTING ─┬─▶ REPORTING ─┬─▶ COMPLETED
+QUEUED ─▶ RUNNING ─▶ COLLECTING ─┬─▶ REPORTING ─┬─▶ COMPLETED
   │  ▲                                          │              └─▶ REPORT_FAILED ─(재시도)─▶ REPORTING
   ▼  │                                          └─▶ FAILED
 WAITING          QUEUED ─▶ SKIPPED (겹침·대기열 초과)

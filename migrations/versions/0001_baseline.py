@@ -1,7 +1,4 @@
-"""Baseline: notebooks, versions, batches, configs, runs and schedules.
-
-Replaces the pre-release 0001-0003 chain; reset local `batch` schemas.
-"""
+"""Baseline: notebooks, batches, configs, runs, reports and tasks."""
 
 import sqlalchemy as sa
 from alembic import op
@@ -165,17 +162,15 @@ def upgrade() -> None:
         ),
         sa.Column("trigger", sa.String(length=16), nullable=False),
         sa.Column("scheduled_for", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("dispatch_status", sa.String(length=32), nullable=False),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("skip_reason", sa.String(length=64), nullable=True),
+        sa.Column("cancel_requested", sa.Boolean(), nullable=False),
         sa.Column("execution_id", sa.Uuid(), nullable=True),
         sa.Column("operation_id", sa.Uuid(), nullable=True),
         sa.Column("execution_status", sa.String(length=32), nullable=True),
         sa.Column("observed_version", sa.Integer(), nullable=True),
-        sa.Column("report_status", sa.String(length=32), nullable=False),
-        sa.Column("skip_reason", sa.String(length=64), nullable=True),
         sa.Column("failure_type", sa.String(length=128), nullable=True),
-        sa.Column("tracking_error", sa.String(length=64), nullable=True),
         sa.Column("notebook_status", sa.String(length=32), nullable=True),
-        sa.Column("result_status", sa.String(length=32), nullable=False),
         sa.Column(
             "artifacts",
             postgresql.JSONB(astext_type=sa.Text()),
@@ -189,15 +184,19 @@ def upgrade() -> None:
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=True,
         ),
+        sa.Column("last_error", sa.String(length=64), nullable=True),
+        sa.Column("report_generation", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("observed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
-            "dispatch_status IN ('PENDING', 'WAITING_CAPACITY', "
-            "'SUBMITTED', 'SKIPPED')",
-            name="run_dispatch_status",
+            "status IN ('WAITING', 'QUEUED', 'RUNNING', 'COLLECTING', "
+            "'REPORTING', 'COMPLETED', 'FAILED', 'REPORT_FAILED', "
+            "'CANCELLED', 'SKIPPED')",
+            name="run_status",
         ),
         sa.ForeignKeyConstraint(
             ["batch_id", "config_number"],
@@ -232,9 +231,9 @@ def upgrade() -> None:
         schema="batch",
     )
     op.create_index(
-        "ix_runs_capacity",
+        "ix_runs_batch_status",
         "batch_runs",
-        ["batch_id", "dispatch_status"],
+        ["batch_id", "status"],
         unique=False,
         schema="batch",
     )
@@ -269,32 +268,29 @@ def upgrade() -> None:
         schema="batch",
     )
     op.create_table(
-        "run_commands",
+        "run_reports",
         sa.Column("run_id", sa.Uuid(), nullable=False),
+        sa.Column("generation", sa.Integer(), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("job_id", sa.String(length=128), nullable=True),
         sa.Column(
-            "payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+            "artifacts",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
         ),
-        sa.Column("phase", sa.String(length=16), nullable=False),
-        sa.Column("available_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("lease_token", sa.Uuid(), nullable=True),
-        sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("failures", sa.Integer(), nullable=False),
+        sa.Column("error_code", sa.String(length=64), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "phase IN ('SUBMIT', 'POLL', 'RESULT', 'DONE')",
-            name="command_phase",
+            "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
+            name="report_status",
         ),
+        sa.CheckConstraint("generation >= 1", name="report_generation"),
         sa.ForeignKeyConstraint(
             ["run_id"],
             ["batch.batch_runs.id"],
         ),
-        sa.PrimaryKeyConstraint("run_id"),
-        schema="batch",
-    )
-    op.create_index(
-        "ix_commands_due",
-        "run_commands",
-        ["available_at", "run_id"],
-        unique=False,
+        sa.PrimaryKeyConstraint("run_id", "generation"),
         schema="batch",
     )
     op.create_table(
@@ -318,19 +314,64 @@ def upgrade() -> None:
         sa.UniqueConstraint("run_id", "step_id"),
         schema="batch",
     )
+    op.create_table(
+        "tasks",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("kind", sa.String(length=32), nullable=False),
+        sa.Column("run_id", sa.Uuid(), nullable=True),
+        sa.Column(
+            "payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("run_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("attempts", sa.Integer(), nullable=False),
+        sa.Column("lease_token", sa.Uuid(), nullable=True),
+        sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_error", sa.String(length=64), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "status IN ('PENDING', 'DONE')", name="task_status"
+        ),
+        sa.ForeignKeyConstraint(
+            ["run_id"],
+            ["batch.batch_runs.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        schema="batch",
+    )
+    op.create_index(
+        "ix_tasks_due",
+        "tasks",
+        ["run_at"],
+        unique=False,
+        schema="batch",
+        postgresql_where=sa.text("status = 'PENDING'"),
+    )
+    op.create_index(
+        "ix_tasks_run", "tasks", ["run_id"], unique=False, schema="batch"
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_tasks_run", table_name="tasks", schema="batch")
+    op.drop_index(
+        "ix_tasks_due",
+        table_name="tasks",
+        schema="batch",
+        postgresql_where=sa.text("status = 'PENDING'"),
+    )
+    op.drop_table("tasks", schema="batch")
     op.drop_table("run_step_bindings", schema="batch")
-    op.drop_index("ix_commands_due", table_name="run_commands", schema="batch")
-    op.drop_table("run_commands", schema="batch")
+    op.drop_table("run_reports", schema="batch")
     op.drop_index(
         "ix_skipped_batch_created",
         table_name="skipped_windows",
         schema="batch",
     )
     op.drop_table("skipped_windows", schema="batch")
-    op.drop_index("ix_runs_capacity", table_name="batch_runs", schema="batch")
+    op.drop_index(
+        "ix_runs_batch_status", table_name="batch_runs", schema="batch"
+    )
     op.drop_index(
         "ix_runs_batch_created", table_name="batch_runs", schema="batch"
     )

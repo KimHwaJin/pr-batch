@@ -24,12 +24,27 @@ class Settings(BaseSettings):
     max_code_cells: int = Field(default=100, ge=1, le=10000)
     cell_max_bytes: int = Field(default=1024 * 1024, ge=1)
     allowed_kernel_profiles: list[str] = Field(min_length=1)
-    db_pool_size: int = Field(default=5, ge=1, le=100)
-    db_max_overflow: int = Field(default=5, ge=0, le=100)
+    # Remote calls never hold a connection, so a small pool suffices.
+    db_pool_size: int = Field(default=3, ge=1, le=100)
+    db_max_overflow: int = Field(default=3, ge=0, le=100)
+    # Kubernetes allows neither Jobs nor init containers for this service:
+    # the first pod upgrades the schema under a PostgreSQL advisory lock.
+    db_auto_migrate: bool = True
 
     executor_base_url: str | None = None
-    scheduler_poll_seconds: int = Field(default=1, ge=1, le=60)
-    executor_poll_seconds: int = Field(default=5, ge=1, le=300)
+    # prj_re report API; when unset, successful runs complete unreported.
+    report_base_url: str | None = None
+    report_token_secret: SecretStr | None = None
+    report_token_audience: str = "prj_re-report"
+
+    # In-process background runtime (scheduler + task dispatcher).
+    background_enabled: bool = True
+    task_concurrency: int = Field(default=4, ge=1, le=64)
+    task_lease_seconds: int = Field(default=90, ge=30, le=3600)
+    idle_max_seconds: float = Field(default=5, gt=0, le=60)
+    sync_initial_seconds: int = Field(default=5, ge=1, le=300)
+    sync_max_seconds: int = Field(default=60, ge=1, le=3600)
+    shutdown_grace_seconds: float = Field(default=40, ge=1, le=600)
 
     @model_validator(mode="after")
     def validate_configuration(self) -> Self:
@@ -42,8 +57,11 @@ class Settings(BaseSettings):
             raise ValueError("auth_secret must contain at least 32 bytes.")
         if any(not name.strip() for name in self.allowed_kernel_profiles):
             raise ValueError("Kernel profile names must not be blank.")
-        if self.executor_base_url is not None:
-            endpoint = urlsplit(self.executor_base_url)
+        for name in ("executor_base_url", "report_base_url"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            endpoint = urlsplit(value)
             if (
                 endpoint.scheme not in {"http", "https"}
                 or not endpoint.hostname
@@ -53,6 +71,15 @@ class Settings(BaseSettings):
                 or endpoint.fragment
             ):
                 raise ValueError(
-                    "Use an HTTP Executor base URL without credentials."
+                    f"{name}: use an HTTP base URL without credentials."
                 )
+        if self.report_base_url is not None:
+            secret = self.report_token_secret
+            if secret is None or len(secret.get_secret_value().encode()) < 32:
+                raise ValueError(
+                    "report_token_secret (32+ bytes) is required with "
+                    "report_base_url."
+                )
+        if self.sync_initial_seconds > self.sync_max_seconds:
+            raise ValueError("sync_initial_seconds exceeds sync_max_seconds.")
         return self

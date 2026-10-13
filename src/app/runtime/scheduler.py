@@ -1,24 +1,20 @@
-"""Durable schedule admission process; Executor dispatch is separate."""
+"""Schedule admission: turns due occurrences into runs, exactly once.
 
-import argparse
-import logging
-import signal
-import threading
+Every replica runs this loop; `FOR UPDATE SKIP LOCKED` on the batch row
+guarantees one admission per occurrence without leader election.
+"""
+
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.config import Settings
-from app.db.session import create_db_engine, create_sessions, database_now
+from app.db.session import database_now
 from app.domain.schedule_clock import ScheduleClock
 from app.models import Batch
 from app.services.common import current_config, policy_of, schedule_of
 from app.services.run_service import admit_run
 from app.services.schedule_history import record_skipped
-
-logger = logging.getLogger(__name__)
 
 
 class Scheduler:
@@ -95,38 +91,10 @@ class Scheduler:
             batch.next_run_at = cursor
             return True
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--once", action="store_true")
-    args = parser.parse_args()
-    settings = Settings()
-    if settings.executor_base_url is None:
-        parser.error(
-            "Set BATCH_EXECUTOR_BASE_URL before starting the scheduler."
-        )
-    engine = create_db_engine(settings)
-    scheduler = Scheduler(create_sessions(engine))
-    stop = threading.Event()
-    signal.signal(signal.SIGTERM, lambda *_: stop.set())
-    signal.signal(signal.SIGINT, lambda *_: stop.set())
-    logging.basicConfig(level=logging.INFO)
-    try:
-        while not stop.is_set():
-            try:
-                busy = scheduler.tick()
-            except SQLAlchemyError:
-                if args.once:
-                    raise
-                logger.error("Scheduler database unavailable; retrying.")
-                busy = False
-            if args.once:
-                break
-            if not busy:
-                stop.wait(settings.scheduler_poll_seconds)
-    finally:
-        engine.dispose()
-
-
-if __name__ == "__main__":
-    main()
+    def next_due(self) -> datetime | None:
+        with self.sessions() as session:
+            return session.scalar(
+                select(func.min(Batch.next_run_at)).where(
+                    Batch.enabled.is_(True)
+                )
+            )

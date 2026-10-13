@@ -23,6 +23,16 @@ class StepView(BaseModel):
     result_ref: dict[str, Any] | None
 
 
+class ReportView(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    generation: int
+    status: str
+    error_code: str | None
+    artifacts: list[dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+
 class RunView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -34,25 +44,26 @@ class RunView(BaseModel):
     snapshot: dict[str, Any]
     trigger: str
     scheduled_for: datetime | None
-    dispatch_status: str
+    status: str
+    skip_reason: str | None
+    cancel_requested: bool
     execution_id: UUID | None
     operation_id: UUID | None
     execution_status: str | None
     observed_version: int | None
-    report_status: str
-    skip_reason: str | None
     failure_type: str | None
-    tracking_error: str | None
     notebook_status: str | None
-    result_status: str
+    last_error: str | None
     artifacts: list[dict[str, Any]]
     attempts: list[dict[str, Any]]
     retry_info: dict[str, Any] | None
+    report: ReportView | None = None
     created_at: datetime
     submitted_at: datetime | None
     started_at: datetime | None
     finished_at: datetime | None
     observed_at: datetime | None
+    completed_at: datetime | None
 
 
 class RunDetail(RunView):

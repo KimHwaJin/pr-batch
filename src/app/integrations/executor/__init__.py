@@ -5,9 +5,15 @@ from app.integrations.executor.client import (
     ExecutorError,
     require,
 )
-from app.integrations.executor.contracts import Detail, Receipt, Result
+from app.integrations.executor.contracts import (
+    CommandAck,
+    Detail,
+    Receipt,
+    Result,
+)
 
 __all__ = [
+    "CommandAck",
     "Detail",
     "ExecutorClient",
     "ExecutorError",

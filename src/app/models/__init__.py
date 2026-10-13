@@ -4,7 +4,7 @@ from app.db.base import Base
 from app.models.batch import Batch, BatchConfig, SkippedWindow
 from app.models.idempotency import IdempotencyRecord
 from app.models.notebook import Notebook, NotebookVersion
-from app.models.run import BatchRun, RunCommand, RunStepBinding
+from app.models.run import BatchRun, RunReport, RunStepBinding, Task
 
 __all__ = [
     "Base",
@@ -14,7 +14,8 @@ __all__ = [
     "IdempotencyRecord",
     "Notebook",
     "NotebookVersion",
-    "RunCommand",
+    "RunReport",
     "RunStepBinding",
     "SkippedWindow",
+    "Task",
 ]

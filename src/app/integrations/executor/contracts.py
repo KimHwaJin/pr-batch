@@ -134,3 +134,8 @@ class Result(BaseModel):
     operations: list[ResultOperation]
     attempts: list[Attempt]
     artifacts: list[Artifact]
+
+
+class CommandAck(BaseModel):
+    execution_id: UUID
+    state: State

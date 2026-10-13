@@ -1,6 +1,6 @@
 # pr-batch 목표 아키텍처 (배포 제약 반영)
 
-상태: 제안(2026-10-13 배포 환경 답변 반영). 사용자 확정 후 구현한다. 기능 요건은 [요구사항](requirements.md),
+상태: 구현됨(2026-10-13). 배포 환경 답변 반영. 기능 요건은 [요구사항](requirements.md),
 API·데이터 계약은 [노트북·배치 분리 설계](notebook-batch-design.md)를 따른다.
 
 ## 1. 배포 제약과 그 의미
@@ -76,12 +76,11 @@ flowchart LR
 
 ```mermaid
 stateDiagram-v2
-    [*] --> QUEUED: 접수 (수동/예약)
-    QUEUED --> SKIPPED: 겹침·대기열 초과
-    QUEUED --> WAITING: 동시 실행 한도 초과
+    [*] --> QUEUED: 접수 (자리 있음)
+    [*] --> WAITING: 동시 실행 한도 초과
+    [*] --> SKIPPED: 겹침·대기열 초과
     WAITING --> QUEUED: 자리 생김
-    QUEUED --> SUBMITTING
-    SUBMITTING --> RUNNING: Executor 접수
+    QUEUED --> RUNNING: Executor 접수
     RUNNING --> COLLECTING: Executor 종료 확인
     COLLECTING --> REPORTING: 성공 + 결과 노트북 준비
     COLLECTING --> FAILED: 코드 실행 실패
@@ -91,7 +90,7 @@ stateDiagram-v2
     REPORT_FAILED --> REPORTING: 리포트만 재시도 (코드 재실행 없음)
 ```
 
-- 겹침 판단의 "점유"는 SUBMITTING·RUNNING이다(요건: 코드 실행 종료 기준). 결과 수집·리포트는 다음 실행을 막지 않는다.
+- 겹침 판단의 "점유"는 QUEUED·RUNNING이다(요건: 코드 실행 종료 기준). 결과 수집·리포트는 다음 실행을 막지 않는다.
 - 사용자 취소는 CANCELLED로 끝나며 리포트를 만들지 않는다.
 - Executor 원본 상태, 실패 유형, 리포트 상태 등 세부 값은 별도 컬럼으로 보존하되,
   사용자에게 보이는 상태와 전이 규칙은 `run.status` 하나와 한 모듈(`domain/run_state.py`)에 둔다.
@@ -234,7 +233,7 @@ prj_re에 요청할 변경: ① pr-batch 호출 시 사용자 bearer token 대�
 | `app/tasks/` (신규) | Task 종류별 handler (submit, sync, collect, report) |
 | `app/domain/run_state.py` (신규) | Run 상태와 전이 규칙 |
 | `app/integrations/report/` (신규) | prj_re 리포트 API 클라이언트 |
-| `app/workers/` | 제거. 로컬 디버깅용 `python -m app.runtime --once` 정도만 남김 |
+| `app/workers/` | 제거 |
 | `app/main.py` | lifespan에서 migration(옵션) → 런타임 시작, 종료 시 정지 |
 | `deploy/k8s/` (신규) | Deployment(단일 컨테이너), Service, HPA(CPU), PVC(RWX), Secret 예시 |
 | `compose.yaml` | api·worker·scheduler 3개 서비스를 `app` 1개로 통합 (운영과 같은 형태로 테스트) |

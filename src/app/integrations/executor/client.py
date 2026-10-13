@@ -1,13 +1,19 @@
 """Bounded Executor HTTP client."""
 
 import time
+from collections.abc import Iterator
 from typing import Any
 from uuid import UUID
 
 import httpx2
 from pydantic import BaseModel, ValidationError
 
-from app.integrations.executor.contracts import Detail, Receipt, Result
+from app.integrations.executor.contracts import (
+    CommandAck,
+    Detail,
+    Receipt,
+    Result,
+)
 
 
 class ExecutorError(Exception):
@@ -77,3 +83,48 @@ class ExecutorClient:
         return self.request(
             "GET", f"api/v1/executions/{execution_id}/result", Result
         )
+
+    def cancel(self, execution_id: UUID, key: str, actor_id: str) -> bool:
+        """Request cancellation; False when Executor reports it too late."""
+        try:
+            self.request(
+                "POST",
+                f"api/v1/executions/{execution_id}/cancel",
+                CommandAck,
+                {
+                    "idempotency_key": key,
+                    "reason": "Cancelled by the batch owner.",
+                    "actor": {"type": "BATCH", "id": actor_id},
+                },
+            )
+        except ExecutorError as exc:
+            if str(exc) == "EXECUTOR_HTTP_409":
+                return False
+            raise
+        return True
+
+    def artifact_content(
+        self, artifact_id: UUID
+    ) -> tuple[str, Iterator[bytes]]:
+        """Open an artifact download; the iterator closes the response."""
+        try:
+            request = self.client.build_request(
+                "GET", f"api/v1/artifacts/{artifact_id}/content"
+            )
+            response = self.client.send(request, stream=True)
+        except httpx2.HTTPError as exc:
+            raise ExecutorError("EXECUTOR_UNREACHABLE") from exc
+        if not 200 <= response.status_code < 300:
+            response.close()
+            raise ExecutorError(f"EXECUTOR_HTTP_{response.status_code}")
+        media_type = response.headers.get(
+            "content-type", "application/octet-stream"
+        )
+
+        def chunks() -> Iterator[bytes]:
+            try:
+                yield from response.iter_bytes()
+            finally:
+                response.close()
+
+        return media_type, chunks()

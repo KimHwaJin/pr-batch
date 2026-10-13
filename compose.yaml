@@ -14,8 +14,9 @@ x-batch-env: &batch-env
   BATCH_AUTH_AUDIENCE: pr-batch
   BATCH_ALLOWED_KERNEL_PROFILES: ${PR_BATCH_KERNEL_PROFILES:-["default"]}
   BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
-  BATCH_EXECUTOR_POLL_SECONDS: ${PR_BATCH_EXECUTOR_POLL_SECONDS:-2}
-  BATCH_SCHEDULER_POLL_SECONDS: 1
+  BATCH_SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
+  BATCH_SYNC_MAX_SECONDS: ${PR_BATCH_SYNC_MAX_SECONDS:-10}
+  BATCH_DB_AUTO_MIGRATE: "true"
 
 x-batch-app: &batch-app
   image: pr-batch:local
@@ -44,20 +45,15 @@ services:
       - shared-infra
     restart: "no"
 
-  migrate:
+  # Same shape as production: one container serves the API and runs the
+  # scheduler and task dispatcher; it migrates the schema on startup.
+  app:
     <<: *batch-app
     build:
       context: .
-    command: ["alembic", "upgrade", "head"]
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
-    restart: "no"
-
-  api:
-    <<: *batch-app
     ports:
       - "${PR_BATCH_PORT:-8100}:8000"
+    stop_grace_period: 60s
     healthcheck:
       test:
         [
@@ -68,24 +64,10 @@ services:
         ]
       interval: 5s
       timeout: 5s
-      retries: 20
-      start_period: 5s
+      retries: 30
+      start_period: 10s
     depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  worker:
-    <<: *batch-app
-    command: ["python", "-m", "app.workers.executor_worker"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  scheduler:
-    <<: *batch-app
-    command: ["python", "-m", "app.workers.scheduler"]
-    depends_on:
-      migrate:
+      db-init:
         condition: service_completed_successfully
 
   # End-to-end check: make docker-smoke
@@ -94,10 +76,10 @@ services:
     command: ["python", "scripts/docker_smoke.py"]
     environment:
       <<: *batch-env
-      SMOKE_API_URL: http://api:8000
+      SMOKE_API_URL: http://app:8000
     profiles: ["smoke"]
     depends_on:
-      api:
+      app:
         condition: service_healthy
     restart: "no"
 

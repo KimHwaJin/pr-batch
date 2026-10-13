@@ -1,28 +1,15 @@
 # 예약 활성화와 스케줄러
 
-등록된 일정에 맞춰 실행 이력과 Executor 제출 명령을 생성한다. 코드를 실행하는
-역할은 기존 [Executor 워커](execution-api.md)가 유지한다. 예약 등록·활성화는
+등록된 일정에 맞춰 실행(Run)과 첫 Task(Executor 제출)를 생성한다. 이후 진행은
+[실행 파이프라인](execution-api.md)이 담당한다. 예약 등록·활성화는
 사용자 단위이며 Redis나 별도 외부 스케줄링 시스템은 사용하지 않는다.
 
 ## 기동
 
-API·스케줄러·Executor 워커를 같은 DB와 설정으로 각각 실행한다.
-`BATCH_EXECUTOR_BASE_URL`과 공유 PV·커널 설정은 실행 API 안내를 따른다.
-
-```sh
-uv sync --locked
-make migrate
-make serve
-# 각각 별도 터미널/컨테이너에서 실행
-make scheduler
-make worker
-```
-
-스케줄러만 실행하면 예약 접수까지 처리하며 실제 제출은 워커가 담당한다.
-API는 두 프로세스를 자동 실행하지 않는다. 스케줄러는 유휴 상태에서 기본 1초마다
-확인한다. `BATCH_SCHEDULER_POLL_SECONDS`로 1~60초 범위에서 조절할 수 있다.
-`uv run --locked python -m app.workers.scheduler --once`는 도래한 배치 하나를
-처리하고 종료한다. DB 오류나 누락된 Executor 설정은 실패로 종료한다.
+스케줄러는 별도 프로세스가 아니라 API 프로세스 안의 백그라운드 런타임에서 돈다
+([실행 안내](execution-api.md) 참고). 모든 레플리카가 같은 루프를 돌리지만, 도래한 배치 행을
+`FOR UPDATE SKIP LOCKED`로 잡으므로 같은 예약을 두 번 접수하지 않는다. 할 일이 없으면 다음 예약
+시각까지(최대 `BATCH_IDLE_MAX_SECONDS`, 기본 5초) 잠든다.
 
 배치는 비활성으로 등록되며 예약 프로세스를 배포한 것만으로 활성화되지 않는다.
 
@@ -149,6 +136,6 @@ CATCH_UP 복구는 설정상 최대 1,000개, 기본 10개이며 여기에 정�
 분 단위 예약을 수년간 놓쳐도 생략된 모든 실행을 메모리나 DB에 펼치지 않는다.
 
 `/readyz`는 migration과 PV 상태만 검사한다. 스케줄러·워커 프로세스 감독,
-과거 next_run_at의 체류 시간, 실행의 tracking_error 관찰은 운영 배포에서 연결해야
+과거 next_run_at의 체류 시간, 실행의 last_error 관찰은 운영 배포에서 연결해야
 한다. 이 단계에서 운영 환경 부하나 실제 Executor/Jupyter까지의 종단간 실행을
 검증한 것은 아니다. PostgreSQL 동시성·롤백·복구와 테스트 Executor 연결을 검증했다.

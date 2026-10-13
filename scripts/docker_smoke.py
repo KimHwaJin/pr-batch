@@ -15,7 +15,7 @@ import jwt
 
 from app.core.config import Settings
 
-TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
+FINAL = {"COMPLETED", "FAILED", "REPORT_FAILED", "CANCELLED", "SKIPPED"}
 NOTEBOOK = {
     "nbformat": 4,
     "nbformat_minor": 5,
@@ -142,15 +142,12 @@ def main() -> None:
         f"{base}/{batch['id']}/runs",
         auth | {"Idempotency-Key": f"run-{nonce}"},
     )
-    print(f"accepted run {run['id']} ({run['dispatch_status']})")
+    print(f"accepted run {run['id']} ({run['status']})")
     deadline = time.monotonic() + 180
     while True:
         run = call("GET", f"{base}/{batch['id']}/runs/{run['id']}", auth)
-        status = run["execution_status"]
-        if run["dispatch_status"] == "FAILED":
-            break
-        # The worker collects result references after the terminal status.
-        if status in TERMINAL and run["result_status"] != "PENDING":
+        status = run["status"]
+        if status in FINAL:
             break
         if time.monotonic() > deadline:
             sys.exit(f"timed out waiting for run (last status {status})")
@@ -158,18 +155,17 @@ def main() -> None:
     summary = {
         key: run[key]
         for key in (
-            "dispatch_status",
+            "status",
             "execution_id",
             "execution_status",
-            "result_status",
             "failure_type",
-            "tracking_error",
+            "last_error",
         )
     }
     print(json.dumps(summary, indent=2))
     notebooks = [a for a in run["artifacts"] if a["type"] == "NOTEBOOK"]
     steps_ok = all(step["status"] == "SUCCEEDED" for step in run["steps"])
-    if status != "SUCCEEDED" or not steps_ok or not notebooks:
+    if status != "COMPLETED" or not steps_ok or not notebooks:
         sys.exit("smoke test FAILED")
     print(
         f"smoke test passed; notebook artifact {notebooks[0]['artifact_id']}"

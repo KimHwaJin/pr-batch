@@ -20,11 +20,12 @@ from test_runs import FakeExecutor
 
 from app.db.base import utcnow
 from app.integrations.executor import ExecutorClient
-from app.models import Batch, BatchRun, RunCommand
+from app.models import Batch, BatchRun, Task
+from app.runtime.dispatcher import Dispatcher
+from app.runtime.scheduler import Scheduler
 from app.services.common import current_config
 from app.services.run_service import admit_run
-from app.workers.executor_worker import Worker
-from app.workers.scheduler import Scheduler
+from app.tasks.handlers import Clients
 
 
 @pytest.fixture
@@ -244,9 +245,9 @@ def test_timely_admission_is_bounded_and_resumes(client, scheduling):
 @pytest.mark.parametrize(
     "policy,maximum,expected",
     [
-        ("SKIP", 1, ["PENDING", "SKIPPED", "SKIPPED", "SKIPPED"]),
-        ("QUEUE", 1, ["PENDING", "WAITING_CAPACITY", "SKIPPED", "SKIPPED"]),
-        ("PARALLEL", 2, ["PENDING", "PENDING", "WAITING_CAPACITY", "SKIPPED"]),
+        ("SKIP", 1, ["QUEUED", "SKIPPED", "SKIPPED", "SKIPPED"]),
+        ("QUEUE", 1, ["QUEUED", "WAITING", "SKIPPED", "SKIPPED"]),
+        ("PARALLEL", 2, ["QUEUED", "QUEUED", "WAITING", "SKIPPED"]),
     ],
 )
 def test_scheduled_admission_uses_existing_overlap_policy(
@@ -265,7 +266,7 @@ def test_scheduled_admission_uses_existing_overlap_policy(
     )
     assert scheduling.tick(now=first_at(batch) + timedelta(minutes=3))
     history = runs(client, batch)
-    assert [r["dispatch_status"] for r in history] == expected
+    assert [r["status"] for r in history] == expected
     assert history[-1]["skip_reason"] == (
         "OVERLAP" if policy == "SKIP" else "SKIPPED_CAPACITY"
     )
@@ -292,12 +293,12 @@ def test_admission_and_pointer_roll_back_together(client, scheduling):
     def fail(*args):
         raise RuntimeError("simulated process failure before commit")
 
-    event.listen(RunCommand, "before_insert", fail)
+    event.listen(Task, "before_insert", fail)
     try:
         with pytest.raises(RuntimeError):
             scheduling.tick(now=now)
     finally:
-        event.remove(RunCommand, "before_insert", fail)
+        event.remove(Task, "before_insert", fail)
     assert get_batch(client, batch)["next_run_at"] == batch["next_run_at"]
     assert runs(client, batch) == []
     assert skipped(client, batch) == []
@@ -420,10 +421,12 @@ def test_scheduler_to_executor_worker_contract(client, scheduling):
         "http://executor.test", transport=httpx2.MockTransport(fake.handle)
     )
     try:
-        worker = Worker(scheduling.sessions, executor)
+        worker = Dispatcher(
+            scheduling.sessions, Clients(executor, None, 5, 60)
+        )
         assert worker.tick()
         history = runs(client, batch)
-        assert history[0]["dispatch_status"] == "SUBMITTED"
+        assert history[0]["status"] == "RUNNING"
         assert fake.payloads[0]["trigger"]["type"] == "BATCH"
         assert fake.payloads[0]["context"]["task_id"] == history[0]["id"]
         assert fake.payloads[0]["runtime"]["profile"] == "python3"

@@ -7,7 +7,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 리포트 생성 연동은 다음 단계입니다.
 
 [노트북·배치 등록 API 안내](docs/registration-api.md)와
-[수동 실행·워커 안내](docs/execution-api.md),
+[실행 API·처리 파이프라인 안내](docs/execution-api.md),
 [예약 실행 안내](docs/scheduling-api.md)를 따릅니다.
 
 ## 서비스 설계
@@ -16,6 +16,8 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 
 - [확정 요구사항](docs/requirements.md)
 - [확정 실행 이력 저장 계약](docs/execution-history.md)
+- [목표 아키텍처 (배포 제약 반영)](docs/architecture.md)
+- [서비스 체계 (도메인 모델)](docs/domain-model.md)
 - [노트북·배치 분리 설계](docs/notebook-batch-design.md)
 - [API·데이터 모델·상태 흐름 설계 초안](docs/design.md)
 - [Executor·prj_re 연동 계약과 확인 사항](docs/integrations.md)
@@ -39,18 +41,21 @@ src/app/
     router.py             /api/v1 라우터 묶음
     v1/                   notebooks, batches, runs 엔드포인트
   services/               notebook, batch, run, idempotency, 공용 조회
-  domain/                 순수 로직: schedule_clock, notebook_parser
+  domain/                 순수 로직: run_state(상태 머신), schedule_clock, notebook_parser
   storage/                공유 PV 노트북 저장소
-  integrations/executor/  Executor HTTP 클라이언트와 응답 계약
-  workers/                executor_worker(제출·상태 수집), scheduler(예약 접수)
+  integrations/           executor(실행), report(prj_re 리포트) HTTP 클라이언트
+  runtime/                백그라운드 런타임: 스케줄러 루프, Task dispatcher
+  tasks/                  Task 큐(트랜잭션 outbox)와 handler(제출·조회·수집·취소·리포트)
 migrations/               Alembic (batch 스키마)
 scripts/                  Docker smoke 테스트
 tests/
 ```
 
-API(`uvicorn app.main:create_app --factory`), Executor 워커
-(`python -m app.workers.executor_worker`), 스케줄러(`python -m app.workers.scheduler`)는
-같은 DB와 설정을 쓰는 별도 프로세스입니다.
+배포 제약(1레포 1Deployment, 단일 컨테이너, CPU HPA)에 맞춰 **프로세스 하나**가 HTTP API와
+백그라운드 런타임(스케줄러 루프 + Task dispatcher)을 함께 실행하고, 시작 시 DB migration을 적용합니다.
+모든 레플리카가 같고 PostgreSQL 잠금으로 일을 나눕니다. 자세한 내용은
+[목표 아키텍처](docs/architecture.md), [서비스 체계](docs/domain-model.md),
+[k8s 매니페스트](deploy/k8s/README.md)를 참고합니다.
 
 ## 개발 도구
 
@@ -80,17 +85,12 @@ PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 �
 커널 목록, 인증 비밀키를 설정합니다. 공유 PV 경로는 미리 생성·마운트해야 합니다.
 
 ```sh
-make migrate
 make serve
-# 별도 터미널에서 Executor 제출·상태 확인 워커 시작
-make worker
-# 예약 실행을 사용하면 별도 터미널에서 스케줄러도 시작
-make scheduler
 ```
 
-기본 주소는 `http://127.0.0.1:8000`, API 문서는 `/docs`입니다.
-앱 시작은 DB migration을 자동 실행하지 않습니다.
-로컬 Executor가 8000 포트를 쓰면 `make serve` 대신 다른 포트를 지정합니다.
+API·스케줄러·Task dispatcher가 한 프로세스로 뜨고, 시작 시 migration을 적용합니다
+(`BATCH_DB_AUTO_MIGRATE=false`로 끌 수 있고, 그때는 `make migrate`).
+기본 주소는 `http://127.0.0.1:8100`(로컬 Executor의 8000과 겹치지 않게), API 문서는 `/docs`입니다.
 
 ## Docker로 Executor 연계 테스트
 
@@ -100,7 +100,7 @@ pr-batch는 외부 네트워크 `shared-infra`에 붙어 `postgres`와 `executor
 서비스 이름으로 호출합니다.
 
 ```sh
-make docker-up      # DB 준비, migration, API·워커·스케줄러 기동
+make docker-up      # DB 준비 후 app 컨테이너 1개 기동 (운영과 같은 형태)
 make docker-smoke   # 노트북 업로드 → 배치 등록 → 수동 실행 → Executor 결과 확인
 make docker-logs
 make docker-down
