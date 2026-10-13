@@ -103,6 +103,7 @@ pr-batch는 외부 네트워크 `shared-infra`에 붙어 `postgres`와 `executor
 make docker-up      # DB 준비 후 app 컨테이너 1개 기동 (운영과 같은 형태)
 make docker-smoke   # 스크립트 업로드 → 배치 등록 → 수동 실행 → Executor 결과 확인
 make docker-logs
+make dev-token      # Swagger 테스트용 5분짜리 JWT 출력
 make docker-down
 ```
 

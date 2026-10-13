@@ -28,7 +28,7 @@ serve:
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.
-.PHONY: docker-up docker-down docker-smoke docker-logs docker-multi
+.PHONY: docker-up docker-down docker-smoke docker-logs docker-multi dev-token
 
 docker-up:
 	docker compose up -d --build --wait --remove-orphans app
@@ -47,3 +47,7 @@ docker-logs:
 docker-multi:
 	docker compose -f compose.yaml -f compose.multi.yaml up -d --build \
 		--wait --remove-orphans app app-2 app-3
+
+# 5-minute JWT for Swagger (/docs → Authorize) against the Docker stack.
+dev-token:
+	@uv run --locked python scripts/dev_token.py
