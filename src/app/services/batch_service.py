@@ -47,7 +47,7 @@ def batch_view(
         name=batch.name,
         script_id=config.script_id,
         script_version_id=config.script_version_id,
-        script_version_number=version.number,
+        script_version_number=version.version_number,
         kernel_profile=config.kernel_profile,
         schedule=schedule,
         policy=policy_of(config),

@@ -98,12 +98,12 @@ def test_named_upload_rename_and_versions(client):
     assert same.status_code == 200
     changed = add_version(client, notebook, "out", notebook_bytes(output="x"))
     assert changed.status_code == 201
-    assert changed.json()["number"] == 2
+    assert changed.json()["version_number"] == 2
     assert changed.json()["code_hash"] == same.json()["code_hash"]
     assert changed.json()["sha256"] != same.json()["sha256"]
     current = client.get(url, headers=token())
     assert current.headers["etag"] == '"2"'
-    assert current.json()["latest_version"]["number"] == 2
+    assert current.json()["latest_version"]["version_number"] == 2
     renamed = client.patch(
         url,
         headers={**token(), "Idempotency-Key": "rename", "If-Match": '"2"'},
@@ -246,16 +246,21 @@ def test_concurrent_versions_have_unique_numbers(client):
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(pool.map(upload, range(4)))
     assert [r.status_code for r in responses] == [201] * 4
-    assert sorted(r.json()["number"] for r in responses) == [2, 3, 4, 5]
+    assert sorted(r.json()["version_number"] for r in responses) == [
+        2,
+        3,
+        4,
+        5,
+    ]
     url = versions_url(notebook)
     page = client.get(url, params={"limit": 2}, headers=token()).json()
-    assert [v["number"] for v in page["items"]] == [5, 4]
+    assert [v["version_number"] for v in page["items"]] == [5, 4]
     second = client.get(
         url,
         params={"limit": 2, "cursor": page["next_cursor"]},
         headers=token(),
     ).json()
-    assert [v["number"] for v in second["items"]] == [3, 2]
+    assert [v["version_number"] for v in second["items"]] == [3, 2]
 
 
 def test_same_version_with_different_concurrent_keys(client):

@@ -36,15 +36,17 @@ class Script(AuditMixin, Base):
 class ScriptVersion(AuditMixin, Base):
     __tablename__ = "script_versions"
     __table_args__ = (
-        UniqueConstraint("script_id", "number", name="uq_version_number"),
+        UniqueConstraint(
+            "script_id", "version_number", name="uq_version_number"
+        ),
         UniqueConstraint("script_id", "sha256", name="uq_version_content"),
         UniqueConstraint("script_id", "id", name="uq_version_script_id"),
-        CheckConstraint("number >= 1", name="version_number_positive"),
+        CheckConstraint("version_number >= 1", name="version_number_positive"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
     script_id: Mapped[UUID] = mapped_column(ForeignKey("batch.scripts.id"))
-    number: Mapped[int]
+    version_number: Mapped[int]  # v1, v2, ... within the script
     filename: Mapped[str] = mapped_column(String(255))
     original_path: Mapped[str]
     sha256: Mapped[str] = mapped_column(String(64))

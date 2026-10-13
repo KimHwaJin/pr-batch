@@ -54,7 +54,7 @@ def script_version(
     session: Session, script_id: UUID, number_or_id: int | UUID
 ) -> ScriptVersion:
     column = (
-        ScriptVersion.number
+        ScriptVersion.version_number
         if isinstance(number_or_id, int)
         else ScriptVersion.id
     )

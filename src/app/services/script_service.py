@@ -36,7 +36,7 @@ def version_view(version: ScriptVersion) -> VersionView:
     return VersionView(
         id=version.id,
         script_id=version.script_id,
-        number=version.number,
+        version_number=version.version_number,
         filename=version.filename,
         sha256=version.sha256,
         code_hash=version.code_hash,
@@ -95,7 +95,7 @@ class ScriptService:
         version = ScriptVersion(
             id=version_id,
             script_id=script.id,
-            number=number,
+            version_number=number,
             filename=parsed.filename,
             original_path=path,
             sha256=parsed.sha256,
@@ -210,7 +210,8 @@ class ScriptService:
                 ScriptVersion,
                 and_(
                     ScriptVersion.script_id == Script.id,
-                    ScriptVersion.number == Script.latest_version_number,
+                    ScriptVersion.version_number
+                    == Script.latest_version_number,
                 ),
             )
             .where(Script.owner_id == owner)
@@ -237,10 +238,10 @@ class ScriptService:
                 ScriptVersion.script_id == script_id
             )
             if cursor is not None:
-                query = query.where(ScriptVersion.number < cursor)
+                query = query.where(ScriptVersion.version_number < cursor)
             rows = list(
                 session.scalars(
-                    query.order_by(ScriptVersion.number.desc()).limit(
+                    query.order_by(ScriptVersion.version_number.desc()).limit(
                         limit + 1
                     )
                 )
@@ -248,7 +249,9 @@ class ScriptService:
             items = [version_view(v) for v in rows[:limit]]
             return VersionPage(
                 items=items,
-                next_cursor=items[-1].number if len(rows) > limit else None,
+                next_cursor=items[-1].version_number
+                if len(rows) > limit
+                else None,
             )
 
     def version(

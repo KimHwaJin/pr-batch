@@ -93,7 +93,7 @@ def upgrade() -> None:
         "script_versions",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("script_id", sa.Uuid(), nullable=False),
-        sa.Column("number", sa.Integer(), nullable=False),
+        sa.Column("version_number", sa.Integer(), nullable=False),
         sa.Column("filename", sa.String(length=255), nullable=False),
         sa.Column("original_path", sa.String(), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),
@@ -113,15 +113,19 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_by_type", sa.String(length=16), nullable=False),
         sa.Column("updated_by", sa.String(length=255), nullable=False),
-        sa.CheckConstraint("number >= 1", name="version_number_positive"),
+        sa.CheckConstraint(
+            "version_number >= 1", name="version_number_positive"
+        ),
         sa.ForeignKeyConstraint(
             ["script_id"],
             ["batch.scripts.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("script_id", "id", name="uq_version_script_id"),
-        sa.UniqueConstraint("script_id", "number", name="uq_version_number"),
         sa.UniqueConstraint("script_id", "sha256", name="uq_version_content"),
+        sa.UniqueConstraint(
+            "script_id", "version_number", name="uq_version_number"
+        ),
         schema="batch",
     )
     op.create_table(

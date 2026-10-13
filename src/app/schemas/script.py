@@ -26,7 +26,7 @@ class CellEntry(Contract):
 class VersionView(Audited, Contract):
     id: UUID
     script_id: UUID
-    number: int
+    version_number: int
     filename: str
     sha256: str
     code_hash: str

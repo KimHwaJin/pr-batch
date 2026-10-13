@@ -91,7 +91,7 @@ NotebookView {
 }
 
 VersionView {
-  "id": "…", "script_id": "…", "number": 1,
+  "id": "…", "script_id": "…", "version_number": 1,
   "filename": "daily.ipynb", "sha256": "…", "code_hash": "…", "size_bytes": 2048,
   "cells": {"total": 12, "executable": 7, "skipped": 5},
   "created_at": "…"
@@ -211,7 +211,7 @@ BatchView {
 | 테이블 | 컬럼 | 제약 |
 | --- | --- | --- |
 | notebooks | id, owner_id, name, revision, latest_version_number, created_at, updated_at | idx(owner_id, created_at, id) |
-| script_versions | id, script_id, number, filename, original_path, sha256, code_hash, size_bytes, cell_map(실행 셀), cell_list(전체 셀 요약), created_at | unique(script_id, number), unique(script_id, sha256), unique(script_id, id) |
+| script_versions | id, script_id, version_number, filename, original_path, sha256, code_hash, size_bytes, cell_map(실행 셀), cell_list(전체 셀 요약), created_at | unique(script_id, version_number), unique(script_id, sha256), unique(script_id, id) |
 | batches | id, owner_id, name, enabled, next_run_at, config_number, revision, created_at, updated_at | enabled OR next_run_at IS NULL, idx(enabled, next_run_at), idx(owner_id, created_at, id) |
 | batch_configs | (batch_id, number) PK, script_id, script_version_id, kernel_profile, schedule JSONB NULL, policy JSONB, created_at | FK (script_id, script_version_id) → script_versions |
 | batch_runs | 기존 + script_id, script_version_id, config_number | FK (batch_id, config_number) → batch_configs, unique(batch_id, config_number, scheduled_for) |
