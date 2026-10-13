@@ -1,0 +1,107 @@
+# Local pr-batch stack on top of the Executor repository's split Compose:
+#   shared-infra       PostgreSQL·Redis (network: shared-infra)
+#   executor-runtimes  Jupyter INTERACTIVE/BATCH runtimes
+#   executor           Executor API (alias "executor" on shared-infra)
+# Start those first, then: make docker-up
+name: pr-batch
+
+x-batch-env: &batch-env
+  BATCH_DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
+  # Same host directory the Executor mounts as INPUT_STORAGE_ROOT.
+  BATCH_STORAGE_ROOT: /workspace/shared
+  BATCH_AUTH_SECRET: ${PR_BATCH_AUTH_SECRET:-local-only-insecure-secret-change-me-0123456789}
+  BATCH_AUTH_ISSUER: prj_re
+  BATCH_AUTH_AUDIENCE: pr-batch
+  BATCH_ALLOWED_KERNEL_PROFILES: ${PR_BATCH_KERNEL_PROFILES:-["default"]}
+  BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
+  BATCH_EXECUTOR_POLL_SECONDS: ${PR_BATCH_EXECUTOR_POLL_SECONDS:-2}
+  BATCH_SCHEDULER_POLL_SECONDS: 1
+
+x-batch-app: &batch-app
+  image: pr-batch:local
+  environment: *batch-env
+  volumes:
+    - ${EXECUTOR_SHARED_DIR:-../executor/shared_dir}:/workspace/shared
+  networks:
+    - shared-infra
+  restart: unless-stopped
+
+services:
+  db-init:
+    image: pgvector/pgvector:pg17
+    entrypoint: ["/bin/sh", "/init-db.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${SHARED_POSTGRES_ADMIN_USER:-executor}
+      PGPASSWORD: ${SHARED_POSTGRES_ADMIN_PASSWORD:-executor}
+      PGDATABASE: ${SHARED_POSTGRES_ADMIN_DB:-executor}
+      BATCH_DB_USER: ${PR_BATCH_DB_USER:-batch}
+      BATCH_DB_PASSWORD: ${PR_BATCH_DB_PASSWORD:-batch-local-only}
+      BATCH_DB_NAME: ${PR_BATCH_DB_NAME:-batch}
+    volumes:
+      - ./docker/init-db.sh:/init-db.sh:ro
+    networks:
+      - shared-infra
+    restart: "no"
+
+  migrate:
+    <<: *batch-app
+    build:
+      context: .
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    <<: *batch-app
+    ports:
+      - "${PR_BATCH_PORT:-8100}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *batch-app
+    command: ["python", "-m", "pr_batch.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler:
+    <<: *batch-app
+    command: ["python", "-m", "pr_batch.scheduler"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # End-to-end check: make docker-smoke
+  smoke:
+    <<: *batch-app
+    command: ["python", "scripts/docker_smoke.py"]
+    environment:
+      <<: *batch-env
+      SMOKE_API_URL: http://api:8000
+    profiles: ["smoke"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+
+networks:
+  shared-infra:
+    external: true
+    name: ${SHARED_INFRA_NETWORK:-shared-infra}

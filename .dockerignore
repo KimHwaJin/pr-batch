@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+.env
+.env.*
+.local-data
+.ruff_cache
+.ty_cache
+.pytest_cache
+.uv-cache
+**/__pycache__
+*.py[cod]

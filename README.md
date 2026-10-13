@@ -58,6 +58,35 @@ make scheduler
 
 기본 주소는 `http://127.0.0.1:8000`, API 문서는 `/docs`입니다.
 앱 시작은 DB migration을 자동 실행하지 않습니다.
+로컬 Executor가 8000 포트를 쓰면 `make serve` 대신 다른 포트를 지정합니다.
+
+## Docker로 Executor 연계 테스트
+
+Executor 저장소의 분리된 Compose를 먼저 띄웁니다. `shared-infra`는 공용
+PostgreSQL·Redis, `executor-runtimes`는 Jupyter 런타임, `executor`는 실행기입니다.
+pr-batch는 외부 네트워크 `shared-infra`에 붙어 `postgres`와 `executor`를
+서비스 이름으로 호출합니다.
+
+```sh
+make docker-up      # DB 준비, migration, API·워커·스케줄러 기동
+make docker-smoke   # 샘플 노트북 등록 → 수동 실행 → Executor 결과 확인
+make docker-logs
+make docker-down
+```
+
+- API는 `http://127.0.0.1:8100`에 노출합니다(`PR_BATCH_PORT`).
+- `db-init`이 공용 PostgreSQL에 `batch` 역할과 DB를 멱등 생성합니다.
+  관리자 계정 기본값은 Executor Compose와 같은 `executor`이며
+  `SHARED_POSTGRES_ADMIN_*`로 바꿉니다.
+- 공유 PV는 Executor가 `INPUT_STORAGE_ROOT`로 마운트하는
+  `../executor/shared_dir`을 같은 경로로 마운트합니다(`EXECUTOR_SHARED_DIR`).
+  두 이미지 모두 UID 1000으로 실행합니다.
+- 커널 기본값은 로컬 BATCH 런타임의 `default`입니다(`PR_BATCH_KERNEL_PROFILES`).
+- 인증 비밀키 기본값은 로컬 전용입니다. 다른 환경에서는 `PR_BATCH_AUTH_SECRET`을
+  반드시 지정합니다.
+
+변수는 셸이나 Compose 변수 파일로 지정합니다. 컨테이너는 저장소의 `.env`를
+읽지 않습니다.
 
 ## 품질 검사
 
