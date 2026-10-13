@@ -53,23 +53,23 @@ class BatchConfig(Base):
     __tablename__ = "batch_configs"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["notebook_id", "notebook_version_id"],
+            ["script_id", "script_version_id"],
             [
-                "batch.notebook_versions.notebook_id",
-                "batch.notebook_versions.id",
+                "batch.script_versions.script_id",
+                "batch.script_versions.id",
             ],
-            name="fk_config_version_in_notebook",
+            name="fk_config_version_in_script",
         ),
         CheckConstraint("number >= 1", name="config_number_positive"),
-        Index("ix_configs_notebook", "notebook_id"),
+        Index("ix_configs_script", "script_id"),
     )
 
     batch_id: Mapped[UUID] = mapped_column(
         ForeignKey("batch.batches.id"), primary_key=True
     )
     number: Mapped[int] = mapped_column(primary_key=True)
-    notebook_id: Mapped[UUID]
-    notebook_version_id: Mapped[UUID]
+    script_id: Mapped[UUID]
+    script_version_id: Mapped[UUID]
     kernel_profile: Mapped[str] = mapped_column(String(128))
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)

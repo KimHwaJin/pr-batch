@@ -1,12 +1,13 @@
-"""Notebook upload, version and cell contracts."""
+"""Script upload, version and cell contracts."""
 
 from datetime import datetime
 from uuid import UUID
 
+from app.domain.scripts import ScriptType
 from app.schemas.common import Contract, Name
 
 
-class RenameNotebook(Contract):
+class RenameScript(Contract):
     name: Name
 
 
@@ -25,7 +26,7 @@ class CellEntry(Contract):
 
 class VersionView(Contract):
     id: UUID
-    notebook_id: UUID
+    script_id: UUID
     number: int
     filename: str
     sha256: str
@@ -39,17 +40,18 @@ class VersionDetail(VersionView):
     cell_list: list[CellEntry]
 
 
-class NotebookView(Contract):
+class ScriptView(Contract):
     id: UUID
     name: str
+    type: ScriptType
     revision: int
     latest_version: VersionView
     created_at: datetime
     updated_at: datetime
 
 
-class NotebookPage(Contract):
-    items: list[NotebookView]
+class ScriptPage(Contract):
+    items: list[ScriptView]
     next_cursor: str | None
 
 

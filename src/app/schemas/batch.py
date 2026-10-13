@@ -12,8 +12,8 @@ from app.schemas.schedule import Policy, PolicyPatch, Schedule
 
 class CreateBatch(Contract):
     name: Name
-    notebook_id: UUID
-    notebook_version_id: UUID | None = None
+    script_id: UUID
+    script_version_id: UUID | None = None
     kernel_profile: KernelName
     schedule: Schedule | None = None
     policy: Policy = Field(default_factory=Policy)
@@ -23,8 +23,8 @@ class UpdateBatch(Contract):
     """Only fields present in the request change; schedule=null removes."""
 
     name: Name | None = None
-    notebook_id: UUID | None = None
-    notebook_version_id: UUID | None = None
+    script_id: UUID | None = None
+    script_version_id: UUID | None = None
     kernel_profile: KernelName | None = None
     schedule: Schedule | None = None
     policy: PolicyPatch | None = None
@@ -33,7 +33,7 @@ class UpdateBatch(Contract):
     def validate_patch(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("Send at least one field to change.")
-        for field in ("name", "notebook_id", "kernel_profile", "policy"):
+        for field in ("name", "script_id", "kernel_profile", "policy"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null.")
         return self
@@ -42,9 +42,9 @@ class UpdateBatch(Contract):
 class BatchView(Contract):
     id: UUID
     name: str
-    notebook_id: UUID
-    notebook_version_id: UUID
-    notebook_version_number: int
+    script_id: UUID
+    script_version_id: UUID
+    script_version_number: int
     kernel_profile: str
     schedule: Schedule | None
     policy: Policy

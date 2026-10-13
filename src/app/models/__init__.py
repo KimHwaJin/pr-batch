@@ -3,8 +3,8 @@
 from app.db.base import Base
 from app.models.batch import Batch, BatchConfig, SkippedWindow
 from app.models.idempotency import IdempotencyRecord
-from app.models.notebook import Notebook, NotebookVersion
 from app.models.run import BatchRun, RunReport, RunStepBinding, Task
+from app.models.script import Script, ScriptVersion
 
 __all__ = [
     "Base",
@@ -12,10 +12,10 @@ __all__ = [
     "BatchConfig",
     "BatchRun",
     "IdempotencyRecord",
-    "Notebook",
-    "NotebookVersion",
+    "ScriptVersion",
     "RunReport",
     "RunStepBinding",
+    "Script",
     "SkippedWindow",
     "Task",
 ]

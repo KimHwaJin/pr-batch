@@ -5,7 +5,7 @@ import time
 from uuid import uuid4
 
 import pytest
-from conftest import API, NOTEBOOKS, notebook_bytes, token
+from conftest import API, SCRIPTS, notebook_bytes, token
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -13,7 +13,7 @@ from app.core.exceptions import ServiceError
 from app.domain.notebook_parser import parse_notebook
 from app.main import create_app
 from app.schemas.schedule import Policy, Schedule
-from app.storage.notebook_storage import NotebookStorage
+from app.storage.script_storage import ScriptStorage
 
 
 @pytest.mark.parametrize("raw", [b"no-json", b"[]", b"{}", b"\xff"])
@@ -170,7 +170,7 @@ def test_owner_header_is_not_authentication(settings):
         assert client.get(API, headers=token(scope="other")).status_code == 403
         assert (
             client.post(
-                NOTEBOOKS,
+                SCRIPTS,
                 headers=token(),
                 content=b"x" * (settings.upload_max_bytes + 65537),
             ).status_code
@@ -179,7 +179,7 @@ def test_owner_header_is_not_authentication(settings):
 
 
 def test_storage_escape_and_symlink(settings, tmp_path):
-    storage = NotebookStorage(settings.storage_root)
+    storage = ScriptStorage(settings.storage_root)
     with pytest.raises(ServiceError):
         storage.safe_path("../escape")
     outside = tmp_path / "outside"
@@ -197,7 +197,7 @@ def test_storage_escape_and_symlink(settings, tmp_path):
 
 def test_missing_storage_root_is_not_created(settings, tmp_path):
     root = tmp_path / "unmounted"
-    storage = NotebookStorage(root)
+    storage = ScriptStorage(root)
     notebook = parse_notebook(notebook_bytes(), "x.ipynb", settings)
     with pytest.raises(ServiceError, match="Mount storage"):
         storage.save("alice", uuid4(), uuid4(), notebook)
@@ -207,7 +207,7 @@ def test_missing_storage_root_is_not_created(settings, tmp_path):
 def test_chunked_request_size_limit(settings):
     with TestClient(create_app(settings)) as client:
         response = client.post(
-            NOTEBOOKS,
+            SCRIPTS,
             headers=token(),
             content=iter([b"x" * 65536] * 162),
         )

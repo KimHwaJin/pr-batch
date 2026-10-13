@@ -28,7 +28,7 @@ make serve   # http://127.0.0.1:8100
 | `BATCH_SHUTDOWN_GRACE_SECONDS` | 40 | SIGTERM 후 진행 중인 원격 호출을 끝내는 최대 시간 |
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
-`batch-input/users/.../notebooks/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
+`batch-input/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
 허용 커널 목록은 Executor BATCH 풀의 실제 프로필과 맞춘다. Executor 호출에는 인증이 없으며(내부 서비스)
 사용자 JWT를 Executor에 넘기지 않는다.
 

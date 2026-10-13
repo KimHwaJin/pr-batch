@@ -49,9 +49,9 @@ def list_batches(
     service: Batches,
     limit: Limit = 50,
     cursor: Annotated[str | None, Query(max_length=1024)] = None,
-    notebook_id: UUID | None = None,
+    script_id: UUID | None = None,
 ) -> BatchPage:
-    return service.list_batches(owner, limit, cursor, notebook_id)
+    return service.list_batches(owner, limit, cursor, script_id)
 
 
 @router.get("/{batch_id}", response_model=BatchView)

@@ -9,11 +9,12 @@ from fastapi.responses import JSONResponse
 from app.core.config import Settings
 from app.core.exceptions import ServiceError
 from app.core.security import current_owner
-from app.domain.notebook_parser import Notebook, parse_notebook
+from app.domain.script_parser import parse_script
+from app.domain.scripts import ParsedScript, ScriptType
 from app.services.batch_service import BatchService
 from app.services.idempotency import MutationResult
-from app.services.notebook_service import NotebookService
 from app.services.run_service import RunService
+from app.services.script_service import ScriptService
 
 Owner = Annotated[str, Depends(current_owner)]
 Key = Annotated[
@@ -32,9 +33,9 @@ def get_settings(request: Request) -> Settings:
     return cast(Settings, request.app.state.settings)
 
 
-def get_notebook_service(request: Request) -> NotebookService:
+def get_script_service(request: Request) -> ScriptService:
     state = request.app.state
-    return NotebookService(state.sessions, state.storage)
+    return ScriptService(state.sessions, state.storage)
 
 
 def get_batch_service(request: Request) -> BatchService:
@@ -50,7 +51,7 @@ def get_run_service(request: Request) -> RunService:
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-Notebooks = Annotated[NotebookService, Depends(get_notebook_service)]
+Scripts = Annotated[ScriptService, Depends(get_script_service)]
 Batches = Annotated[BatchService, Depends(get_batch_service)]
 Runs = Annotated[RunService, Depends(get_run_service)]
 
@@ -78,10 +79,12 @@ def require_executor(settings: Settings) -> None:
         )
 
 
-def uploaded_notebook(settings: Settings, file: UploadFile) -> Notebook:
+def uploaded_script(
+    settings: Settings, script_type: ScriptType, file: UploadFile
+) -> ParsedScript:
     try:
         raw = file.file.read(settings.upload_max_bytes + 1)
-        return parse_notebook(raw, file.filename or "", settings)
+        return parse_script(script_type, raw, file.filename or "", settings)
     finally:
         file.file.close()
 

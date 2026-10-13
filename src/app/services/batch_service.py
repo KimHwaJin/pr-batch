@@ -11,7 +11,7 @@ from app.core.exceptions import ServiceError
 from app.db.base import utcnow
 from app.db.session import database_now
 from app.domain.schedule_clock import EPSILON, ScheduleClock
-from app.models import Batch, BatchConfig, NotebookVersion, SkippedWindow
+from app.models import Batch, BatchConfig, ScriptVersion, SkippedWindow
 from app.schemas.batch import (
     BatchPage,
     BatchView,
@@ -27,26 +27,26 @@ from app.services.common import (
     config_version,
     current_config,
     encode_cursor,
-    notebook_version,
     owned_batch,
-    owned_notebook,
+    owned_script,
     policy_of,
     schedule_of,
+    script_version,
 )
 from app.services.idempotency import Idempotency, MutationResult
 from app.services.schedule_history import record_skipped
 
 
 def batch_view(
-    batch: Batch, config: BatchConfig, version: NotebookVersion
+    batch: Batch, config: BatchConfig, version: ScriptVersion
 ) -> BatchView:
     schedule = schedule_of(config)
     return BatchView(
         id=batch.id,
         name=batch.name,
-        notebook_id=config.notebook_id,
-        notebook_version_id=config.notebook_version_id,
-        notebook_version_number=version.number,
+        script_id=config.script_id,
+        script_version_id=config.script_version_id,
+        script_version_number=version.number,
         kernel_profile=config.kernel_profile,
         schedule=schedule,
         policy=policy_of(config),
@@ -80,23 +80,23 @@ class BatchService:
         self,
         session: Session,
         owner: str,
-        notebook_id: UUID,
+        script_id: UUID,
         version_id: UUID | None,
-    ) -> NotebookVersion:
-        """Pin an explicit version, or the notebook's latest one."""
-        notebook = owned_notebook(session, owner, notebook_id)
+    ) -> ScriptVersion:
+        """Pin an explicit version, or the script's latest one."""
+        script = owned_script(session, owner, script_id)
         if version_id is None:
-            return notebook_version(
-                session, notebook.id, notebook.latest_version_number
+            return script_version(
+                session, script.id, script.latest_version_number
             )
-        return notebook_version(session, notebook.id, version_id)
+        return script_version(session, script.id, version_id)
 
     def create_batch(
         self, owner: str, key: str, data: CreateBatch
     ) -> MutationResult:
         def action(session: Session) -> MutationResult:
             version = self.resolve_version(
-                session, owner, data.notebook_id, data.notebook_version_id
+                session, owner, data.script_id, data.script_version_id
             )
             batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
             session.add(batch)
@@ -104,8 +104,8 @@ class BatchService:
             config = BatchConfig(
                 batch_id=batch.id,
                 number=1,
-                notebook_id=version.notebook_id,
-                notebook_version_id=version.id,
+                script_id=version.script_id,
+                script_version_id=version.id,
                 kernel_profile=data.kernel_profile,
                 schedule=(
                     data.schedule.model_dump(mode="json")
@@ -173,10 +173,10 @@ class BatchService:
         data: UpdateBatch,
     ) -> BatchConfig:
         fields = data.model_fields_set
-        notebook_id = data.notebook_id or current.notebook_id
-        if "notebook_id" in fields or "notebook_version_id" in fields:
+        script_id = data.script_id or current.script_id
+        if "script_id" in fields or "script_version_id" in fields:
             version = self.resolve_version(
-                session, owner, notebook_id, data.notebook_version_id
+                session, owner, script_id, data.script_version_id
             )
         else:
             version = config_version(session, current)
@@ -217,8 +217,8 @@ class BatchService:
         config = BatchConfig(
             batch_id=batch.id,
             number=batch.config_number,
-            notebook_id=version.notebook_id,
-            notebook_version_id=version.id,
+            script_id=version.script_id,
+            script_version_id=version.id,
             kernel_profile=data.kernel_profile or current.kernel_profile,
             schedule=schedule.model_dump(mode="json") if schedule else None,
             policy=policy.model_dump(mode="json"),
@@ -238,10 +238,10 @@ class BatchService:
         owner: str,
         limit: int,
         cursor: str | None,
-        notebook_id: UUID | None,
+        script_id: UUID | None,
     ) -> BatchPage:
         query = (
-            select(Batch, BatchConfig, NotebookVersion)
+            select(Batch, BatchConfig, ScriptVersion)
             .join(
                 BatchConfig,
                 and_(
@@ -250,13 +250,13 @@ class BatchService:
                 ),
             )
             .join(
-                NotebookVersion,
-                NotebookVersion.id == BatchConfig.notebook_version_id,
+                ScriptVersion,
+                ScriptVersion.id == BatchConfig.script_version_id,
             )
             .where(Batch.owner_id == owner)
         )
-        if notebook_id is not None:
-            query = query.where(BatchConfig.notebook_id == notebook_id)
+        if script_id is not None:
+            query = query.where(BatchConfig.script_id == script_id)
         if cursor:
             query = query.where(
                 before_cursor(Batch.created_at, Batch.id, cursor)

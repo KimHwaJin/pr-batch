@@ -17,7 +17,7 @@ from app.core.middleware import RequestSizeLimit
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_db_engine, create_sessions
 from app.runtime.runtime import BackgroundRuntime, build_clients
-from app.storage.notebook_storage import NotebookStorage
+from app.storage.script_storage import ScriptStorage
 
 MIGRATION_HEAD = "0001_baseline"
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.sessions = sessions
-    app.state.storage = NotebookStorage(settings.storage_root)
+    app.state.storage = ScriptStorage(settings.storage_root)
     app.state.runtime = None
     app.state.ready = False
     app.add_middleware(

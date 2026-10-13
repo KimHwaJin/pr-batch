@@ -1,4 +1,4 @@
-"""Uploaded notebooks and their immutable versions."""
+"""Uploaded scripts (notebooks, later Python files) and their versions."""
 
 from datetime import datetime
 from typing import Any
@@ -18,16 +18,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, utcnow
 
 
-class Notebook(Base):
-    __tablename__ = "notebooks"
+class Script(Base):
+    __tablename__ = "scripts"
     __table_args__ = (
-        CheckConstraint("revision >= 1", name="notebook_revision_positive"),
-        Index("ix_notebooks_owner_created", "owner_id", "created_at", "id"),
+        CheckConstraint("revision >= 1", name="script_revision_positive"),
+        CheckConstraint("type IN ('NOTEBOOK', 'PYTHON')", name="script_type"),
+        Index("ix_scripts_owner_created", "owner_id", "created_at", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     owner_id: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
+    # Fixed at creation; every version must parse as this type.
+    type: Mapped[str] = mapped_column(String(16))
     revision: Mapped[int] = mapped_column(default=1)
     latest_version_number: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(
@@ -38,17 +41,17 @@ class Notebook(Base):
     )
 
 
-class NotebookVersion(Base):
-    __tablename__ = "notebook_versions"
+class ScriptVersion(Base):
+    __tablename__ = "script_versions"
     __table_args__ = (
-        UniqueConstraint("notebook_id", "number", name="uq_version_number"),
-        UniqueConstraint("notebook_id", "sha256", name="uq_version_content"),
-        UniqueConstraint("notebook_id", "id", name="uq_version_notebook_id"),
+        UniqueConstraint("script_id", "number", name="uq_version_number"),
+        UniqueConstraint("script_id", "sha256", name="uq_version_content"),
+        UniqueConstraint("script_id", "id", name="uq_version_script_id"),
         CheckConstraint("number >= 1", name="version_number_positive"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
-    notebook_id: Mapped[UUID] = mapped_column(ForeignKey("batch.notebooks.id"))
+    script_id: Mapped[UUID] = mapped_column(ForeignKey("batch.scripts.id"))
     number: Mapped[int]
     filename: Mapped[str] = mapped_column(String(255))
     original_path: Mapped[str]

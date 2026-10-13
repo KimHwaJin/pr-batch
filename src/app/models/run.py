@@ -28,10 +28,10 @@ class BatchRun(Base):
             ["batch.batch_configs.batch_id", "batch.batch_configs.number"],
         ),
         ForeignKeyConstraint(
-            ["notebook_id", "notebook_version_id"],
+            ["script_id", "script_version_id"],
             [
-                "batch.notebook_versions.notebook_id",
-                "batch.notebook_versions.id",
+                "batch.script_versions.script_id",
+                "batch.script_versions.id",
             ],
         ),
         CheckConstraint(
@@ -53,8 +53,8 @@ class BatchRun(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True)
     batch_id: Mapped[UUID] = mapped_column(ForeignKey("batch.batches.id"))
     owner_id: Mapped[str] = mapped_column(String(255))
-    notebook_id: Mapped[UUID]
-    notebook_version_id: Mapped[UUID]
+    script_id: Mapped[UUID]
+    script_version_id: Mapped[UUID]
     config_number: Mapped[int]
     kernel_profile: Mapped[str] = mapped_column(String(128))
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)

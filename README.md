@@ -1,12 +1,12 @@
 # pr-batch
 
 Python 3.12 기반 배치 서비스 프로젝트입니다.
-사용자별 노트북 업로드·버전 관리와, 업로드한 노트북을 언제·어떻게 돌릴지 정하는
+사용자별 스크립트(노트북) 업로드·버전 관리와, 업로드한 스크립트를 언제·어떻게 돌릴지 정하는
 배치 등록(일정·정책), 수동 실행·실행 이력을 제공합니다.
 별도 워커가 Executor 제출과 상태·결과 참조 수집을 담당합니다.
 예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 리포트 생성 연동은 다음 단계입니다.
 
-[노트북·배치 등록 API 안내](docs/registration-api.md)와
+[스크립트·배치 등록 API 안내](docs/registration-api.md)와
 [실행 API·처리 파이프라인 안내](docs/execution-api.md),
 [예약 실행 안내](docs/scheduling-api.md)를 따릅니다.
 
@@ -18,7 +18,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 - [확정 실행 이력 저장 계약](docs/execution-history.md)
 - [목표 아키텍처 (배포 제약 반영)](docs/architecture.md)
 - [서비스 체계 (도메인 모델)](docs/domain-model.md)
-- [노트북·배치 분리 설계](docs/notebook-batch-design.md)
+- [스크립트·배치 분리 설계](docs/notebook-batch-design.md)
 - [API·데이터 모델·상태 흐름 설계 초안](docs/design.md)
 - [Executor·prj_re 연동 계약과 확인 사항](docs/integrations.md)
 
@@ -34,15 +34,15 @@ src/app/
   main.py                 앱 생성: 라우터·미들웨어·예외 핸들러·헬스체크
   core/                   config(환경 설정), security(JWT), exceptions, middleware
   db/                     Base, 엔진·세션 생성, DB 시각
-  models/                 SQLAlchemy 테이블: notebook, batch, run, idempotency
-  schemas/                Pydantic 계약: common, schedule, notebook, batch, run
+  models/                 SQLAlchemy 테이블: script, batch, run, idempotency
+  schemas/                Pydantic 계약: common, schedule, script, batch, run
   api/
     deps.py               인증·Idempotency-Key·If-Match·서비스 주입
     router.py             /api/v1 라우터 묶음
-    v1/                   notebooks, batches, runs 엔드포인트
-  services/               notebook, batch, run, idempotency, 공용 조회
-  domain/                 순수 로직: run_state(상태 머신), schedule_clock, notebook_parser
-  storage/                공유 PV 노트북 저장소
+    v1/                   scripts, batches, runs 엔드포인트
+  services/               script, batch, run, idempotency, 공용 조회
+  domain/                 순수 로직: run_state(상태 머신), schedule_clock, scripts(타입)·script_parser·notebook_parser
+  storage/                공유 PV 스크립트 원본 저장소
   integrations/           executor(실행), report(prj_re 리포트) HTTP 클라이언트
   runtime/                백그라운드 런타임: 스케줄러 루프, Task dispatcher
   tasks/                  Task 큐(트랜잭션 outbox)와 handler(제출·조회·수집·취소·리포트)
@@ -101,7 +101,7 @@ pr-batch는 외부 네트워크 `shared-infra`에 붙어 `postgres`와 `executor
 
 ```sh
 make docker-up      # DB 준비 후 app 컨테이너 1개 기동 (운영과 같은 형태)
-make docker-smoke   # 노트북 업로드 → 배치 등록 → 수동 실행 → Executor 결과 확인
+make docker-smoke   # 스크립트 업로드 → 배치 등록 → 수동 실행 → Executor 결과 확인
 make docker-logs
 make docker-down
 ```

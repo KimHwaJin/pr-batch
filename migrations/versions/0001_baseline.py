@@ -1,4 +1,4 @@
-"""Baseline: notebooks, batches, configs, runs, reports and tasks."""
+"""Baseline: scripts, batches, configs, runs, reports and tasks."""
 
 import sqlalchemy as sa
 from alembic import op
@@ -58,29 +58,33 @@ def upgrade() -> None:
         schema="batch",
     )
     op.create_table(
-        "notebooks",
+        "scripts",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("owner_id", sa.String(length=255), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("type", sa.String(length=16), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("latest_version_number", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.CheckConstraint("revision >= 1", name="notebook_revision_positive"),
+        sa.CheckConstraint(
+            "type IN ('NOTEBOOK', 'PYTHON')", name="script_type"
+        ),
+        sa.CheckConstraint("revision >= 1", name="script_revision_positive"),
         sa.PrimaryKeyConstraint("id"),
         schema="batch",
     )
     op.create_index(
-        "ix_notebooks_owner_created",
-        "notebooks",
+        "ix_scripts_owner_created",
+        "scripts",
         ["owner_id", "created_at", "id"],
         unique=False,
         schema="batch",
     )
     op.create_table(
-        "notebook_versions",
+        "script_versions",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("notebook_id", sa.Uuid(), nullable=False),
+        sa.Column("script_id", sa.Uuid(), nullable=False),
         sa.Column("number", sa.Integer(), nullable=False),
         sa.Column("filename", sa.String(length=255), nullable=False),
         sa.Column("original_path", sa.String(), nullable=False),
@@ -98,25 +102,21 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("number >= 1", name="version_number_positive"),
         sa.ForeignKeyConstraint(
-            ["notebook_id"],
-            ["batch.notebooks.id"],
+            ["script_id"],
+            ["batch.scripts.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "notebook_id", "id", name="uq_version_notebook_id"
-        ),
-        sa.UniqueConstraint("notebook_id", "number", name="uq_version_number"),
-        sa.UniqueConstraint(
-            "notebook_id", "sha256", name="uq_version_content"
-        ),
+        sa.UniqueConstraint("script_id", "id", name="uq_version_script_id"),
+        sa.UniqueConstraint("script_id", "number", name="uq_version_number"),
+        sa.UniqueConstraint("script_id", "sha256", name="uq_version_content"),
         schema="batch",
     )
     op.create_table(
         "batch_configs",
         sa.Column("batch_id", sa.Uuid(), nullable=False),
         sa.Column("number", sa.Integer(), nullable=False),
-        sa.Column("notebook_id", sa.Uuid(), nullable=False),
-        sa.Column("notebook_version_id", sa.Uuid(), nullable=False),
+        sa.Column("script_id", sa.Uuid(), nullable=False),
+        sa.Column("script_version_id", sa.Uuid(), nullable=False),
         sa.Column("kernel_profile", sa.String(length=128), nullable=False),
         sa.Column(
             "schedule", postgresql.JSONB(astext_type=sa.Text()), nullable=True
@@ -131,20 +131,17 @@ def upgrade() -> None:
             ["batch.batches.id"],
         ),
         sa.ForeignKeyConstraint(
-            ["notebook_id", "notebook_version_id"],
-            [
-                "batch.notebook_versions.notebook_id",
-                "batch.notebook_versions.id",
-            ],
-            name="fk_config_version_in_notebook",
+            ["script_id", "script_version_id"],
+            ["batch.script_versions.script_id", "batch.script_versions.id"],
+            name="fk_config_version_in_script",
         ),
         sa.PrimaryKeyConstraint("batch_id", "number"),
         schema="batch",
     )
     op.create_index(
-        "ix_configs_notebook",
+        "ix_configs_script",
         "batch_configs",
-        ["notebook_id"],
+        ["script_id"],
         unique=False,
         schema="batch",
     )
@@ -153,8 +150,8 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("batch_id", sa.Uuid(), nullable=False),
         sa.Column("owner_id", sa.String(length=255), nullable=False),
-        sa.Column("notebook_id", sa.Uuid(), nullable=False),
-        sa.Column("notebook_version_id", sa.Uuid(), nullable=False),
+        sa.Column("script_id", sa.Uuid(), nullable=False),
+        sa.Column("script_version_id", sa.Uuid(), nullable=False),
         sa.Column("config_number", sa.Integer(), nullable=False),
         sa.Column("kernel_profile", sa.String(length=128), nullable=False),
         sa.Column(
@@ -207,11 +204,8 @@ def upgrade() -> None:
             ["batch.batches.id"],
         ),
         sa.ForeignKeyConstraint(
-            ["notebook_id", "notebook_version_id"],
-            [
-                "batch.notebook_versions.notebook_id",
-                "batch.notebook_versions.id",
-            ],
+            ["script_id", "script_version_id"],
+            ["batch.script_versions.script_id", "batch.script_versions.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
@@ -377,14 +371,14 @@ def downgrade() -> None:
     )
     op.drop_table("batch_runs", schema="batch")
     op.drop_index(
-        "ix_configs_notebook", table_name="batch_configs", schema="batch"
+        "ix_configs_script", table_name="batch_configs", schema="batch"
     )
     op.drop_table("batch_configs", schema="batch")
-    op.drop_table("notebook_versions", schema="batch")
+    op.drop_table("script_versions", schema="batch")
     op.drop_index(
-        "ix_notebooks_owner_created", table_name="notebooks", schema="batch"
+        "ix_scripts_owner_created", table_name="scripts", schema="batch"
     )
-    op.drop_table("notebooks", schema="batch")
+    op.drop_table("scripts", schema="batch")
     op.drop_table("idempotency_records", schema="batch")
     op.drop_index(
         "ix_batches_owner_created", table_name="batches", schema="batch"

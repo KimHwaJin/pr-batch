@@ -1,4 +1,4 @@
-"""Register a sample notebook, run it once and wait for the Executor result.
+"""Upload a sample notebook script, run it once and wait for the result.
 
 Runs inside the Compose `smoke` service and exits non-zero on any failure.
 """
@@ -101,6 +101,7 @@ def main() -> None:
     body, content_type = multipart(
         {
             "name": (None, "text/plain", f"smoke-{nonce[:8]}".encode()),
+            "type": (None, "text/plain", b"NOTEBOOK"),
             "file": (
                 "smoke.ipynb",
                 "application/x-ipynb+json",
@@ -108,18 +109,18 @@ def main() -> None:
             ),
         }
     )
-    notebook = call(
+    script = call(
         "POST",
-        f"{api}/api/v1/notebooks",
+        f"{api}/api/v1/scripts",
         auth
         | {"Content-Type": content_type, "Idempotency-Key": f"nb-{nonce}"},
         body,
     )
-    cells = notebook["latest_version"]["cells"]
-    print(f"uploaded notebook {notebook['id']} (cells {cells})")
+    cells = script["latest_version"]["cells"]
+    print(f"uploaded script {script['id']} (cells {cells})")
     registration = {
         "name": f"docker-smoke-{nonce[:8]}",
-        "notebook_id": notebook["id"],
+        "script_id": script["id"],
         "kernel_profile": kernel,
         "schedule": {
             "definition": {"kind": "CRON", "expression": "0 8 * * *"}

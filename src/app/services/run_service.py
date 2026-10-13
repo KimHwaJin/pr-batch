@@ -16,9 +16,9 @@ from app.models import (
     Batch,
     BatchConfig,
     BatchRun,
-    NotebookVersion,
     RunReport,
     RunStepBinding,
+    ScriptVersion,
 )
 from app.schemas.run import (
     ReportView,
@@ -61,7 +61,7 @@ def admit_run(
     scheduled_for: datetime | None = None,
 ) -> tuple[int, BatchRun]:
     """Caller must hold the batch row lock; never performs remote I/O."""
-    version = session.get(NotebookVersion, config.notebook_version_id)
+    version = session.get(ScriptVersion, config.script_version_id)
     assert version is not None
     policy = config.policy
     active = count_status(session, batch.id, OCCUPYING)
@@ -82,13 +82,13 @@ def admit_run(
         scheduled_for=scheduled_for,
         trigger="SCHEDULED" if scheduled_for else "MANUAL",
         owner_id=batch.owner_id,
-        notebook_id=version.notebook_id,
-        notebook_version_id=version.id,
+        script_id=version.script_id,
+        script_version_id=version.id,
         config_number=config.number,
         kernel_profile=config.kernel_profile,
         snapshot={
-            "notebook_id": str(version.notebook_id),
-            "notebook_version_id": str(version.id),
+            "script_id": str(version.script_id),
+            "script_version_id": str(version.id),
             "sha256": version.sha256,
             "code_hash": version.code_hash,
             "schedule": config.schedule,
@@ -143,7 +143,7 @@ def promote_waiting(session: Session, batch_id: UUID) -> None:
 
 
 def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
-    version = session.get(NotebookVersion, run.notebook_version_id)
+    version = session.get(ScriptVersion, run.script_version_id)
     assert version is not None
     return {
         "idempotency_key": f"batch-run:{run.id}:submit",
@@ -175,8 +175,8 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
         },
         "metadata": {
             "batch_id": str(run.batch_id),
-            "notebook_id": str(run.notebook_id),
-            "notebook_version_id": str(run.notebook_version_id),
+            "script_id": str(run.script_id),
+            "script_version_id": str(run.script_version_id),
         },
     }
 

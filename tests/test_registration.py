@@ -7,16 +7,16 @@ from uuid import uuid4
 
 from conftest import (
     API,
-    NOTEBOOKS,
+    SCRIPTS,
     create_batch,
     metadata,
     notebook_bytes,
     token,
-    upload_notebook,
+    upload_script,
 )
 from sqlalchemy import create_engine, select, text
 
-from app.models import NotebookVersion
+from app.models import ScriptVersion
 
 
 def mixed_notebook() -> bytes:
@@ -34,7 +34,7 @@ def mixed_notebook() -> bytes:
 
 
 def versions_url(notebook):
-    return f"{NOTEBOOKS}/{notebook['id']}/versions"
+    return f"{SCRIPTS}/{notebook['id']}/versions"
 
 
 def add_version(client, notebook, key, raw, owner="alice"):
@@ -59,10 +59,10 @@ def patch_batch(client, batch, key, body, expected=None, owner="alice"):
 
 def test_notebook_upload_keeps_original_and_skips_non_code(client, settings):
     original = mixed_notebook()
-    response = upload_notebook(client, raw=original, filename="daily.ipynb")
+    response = upload_script(client, raw=original, filename="daily.ipynb")
     assert response.status_code == 201, response.text
     notebook = response.json()
-    assert response.headers["location"] == f"{NOTEBOOKS}/{notebook['id']}"
+    assert response.headers["location"] == f"{SCRIPTS}/{notebook['id']}"
     assert notebook["name"] == "daily"
     latest = notebook["latest_version"]
     assert latest["filename"] == "daily.ipynb"
@@ -87,13 +87,13 @@ def test_notebook_upload_keeps_original_and_skips_non_code(client, settings):
     paths = list(settings.storage_root.rglob("*.py"))
     assert len(paths) == 1
     assert paths[0].read_text() == "%matplotlib inline\nx = 3\nx"
-    assert "/notebooks/" in paths[0].as_posix()
+    assert "/scripts/" in paths[0].as_posix()
 
 
 def test_named_upload_rename_and_versions(client):
-    notebook = upload_notebook(client, name="생산 분석").json()
+    notebook = upload_script(client, name="생산 분석").json()
     assert notebook["name"] == "생산 분석"
-    url = f"{NOTEBOOKS}/{notebook['id']}"
+    url = f"{SCRIPTS}/{notebook['id']}"
     same = add_version(client, notebook, "same", notebook_bytes())
     assert same.status_code == 200
     changed = add_version(client, notebook, "out", notebook_bytes(output="x"))
@@ -122,32 +122,32 @@ def test_named_upload_rename_and_versions(client):
 def test_batch_pins_version_until_changed(client):
     batch = create_batch(client).json()
     assert batch["enabled"] is False
-    assert batch["notebook_version_number"] == 1
+    assert batch["script_version_number"] == 1
     assert batch["policy"]["overlap"] == "SKIP"
-    notebook = {"id": batch["notebook_id"]}
+    notebook = {"id": batch["script_id"]}
     v2 = add_version(client, notebook, "v2", notebook_bytes("x = 4")).json()
     current = client.get(f"{API}/{batch['id']}", headers=token()).json()
-    assert current["notebook_version_id"] == batch["notebook_version_id"]
-    pinned = patch_batch(client, batch, "pin", {"notebook_version_id": None})
+    assert current["script_version_id"] == batch["script_version_id"]
+    pinned = patch_batch(client, batch, "pin", {"script_version_id": None})
     assert pinned.status_code == 200, pinned.text
-    assert pinned.json()["notebook_version_id"] == v2["id"]
+    assert pinned.json()["script_version_id"] == v2["id"]
     assert pinned.json()["config_number"] == 2
     back = patch_batch(
         client,
         pinned.json(),
         "back",
-        {"notebook_version_id": batch["notebook_version_id"]},
+        {"script_version_id": batch["script_version_id"]},
     )
-    assert back.json()["notebook_version_number"] == 1
+    assert back.json()["script_version_number"] == 1
     explicit = create_batch(
         client,
         key="explicit",
         config=metadata(
-            notebook_id=batch["notebook_id"], notebook_version_id=v2["id"]
+            script_id=batch["script_id"], script_version_id=v2["id"]
         ),
     )
     assert explicit.status_code == 201
-    assert explicit.json()["notebook_version_number"] == 2
+    assert explicit.json()["script_version_number"] == 2
 
 
 def test_one_notebook_in_many_batches_and_filter(client):
@@ -155,18 +155,18 @@ def test_one_notebook_in_many_batches_and_filter(client):
     second = create_batch(
         client,
         key="second",
-        config=metadata(name="other", notebook_id=first["notebook_id"]),
+        config=metadata(name="other", script_id=first["script_id"]),
     ).json()
     unrelated = create_batch(client, key="unrelated").json()
-    assert second["notebook_id"] == first["notebook_id"]
+    assert second["script_id"] == first["script_id"]
     listed = client.get(
-        API, headers=token(), params={"notebook_id": first["notebook_id"]}
+        API, headers=token(), params={"script_id": first["script_id"]}
     ).json()["items"]
     assert {b["id"] for b in listed} == {first["id"], second["id"]}
     moved = patch_batch(
-        client, unrelated, "move", {"notebook_id": first["notebook_id"]}
+        client, unrelated, "move", {"script_id": first["script_id"]}
     )
-    assert moved.json()["notebook_id"] == first["notebook_id"]
+    assert moved.json()["script_id"] == first["script_id"]
 
 
 def test_idempotency_replay_conflict_and_owner_scope(client):
@@ -180,14 +180,14 @@ def test_idempotency_replay_conflict_and_owner_scope(client):
     assert other.status_code == 201
     assert other.json()["id"] != first.json()["id"]
     assert len(client.get(API, headers=token()).json()["items"]) == 1
-    assert len(client.get(NOTEBOOKS, headers=token()).json()["items"]) == 1
+    assert len(client.get(SCRIPTS, headers=token()).json()["items"]) == 1
 
 
 def test_cross_user_access(client):
     alice = create_batch(client).json()
     bob = create_batch(client, owner="bob").json()
-    notebook_url = f"{NOTEBOOKS}/{alice['notebook_id']}"
-    version = alice["notebook_version_id"]
+    notebook_url = f"{SCRIPTS}/{alice['script_id']}"
+    version = alice["script_version_id"]
     for url in [
         f"{API}/{alice['id']}",
         notebook_url,
@@ -198,7 +198,7 @@ def test_cross_user_access(client):
         assert client.get(url, headers=token("bob")).status_code == 404
     forbidden = add_version(
         client,
-        {"id": alice["notebook_id"]},
+        {"id": alice["script_id"]},
         "forbidden",
         notebook_bytes("x=2"),
         owner="bob",
@@ -208,25 +208,25 @@ def test_cross_user_access(client):
         client,
         key="borrow",
         owner="bob",
-        config=metadata(notebook_id=alice["notebook_id"]),
+        config=metadata(script_id=alice["script_id"]),
     )
     assert borrowed.status_code == 404
     foreign_version = patch_batch(
         client,
         alice,
         "foreign",
-        {"notebook_version_id": bob["notebook_version_id"]},
+        {"script_version_id": bob["script_version_id"]},
     )
     assert foreign_version.status_code == 404
 
 
 def test_concurrent_identical_create_is_one_resource(client):
     with ThreadPoolExecutor(max_workers=4) as pool:
-        responses = list(pool.map(lambda _: upload_notebook(client), range(4)))
+        responses = list(pool.map(lambda _: upload_script(client), range(4)))
     assert [r.status_code for r in responses] == [201] * 4
     assert len({r.json()["id"] for r in responses}) == 1
-    notebook_id = responses[0].json()["id"]
-    body = metadata(notebook_id=notebook_id)
+    script_id = responses[0].json()["id"]
+    body = metadata(script_id=script_id)
     with ThreadPoolExecutor(max_workers=4) as pool:
         responses = list(
             pool.map(lambda _: create_batch(client, config=body), range(4))
@@ -236,7 +236,7 @@ def test_concurrent_identical_create_is_one_resource(client):
 
 
 def test_concurrent_versions_have_unique_numbers(client):
-    notebook = upload_notebook(client).json()
+    notebook = upload_script(client).json()
 
     def upload(index):
         return add_version(
@@ -259,7 +259,7 @@ def test_concurrent_versions_have_unique_numbers(client):
 
 
 def test_same_version_with_different_concurrent_keys(client):
-    notebook = upload_notebook(client).json()
+    notebook = upload_script(client).json()
 
     def upload(index):
         return add_version(
@@ -276,13 +276,13 @@ def test_same_version_with_different_concurrent_keys(client):
 
 def test_batch_validation_reports_fields(client):
     assert client.get("/readyz").status_code == 200
-    notebook_id = upload_notebook(client).json()["id"]
+    script_id = upload_script(client).json()["id"]
 
     def register(key, **updates):
         return create_batch(
             client,
             key=key,
-            config=metadata(**{"notebook_id": notebook_id, **updates}),
+            config=metadata(**{"script_id": script_id, **updates}),
         )
 
     unknown = register("kernel", kernel_profile="not-registered")
@@ -308,7 +308,7 @@ def test_batch_validation_reports_fields(client):
     )
     assert policy.status_code == 422
     assert "PARALLEL" in policy.json()["errors"][0]["msg"]
-    missing = register("missing", notebook_id=str(uuid4()))
+    missing = register("missing", script_id=str(uuid4()))
     assert missing.status_code == 404
     assert client.get(API, headers=token()).json()["items"] == []
 
@@ -349,7 +349,7 @@ def test_patch_rules_and_policy_merge(client):
 def test_pagination_and_invalid_cursor(client):
     for n in range(3):
         create_batch(client, key=f"batch-{n}")
-    for url in [API, NOTEBOOKS]:
+    for url in [API, SCRIPTS]:
         first = client.get(url, params={"limit": 2}, headers=token()).json()
         second = client.get(
             url,
@@ -371,19 +371,19 @@ def test_database_rollback_after_storage_failure(client, monkeypatch):
 
     with monkeypatch.context() as patch:
         patch.setattr(storage, "save", fail)
-        response = upload_notebook(client)
+        response = upload_script(client)
         assert response.status_code == 503
         assert "private path" not in response.text
-        assert client.get(NOTEBOOKS, headers=token()).json()["items"] == []
-    assert upload_notebook(client).status_code == 201
+        assert client.get(SCRIPTS, headers=token()).json()["items"] == []
+    assert upload_script(client).status_code == 201
 
 
 def test_original_integrity_and_activation_requires_configuration(
     client, settings
 ):
     batch = create_batch(client).json()
-    notebook_url = f"{NOTEBOOKS}/{batch['notebook_id']}"
-    version = batch["notebook_version_id"]
+    notebook_url = f"{SCRIPTS}/{batch['script_id']}"
+    version = batch["script_version_id"]
     original = next(settings.storage_root.rglob("original.ipynb"))
     original.write_bytes(b"corrupted")
     response = client.get(
@@ -428,8 +428,38 @@ def test_immutable_config_history_and_cell_mapping(client, database_url):
             connection.scalar(text("SELECT count(*) FROM batch.batch_configs"))
             == 2
         )
-        mapping = connection.scalar(select(NotebookVersion.cell_map))
+        mapping = connection.scalar(select(ScriptVersion.cell_map))
         assert mapping is not None
         assert mapping[0]["sequence"] == mapping[0]["original_index"] == 0
         assert Path(mapping[0]["path"]).suffix == ".py"
     engine.dispose()
+
+
+def test_script_type_is_required_and_fixed(client):
+    missing = client.post(
+        SCRIPTS,
+        headers={**token(), "Idempotency-Key": "no-type"},
+        files={"file": ("a.ipynb", notebook_bytes())},
+    )
+    assert missing.status_code == 422
+    assert missing.json()["errors"][0]["loc"] == ["body", "type"]
+    python = upload_script(
+        client,
+        key="python",
+        raw=b"print(1)\n",
+        filename="job.py",
+        script_type="PYTHON",
+    )
+    assert python.status_code == 422
+    assert python.json()["code"] == "UNSUPPORTED_SCRIPT_TYPE"
+    unknown = upload_script(client, key="sql", script_type="SQL")
+    assert unknown.status_code == 422
+    script = upload_script(client).json()
+    assert script["type"] == "NOTEBOOK"
+    version = script["latest_version"]["id"]
+    content = client.get(
+        f"{SCRIPTS}/{script['id']}/versions/{version}/content",
+        headers=token(),
+    )
+    assert content.headers["content-type"] == "application/x-ipynb+json"
+    assert content.headers["content-disposition"].endswith('.ipynb"')

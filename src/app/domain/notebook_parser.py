@@ -1,10 +1,9 @@
-"""Validate uploaded notebooks without executing or rewriting their source."""
+"""NOTEBOOK parser: validate .ipynb files without executing or rewriting."""
 
 import copy
 import hashlib
 import json
 import warnings
-from dataclasses import dataclass
 from typing import Any
 
 import nbformat
@@ -13,30 +12,16 @@ from nbformat.validator import normalize
 
 from app.core.config import Settings
 from app.core.exceptions import ServiceError
-
-
-@dataclass(frozen=True)
-class CodeCell:
-    original_index: int
-    source: str
-
-
-@dataclass(frozen=True)
-class Notebook:
-    raw: bytes
-    filename: str
-    sha256: str
-    code_hash: str
-    cells: tuple[CodeCell, ...]
-    # Every original cell: index, type, executed and execution sequence.
-    cell_list: tuple[dict[str, Any], ...]
+from app.domain.scripts import CodeCell, ParsedScript, ScriptType
 
 
 def reject_constant(value: str) -> None:
     raise ValueError(f"Non-JSON constant: {value}")
 
 
-def parse_notebook(raw: bytes, filename: str, settings: Settings) -> Notebook:
+def parse_notebook(
+    raw: bytes, filename: str, settings: Settings
+) -> ParsedScript:
     if not filename.lower().endswith(".ipynb"):
         raise ServiceError(422, "INVALID_NOTEBOOK", "Upload an .ipynb file.")
     if len(raw) > settings.upload_max_bytes:
@@ -99,7 +84,8 @@ def parse_notebook(raw: bytes, filename: str, settings: Settings) -> Notebook:
     code = json.dumps(
         [cell.source for cell in cells], ensure_ascii=False
     ).encode()
-    return Notebook(
+    return ParsedScript(
+        ScriptType.NOTEBOOK,
         raw,
         display_filename(filename),
         hashlib.sha256(raw).hexdigest(),

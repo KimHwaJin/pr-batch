@@ -8,7 +8,7 @@ import httpx2
 import pytest
 from conftest import (
     API,
-    NOTEBOOKS,
+    SCRIPTS,
     create_batch,
     metadata,
     notebook_bytes,
@@ -348,12 +348,12 @@ def test_active_schedule_change_preserves_old_run_snapshot(client, scheduling):
     scheduling.tick(now=first_at(batch))
     old_run = runs(client, batch)[0]
     version = client.post(
-        f"{NOTEBOOKS}/{batch['notebook_id']}/versions",
+        f"{SCRIPTS}/{batch['script_id']}/versions",
         headers={**token(), "Idempotency-Key": "v2"},
         files={"file": ("v2.ipynb", notebook_bytes("x = 42"))},
     ).json()
     replacement = {
-        "notebook_version_id": version["id"],
+        "script_version_id": version["id"],
         "kernel_profile": "analytics",
         "schedule": config()["schedule"],
     }
@@ -370,7 +370,7 @@ def test_active_schedule_change_preserves_old_run_snapshot(client, scheduling):
     assert runs(client, batch)[0] == old_run
     assert scheduling.tick(now=first_at(changed))
     latest = runs(client, batch)[-1]
-    assert latest["notebook_version_id"] == version["id"]
+    assert latest["script_version_id"] == version["id"]
     assert latest["kernel_profile"] == "analytics"
     assert latest["config_number"] == 2
 

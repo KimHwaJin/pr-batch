@@ -10,7 +10,7 @@ from sqlalchemy import ColumnElement, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core.exceptions import ServiceError
-from app.models import Batch, BatchConfig, Notebook, NotebookVersion
+from app.models import Batch, BatchConfig, Script, ScriptVersion
 from app.schemas.schedule import Policy, Schedule
 
 
@@ -24,17 +24,17 @@ def policy_of(config: BatchConfig) -> Policy:
     return Policy.model_validate(config.policy)
 
 
-def owned_notebook(
-    session: Session, owner: str, notebook_id: UUID, *, lock: bool = False
-) -> Notebook:
-    query = select(Notebook).where(
-        Notebook.id == notebook_id, Notebook.owner_id == owner
+def owned_script(
+    session: Session, owner: str, script_id: UUID, *, lock: bool = False
+) -> Script:
+    query = select(Script).where(
+        Script.id == script_id, Script.owner_id == owner
     )
     if lock:
         query = query.with_for_update()
     result = session.scalar(query)
     if result is None:
-        raise ServiceError(404, "NOT_FOUND", "Notebook not found.")
+        raise ServiceError(404, "NOT_FOUND", "Script not found.")
     return result
 
 
@@ -50,17 +50,17 @@ def owned_batch(
     return result
 
 
-def notebook_version(
-    session: Session, notebook_id: UUID, number_or_id: int | UUID
-) -> NotebookVersion:
+def script_version(
+    session: Session, script_id: UUID, number_or_id: int | UUID
+) -> ScriptVersion:
     column = (
-        NotebookVersion.number
+        ScriptVersion.number
         if isinstance(number_or_id, int)
-        else NotebookVersion.id
+        else ScriptVersion.id
     )
     result = session.scalar(
-        select(NotebookVersion).where(
-            NotebookVersion.notebook_id == notebook_id,
+        select(ScriptVersion).where(
+            ScriptVersion.script_id == script_id,
             column == number_or_id,
         )
     )
@@ -76,8 +76,8 @@ def current_config(session: Session, batch: Batch) -> BatchConfig:
     return result
 
 
-def config_version(session: Session, config: BatchConfig) -> NotebookVersion:
-    result = session.get(NotebookVersion, config.notebook_version_id)
+def config_version(session: Session, config: BatchConfig) -> ScriptVersion:
+    result = session.get(ScriptVersion, config.script_version_id)
     if result is None:
         raise ServiceError(503, "INCONSISTENT_STATE", "Version missing.")
     return result

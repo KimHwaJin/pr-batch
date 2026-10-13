@@ -44,8 +44,8 @@ class RunView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     batch_id: UUID
-    notebook_id: UUID
-    notebook_version_id: UUID
+    script_id: UUID
+    script_version_id: UUID
     config_number: int
     kernel_profile: str
     snapshot: dict[str, Any]

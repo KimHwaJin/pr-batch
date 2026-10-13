@@ -1,4 +1,4 @@
-"""Immutable originals and cell files on an operator-owned shared volume."""
+"""Immutable script originals and cell files on the shared volume."""
 
 import hashlib
 import os
@@ -9,10 +9,10 @@ from typing import Any
 from uuid import UUID
 
 from app.core.exceptions import ServiceError
-from app.domain.notebook_parser import Notebook
+from app.domain.scripts import ORIGINAL_NAMES, ParsedScript
 
 
-class NotebookStorage:
+class ScriptStorage:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
 
@@ -32,7 +32,7 @@ class NotebookStorage:
         return candidate
 
     def save(
-        self, owner: str, notebook_id: UUID, version: UUID, notebook: Notebook
+        self, owner: str, script_id: UUID, version: UUID, parsed: ParsedScript
     ) -> tuple[str, list[dict[str, Any]]]:
         if not self.root.is_dir():
             raise ServiceError(
@@ -40,7 +40,7 @@ class NotebookStorage:
             )
         owner_hash = hashlib.sha256(owner.encode()).hexdigest()
         directory = (
-            f"batch-input/users/{owner_hash}/notebooks/{notebook_id}"
+            f"batch-input/users/{owner_hash}/scripts/{script_id}"
             f"/versions/{version}"
         )
         destination = self.safe_path(directory)
@@ -51,8 +51,9 @@ class NotebookStorage:
         cells: list[dict[str, Any]] = []
         try:
             (temporary / "cells").mkdir(mode=0o750)
-            self.write_file(temporary / "original.ipynb", notebook.raw)
-            for sequence, cell in enumerate(notebook.cells):
+            original = ORIGINAL_NAMES[parsed.type]
+            self.write_file(temporary / original, parsed.raw)
+            for sequence, cell in enumerate(parsed.cells):
                 name = f"cells/{sequence:06d}.py"
                 data = cell.source.encode("utf-8")
                 self.write_file(temporary / name, data)
@@ -69,7 +70,7 @@ class NotebookStorage:
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
-        return f"{directory}/original.ipynb", cells
+        return f"{directory}/{original}", cells
 
     @staticmethod
     def write_file(path: Path, data: bytes) -> None:
@@ -85,10 +86,10 @@ class NotebookStorage:
                 data = handle.read(size + 1)
         except OSError as exc:
             raise ServiceError(
-                503, "STORAGE_UNAVAILABLE", "Notebook storage unavailable."
+                503, "STORAGE_UNAVAILABLE", "Script storage unavailable."
             ) from exc
         if len(data) != size or hashlib.sha256(data).hexdigest() != sha256:
             raise ServiceError(
-                503, "STORAGE_INTEGRITY_ERROR", "Notebook integrity mismatch."
+                503, "STORAGE_INTEGRITY_ERROR", "Script integrity mismatch."
             )
         return data

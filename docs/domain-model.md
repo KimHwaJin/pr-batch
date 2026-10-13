@@ -7,11 +7,11 @@
 ```text
 사용자 (owner, prj_re SSO로 확인된 ID)
 │
-├── Notebook                       업로드한 노트북 (여러 개)
-│   └── NotebookVersion            업로드 원본 1개 = 불변 버전 (v1, v2, …)
-│       └── Cell                   원본의 셀 목록. 코드 셀만 실행 대상
+├── Script                         업로드한 스크립트 (여러 개, type: NOTEBOOK / 추후 PYTHON)
+│   └── ScriptVersion              업로드 원본 1개 = 불변 버전 (v1, v2, …)
+│       └── Cell                   실행 단위 목록. NOTEBOOK은 코드 셀만 실행 대상
 │
-└── Batch                          "이 노트북 버전을 이 일정·정책으로 돌린다"는 등록
+└── Batch                          "이 스크립트 버전을 이 일정·정책으로 돌린다"는 등록
     ├── BatchConfig                실행 설정 이력 (버전·커널·일정·정책의 불변 스냅샷 #1, #2, …)
     ├── SkippedWindow              실행하지 않고 넘긴 예약 구간 기록
     └── Run                        실행 1회 (예약 또는 수동)
@@ -24,8 +24,8 @@
 
 ```mermaid
 erDiagram
-    NOTEBOOK ||--o{ NOTEBOOK_VERSION : "버전"
-    NOTEBOOK_VERSION ||--o{ BATCH_CONFIG : "고정 참조"
+    SCRIPT ||--o{ SCRIPT_VERSION : "버전"
+    SCRIPT_VERSION ||--o{ BATCH_CONFIG : "고정 참조"
     BATCH ||--|{ BATCH_CONFIG : "설정 이력"
     BATCH ||--o{ RUN : "실행"
     BATCH ||--o{ SKIPPED_WINDOW : "생략 기록"
@@ -36,47 +36,55 @@ erDiagram
 ```
 
 - 모든 자원은 **사용자 소유**다. 프로젝트 개념은 없고(요건), 다른 사용자의 자원은 존재하지 않는 것처럼(404) 보인다.
-- **Notebook과 Batch는 독립**이다. 노트북 하나를 여러 배치가 쓸 수 있고, 배치는 노트북의 특정 버전을 가리킨다.
-- **불변 자원**: NotebookVersion, BatchConfig, Run의 스냅샷. 한 번 만들어지면 바뀌지 않아서, 과거 실행이 "무슨 코드를 어떤 설정으로 돌렸는지" 항상 재현 가능하다.
+- **Script와 Batch는 독립**이다. 스크립트 하나를 여러 배치가 쓸 수 있고, 배치는 스크립트의 특정 버전을 가리킨다.
+- **불변 자원**: ScriptVersion, BatchConfig, Run의 스냅샷. 한 번 만들어지면 바뀌지 않아서, 과거 실행이 "무슨 코드를 어떤 설정으로 돌렸는지" 항상 재현 가능하다.
 - **자동 삭제 없음**(요건). 삭제 API도 초기에는 두지 않는다.
 
 ## 2. 자원별 설명
 
-### Notebook
+### Script
 
-사용자가 올린 노트북 하나. 이름과 버전 목록을 가진 "폴더" 같은 자원이다.
+사용자가 올린 실행 코드 하나. 이름·타입과 버전 목록을 가진 "폴더" 같은 자원이다.
+
+| 타입 | 실행 단위 | 상태 |
+| --- | --- | --- |
+| NOTEBOOK | `.ipynb`의 비어 있지 않은 코드 셀 하나 = Executor Step 하나 | 지원 |
+| PYTHON | `.py` 파일 전체 = Step 하나 (예정) | 예약. 등록 시 422 `UNSUPPORTED_SCRIPT_TYPE` |
+
+타입은 등록 시 `type`으로 받아 고정한다. 이후 버전은 같은 타입으로만 올릴 수 있고(다르면 422
+`SCRIPT_TYPE_MISMATCH`), 타입별 파서가 파일을 실행 단위로 바꾼다. 새 타입은 파서만 추가하면 된다.
 
 | 항목 | 내용 |
 | --- | --- |
-| 생성 | `POST /api/v1/notebooks` (파일 업로드) → v1 자동 생성 |
+| 생성 | `POST /api/v1/scripts` (파일 업로드) → v1 자동 생성 |
 | 주요 속성 | 이름, 최신 버전 번호, revision |
 | 바뀌는 것 | 이름, 버전 추가 |
-| API | `/api/v1/notebooks`, `/api/v1/notebooks/{notebook_id}` |
+| API | `/api/v1/scripts`, `/api/v1/scripts/{script_id}` |
 
-### NotebookVersion
+### ScriptVersion
 
-업로드한 원본 파일 하나. 같은 노트북에 수정본을 올리면 다음 번호의 버전이 된다.
+업로드한 원본 파일 하나. 같은 스크립트에 수정본을 올리면 다음 번호의 버전이 된다.
 
 | 항목 | 내용 |
 | --- | --- |
-| 생성 | 노트북 생성 시 v1, 이후 `POST /notebooks/{id}/versions` |
+| 생성 | 스크립트 생성 시 v1, 이후 `POST /scripts/{id}/versions` |
 | 주요 속성 | 번호, 파일명(표시용), 원본 SHA-256, 코드 해시, 셀 목록 |
 | 저장 | 원본 `.ipynb`와 실행용 셀 파일(`cells/000000.py` …)을 공유 PV에 저장 |
 | 불변 | 바이트가 같은 파일을 다시 올리면 새 버전을 만들지 않고 기존 버전을 돌려줌 |
-| API | `/notebooks/{id}/versions`, `/versions/{version_id}`, `/versions/{version_id}/content` |
+| API | `/scripts/{id}/versions`, `/versions/{version_id}`, `/versions/{version_id}/content` |
 
 **Cell**은 별도 테이블이 아니라 버전 안의 목록이다. 셀마다 `index, type(code/markdown/raw), executed, sequence`를 가진다.
 비어 있지 않은 코드 셀만 실행 대상이고, 실행 순서 번호(`sequence`)가 Executor의 Step 순서가 된다.
 
 ### Batch
 
-"어떤 노트북을, 언제, 어떻게 돌릴지"의 등록. 사용자가 관리하는 핵심 자원이다.
+"어떤 스크립트를, 언제, 어떻게 돌릴지"의 등록. 사용자가 관리하는 핵심 자원이다.
 
 | 항목 | 내용 |
 | --- | --- |
 | 생성 | `POST /api/v1/batches` (JSON). 항상 **비활성**으로 생성 |
 | 주요 속성 | 이름, 활성 여부, 다음 예약 시각, 현재 설정 번호, revision |
-| 현재 설정 | 노트북 버전, 커널, 일정(선택), 정책 → 실제 값은 최신 BatchConfig에 있음 |
+| 현재 설정 | 스크립트 버전, 커널, 일정(선택), 정책 → 실제 값은 최신 BatchConfig에 있음 |
 | 바뀌는 것 | 이름, 설정(PATCH), 활성/비활성 |
 | API | `/api/v1/batches`, `/batches/{batch_id}`, `/enable`, `/disable` |
 
@@ -99,7 +107,7 @@ erDiagram
 | 항목 | 내용 |
 | --- | --- |
 | 생성 | 배치 등록 시 #1, PATCH로 설정이 바뀔 때마다 #2, #3 … |
-| 주요 속성 | 노트북 버전, 커널, 일정, 정책 |
+| 주요 속성 | 스크립트 버전, 커널, 일정, 정책 |
 | 왜 필요한가 | Run이 "접수 당시 설정"을 정확히 가리키게 하기 위해. 대기 중인 실행은 이후 설정을 바꿔도 원래 설정으로 돈다 |
 | API | 별도 API 없음. 배치 응답의 `config_number`, 실행 응답의 `config_number`로 보임 |
 
@@ -114,7 +122,7 @@ erDiagram
 | 항목 | 내용 |
 | --- | --- |
 | 생성 | 예약(`trigger=SCHEDULED`, `scheduled_for`) 또는 수동(`POST /batches/{id}/runs`, `trigger=MANUAL`) |
-| 고정되는 것 | 접수 시점의 BatchConfig 번호, 노트북 버전, 커널, 일정·정책 사본 |
+| 고정되는 것 | 접수 시점의 BatchConfig 번호, 스크립트 버전, 커널, 일정·정책 사본 |
 | 외부 연결 | Executor `execution_id`, 결과 노트북 artifact |
 | API | `/batches/{id}/runs`, `/runs/{run_id}` |
 
@@ -205,34 +213,34 @@ API: `GET /batches/{id}/skipped-windows`
 
 ### 매일 8시 정기 실행
 
-1. 사용자가 `daily.ipynb`를 올림 → Notebook + v1.
+1. 사용자가 `daily.ipynb`를 type NOTEBOOK으로 올림 → Script + v1.
 2. 배치 등록: v1, 커널 `default`, CRON `0 8 * * *`, 겹침 SKIP → Batch(비활성) + BatchConfig #1.
 3. 활성화 → `next_run_at = 다음 날 08:00`.
 4. 08:00, 스케줄러가 Run(SCHEDULED, Config #1)과 SUBMIT_EXECUTION Task 생성.
 5. Task 처리: 제출 → 상태 조회 → 결과 수집 → 리포트 요청 → 리포트 완료 → Run COMPLETED.
 6. 사용자는 Run 상세에서 셀별 결과, 결과 노트북, 리포트 링크를 봄.
 
-### 노트북을 고쳐서 적용
+### 스크립트를 고쳐서 적용
 
-1. 같은 노트북에 수정본 업로드 → v2. 배치는 여전히 v1으로 돈다.
-2. 배치 PATCH `{"notebook_version_id": v2}` → BatchConfig #2.
+1. 같은 스크립트에 수정본 업로드 → v2. 배치는 여전히 v1으로 돈다.
+2. 배치 PATCH `{"script_version_id": v2}` → BatchConfig #2.
 3. 이미 접수된 실행은 #1(v1)로, 이후 실행은 #2(v2)로 돈다.
 
 ### 리포트만 실패
 
 1. 실행 성공, 리포트 생성 실패 → Run REPORT_FAILED, Report generation 1 실패 기록.
-2. 사용자가 리포트 재시도 → Report generation 2 요청. 노트북은 다시 실행하지 않음.
+2. 사용자가 리포트 재시도 → Report generation 2 요청. 코드는 다시 실행하지 않음.
 
 ## 4. API 경로 체계
 
 ```text
-/api/v1/notebooks
-/api/v1/notebooks/{notebook_id}
-/api/v1/notebooks/{notebook_id}/versions
-/api/v1/notebooks/{notebook_id}/versions/{version_id}
-/api/v1/notebooks/{notebook_id}/versions/{version_id}/content
+/api/v1/scripts
+/api/v1/scripts/{script_id}
+/api/v1/scripts/{script_id}/versions
+/api/v1/scripts/{script_id}/versions/{version_id}
+/api/v1/scripts/{script_id}/versions/{version_id}/content
 
-/api/v1/batches                                   (?notebook_id= 필터)
+/api/v1/batches                                   (?script_id= 필터)
 /api/v1/batches/{batch_id}
 /api/v1/batches/{batch_id}/enable | /disable
 /api/v1/batches/{batch_id}/skipped-windows

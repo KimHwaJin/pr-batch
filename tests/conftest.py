@@ -20,7 +20,7 @@ from app.main import create_app
 
 TEST_SECRET = "local-test-only-" * 4
 API = "/api/v1/batches"
-NOTEBOOKS = "/api/v1/notebooks"
+SCRIPTS = "/api/v1/scripts"
 
 
 def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
@@ -67,7 +67,7 @@ def notebook_bytes(
 
 
 def metadata(**updates: object) -> dict:
-    """Batch registration body; create_batch fills notebook_id."""
+    """Batch registration body; create_batch fills script_id."""
     result = {
         "name": "생산라인 분석",
         "kernel_profile": "python3",
@@ -123,7 +123,7 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
                 "TRUNCATE batch.skipped_windows, batch.tasks, "
                 "batch.run_reports, batch.run_step_bindings, "
                 "batch.batch_runs, batch.batch_configs, "
-                "batch.batches, batch.notebook_versions, batch.notebooks, "
+                "batch.batches, batch.script_versions, batch.scripts, "
                 "batch.idempotency_records"
             )
         )
@@ -135,18 +135,19 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
         yield result
 
 
-def upload_notebook(
+def upload_script(
     client: TestClient,
-    key: str = "notebook-1",
+    key: str = "script-1",
     owner: str = "alice",
     raw: bytes | None = None,
     name: str | None = None,
     filename: str = "analysis.ipynb",
+    script_type: str = "NOTEBOOK",
 ):
     return client.post(
-        NOTEBOOKS,
+        SCRIPTS,
         headers={**token(owner), "Idempotency-Key": key},
-        data={"name": name} if name else None,
+        data={"type": script_type, **({"name": name} if name else {})},
         files={
             "file": (
                 filename,
@@ -166,10 +167,10 @@ def create_batch(
 ):
     """Upload a notebook (same key) and register a batch for it."""
     body = dict(config or metadata())
-    if "notebook_id" not in body:
-        notebook = upload_notebook(client, f"notebook:{key}", owner, raw)
+    if "script_id" not in body:
+        notebook = upload_script(client, f"notebook:{key}", owner, raw)
         assert notebook.status_code == 201, notebook.text
-        body["notebook_id"] = notebook.json()["id"]
+        body["script_id"] = notebook.json()["id"]
     return client.post(
         API, headers={**token(owner), "Idempotency-Key": key}, json=body
     )

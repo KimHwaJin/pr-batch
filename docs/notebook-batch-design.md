@@ -1,4 +1,8 @@
-# 노트북·배치 분리 설계
+# 스크립트·배치 분리 설계
+
+> 2026-10-13 이후: 업로드 자원 이름을 Notebook에서 **Script**로 바꾸고(`/api/v1/scripts`, `script_id`,
+> `script_version_id`), 등록 시 `type`(NOTEBOOK, 추후 PYTHON)을 받는다. 아래 본문의 "노트북" 자원은 Script로 읽는다.
+> 실행 파이프라인과 Run 상태는 [서비스 체계](domain-model.md), [목표 아키텍처](architecture.md)가 최신이다.
 
 상태: 2026-10-13 사용자와 합의한 방향의 상세 설계. 이 문서 기준으로 구현한다.
 
@@ -10,13 +14,13 @@
 | 자원 | 의미 | 주요 속성 |
 | --- | --- | --- |
 | Notebook | 업로드한 노트북. 사용자별 여러 개 | 이름, 버전 목록 |
-| NotebookVersion | 노트북의 한 업로드 원본. 불변 | 파일명, 원본 해시, 실행할 코드 셀 목록 |
+| ScriptVersion | 노트북의 한 업로드 원본. 불변 | 파일명, 원본 해시, 실행할 코드 셀 목록 |
 | Batch | 정기 실행 등록. 노트북 한 버전을 가리킴 | 이름, 노트북·버전, 커널, 일정(선택), 정책, 활성 여부 |
 | Run | 배치의 실행 한 번 (예약 또는 수동) | 접수 당시 설정 사본, Executor 상태·결과 |
 
 ```
 POST /notebooks ─▶ Notebook ─┬─ v1
-POST /notebooks/{id}/versions └─ v2 …
+POST /scripts/{id}/versions └─ v2 …
                                 ▲ 버전 고정 참조
 POST /batches ─▶ Batch(노트북·버전 + 커널 + 일정 + 정책, 비활성)
                    ├─ POST /enable ─▶ 스케줄러가 일정마다 Run 생성 ─▶ worker ─▶ Executor
@@ -27,7 +31,7 @@ POST /batches ─▶ Batch(노트북·버전 + 커널 + 일정 + 정책, 비활�
 
 - 노트북 하나를 여러 배치에서 재사용할 수 있다. 배치 하나는 노트북 하나만 실행한다.
 - 배치는 노트북의 **특정 버전을 고정**한다. 새 버전을 올려도 기존 배치는 바뀌지 않고,
-  배치 PATCH로 `notebook_version_id`를 바꿔야 적용된다.
+  배치 PATCH로 `script_version_id`를 바꿔야 적용된다.
 - 배치 없이 노트북만 한 번 실행하는 API는 두지 않는다. 수동 실행은 배치에서 한다.
 - 일정은 선택이다. 일정이 없는 배치는 수동 실행 전용이며 활성화할 수 없다.
 - 운영 데이터가 없으므로 DB migration은 새 기준(baseline) 하나로 다시 만든다.
@@ -54,14 +58,14 @@ POST /batches ─▶ Batch(노트북·버전 + 커널 + 일정 + 정책, 비활�
 
 | Method | 경로 | 동작 | 성공 |
 | --- | --- | --- | --- |
-| POST | /api/v1/notebooks | multipart `file`(.ipynb), 선택 `name` | 201 NotebookView |
-| GET | /api/v1/notebooks | 내 노트북 목록 (최신 생성순) | 200 NotebookPage |
-| GET | /api/v1/notebooks/{notebook_id} | 상세 + 최신 버전 요약, `ETag` | 200 NotebookView |
-| PATCH | /api/v1/notebooks/{notebook_id} | `{"name"}` 변경. If-Match | 200 NotebookView |
-| POST | /api/v1/notebooks/{notebook_id}/versions | multipart `file` 새 버전 | 201 새 버전 / 200 동일 원본 |
-| GET | /api/v1/notebooks/{notebook_id}/versions | 버전 목록 (번호 역순) | 200 VersionPage |
-| GET | /api/v1/notebooks/{notebook_id}/versions/{version_id} | 버전 상세 + 셀 목록 | 200 VersionDetail |
-| GET | /api/v1/notebooks/{notebook_id}/versions/{version_id}/content | 원본 다운로드 | 200 파일 |
+| POST | /api/v1/scripts | multipart `file`(.ipynb), 선택 `name` | 201 NotebookView |
+| GET | /api/v1/scripts | 내 노트북 목록 (최신 생성순) | 200 NotebookPage |
+| GET | /api/v1/scripts/{script_id} | 상세 + 최신 버전 요약, `ETag` | 200 NotebookView |
+| PATCH | /api/v1/scripts/{script_id} | `{"name"}` 변경. If-Match | 200 NotebookView |
+| POST | /api/v1/scripts/{script_id}/versions | multipart `file` 새 버전 | 201 새 버전 / 200 동일 원본 |
+| GET | /api/v1/scripts/{script_id}/versions | 버전 목록 (번호 역순) | 200 VersionPage |
+| GET | /api/v1/scripts/{script_id}/versions/{version_id} | 버전 상세 + 셀 목록 | 200 VersionDetail |
+| GET | /api/v1/scripts/{script_id}/versions/{version_id}/content | 원본 다운로드 | 200 파일 |
 
 `name`을 생략하면 업로드 파일명에서 `.ipynb`를 뗀 값을 쓴다.
 새 버전 업로드는 노트북의 `revision`을 올리지만 If-Match는 요구하지 않는다(번호는 행 잠금으로 할당).
@@ -87,7 +91,7 @@ NotebookView {
 }
 
 VersionView {
-  "id": "…", "notebook_id": "…", "number": 1,
+  "id": "…", "script_id": "…", "number": 1,
   "filename": "daily.ipynb", "sha256": "…", "code_hash": "…", "size_bytes": 2048,
   "cells": {"total": 12, "executable": 7, "skipped": 5},
   "created_at": "…"
@@ -106,7 +110,7 @@ VersionDetail = VersionView + {
 | Method | 경로 | 동작 | 성공 |
 | --- | --- | --- | --- |
 | POST | /api/v1/batches | JSON 등록. 항상 비활성 | 201 BatchView |
-| GET | /api/v1/batches | 내 배치 목록. 선택 필터 `notebook_id` | 200 BatchPage |
+| GET | /api/v1/batches | 내 배치 목록. 선택 필터 `script_id` | 200 BatchPage |
 | GET | /api/v1/batches/{batch_id} | 상세, `ETag` | 200 BatchView |
 | PATCH | /api/v1/batches/{batch_id} | 바꿀 필드만. If-Match | 200 BatchView |
 | POST | /api/v1/batches/{batch_id}/enable | 예약 활성화. If-Match | 200 BatchView |
@@ -121,8 +125,8 @@ VersionDetail = VersionView + {
 ```json
 {
   "name": "A라인 매일 8시",
-  "notebook_id": "…",
-  "notebook_version_id": "…",
+  "script_id": "…",
+  "script_version_id": "…",
   "kernel_profile": "default",
   "schedule": {
     "definition": {"kind": "CRON", "expression": "0 8 * * *"},
@@ -145,8 +149,8 @@ VersionDetail = VersionView + {
 | 필드 | 필수 | 규칙 |
 | --- | --- | --- |
 | name | O | 1~255자 |
-| notebook_id | O | 내 노트북 |
-| notebook_version_id | X | 생략 시 등록 시점의 최신 버전으로 **고정**. 지정 시 그 노트북의 버전이어야 함 |
+| script_id | O | 내 노트북 |
+| script_version_id | X | 생략 시 등록 시점의 최신 버전으로 **고정**. 지정 시 그 노트북의 버전이어야 함 |
 | kernel_profile | O | 허용 커널 목록 |
 | schedule | X | 생략·null이면 수동 실행 전용. definition 4종은 기존과 동일 (ONCE/INTERVAL/CALENDAR/CRON) |
 | policy | X | 생략하면 아래 기본값. 일부만 보내면 나머지는 기본값 |
@@ -162,7 +166,7 @@ catch_up_max_runs 1~1000(10), catch_up_max_age_seconds 60~31536000(86400).
 등록 요청과 같은 필드를 쓰되 모두 선택이다. 보낸 필드만 바뀐다.
 
 - `name`만 바꾸면 실행 설정 이력은 늘지 않는다.
-- `notebook_id`만 바꾸면 그 노트북의 최신 버전으로 고정한다.
+- `script_id`만 바꾸면 그 노트북의 최신 버전으로 고정한다.
 - `schedule: null`은 일정 제거다. 활성 상태에서는 409 `SCHEDULE_REQUIRED` (먼저 비활성화).
 - `policy`는 보낸 하위 필드만 바뀐다.
 - 활성 상태에서 일정을 바꾸면 기존과 같이 미래 일정부터 다시 계산하고, 다음 실행이 없으면 422.
@@ -173,7 +177,7 @@ catch_up_max_runs 1~1000(10), catch_up_max_age_seconds 60~31536000(86400).
 ```json
 BatchView {
   "id": "…", "name": "…",
-  "notebook_id": "…", "notebook_version_id": "…", "notebook_version_number": 3,
+  "script_id": "…", "script_version_id": "…", "script_version_number": 3,
   "kernel_profile": "default",
   "schedule": {…} | null,
   "policy": {…},
@@ -199,23 +203,23 @@ BatchView {
 경로와 동작은 기존과 같다. 필드 변경:
 
 - `schedule_number` → `config_number`
-- `notebook_id`, `notebook_version_id` 추가 (`version_id` 대체)
-- `snapshot`은 `{notebook_id, notebook_version_id, sha256, code_hash, schedule, policy}`
+- `script_id`, `script_version_id` 추가 (`version_id` 대체)
+- `snapshot`은 `{script_id, script_version_id, sha256, code_hash, schedule, policy}`
 
 ## 5. DB 모델 (`batch` 스키마, 새 baseline)
 
 | 테이블 | 컬럼 | 제약 |
 | --- | --- | --- |
 | notebooks | id, owner_id, name, revision, latest_version_number, created_at, updated_at | idx(owner_id, created_at, id) |
-| notebook_versions | id, notebook_id, number, filename, original_path, sha256, code_hash, size_bytes, cell_map(실행 셀), cell_list(전체 셀 요약), created_at | unique(notebook_id, number), unique(notebook_id, sha256), unique(notebook_id, id) |
+| script_versions | id, script_id, number, filename, original_path, sha256, code_hash, size_bytes, cell_map(실행 셀), cell_list(전체 셀 요약), created_at | unique(script_id, number), unique(script_id, sha256), unique(script_id, id) |
 | batches | id, owner_id, name, enabled, next_run_at, config_number, revision, created_at, updated_at | enabled OR next_run_at IS NULL, idx(enabled, next_run_at), idx(owner_id, created_at, id) |
-| batch_configs | (batch_id, number) PK, notebook_id, notebook_version_id, kernel_profile, schedule JSONB NULL, policy JSONB, created_at | FK (notebook_id, notebook_version_id) → notebook_versions |
-| batch_runs | 기존 + notebook_id, notebook_version_id, config_number | FK (batch_id, config_number) → batch_configs, unique(batch_id, config_number, scheduled_for) |
+| batch_configs | (batch_id, number) PK, script_id, script_version_id, kernel_profile, schedule JSONB NULL, policy JSONB, created_at | FK (script_id, script_version_id) → script_versions |
+| batch_runs | 기존 + script_id, script_version_id, config_number | FK (batch_id, config_number) → batch_configs, unique(batch_id, config_number, scheduled_for) |
 | run_step_bindings, run_commands, idempotency_records | 기존과 동일 | |
 | skipped_windows | 기존, schedule_number → config_number | FK (batch_id, config_number) |
 
-- 배치 목록의 `notebook_id` 필터는 현재 설정(`batch_configs` join)으로 거른다.
-- 원본 저장 경로: `batch-input/users/<owner-hash>/notebooks/<notebook-id>/versions/<version-id>/`.
+- 배치 목록의 `script_id` 필터는 현재 설정(`batch_configs` join)으로 거른다.
+- 원본 저장 경로: `batch-input/users/<owner-hash>/scripts/<notebook-id>/versions/<version-id>/`.
   Executor에는 기존과 같이 셀 파일 상대경로와 SHA-256으로 제출한다.
 
 ## 6. 바뀌지 않는 부분

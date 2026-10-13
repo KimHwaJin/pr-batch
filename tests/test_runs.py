@@ -10,7 +10,7 @@ import httpx2
 import pytest
 from conftest import (
     API,
-    NOTEBOOKS,
+    SCRIPTS,
     create_batch,
     metadata,
     notebook_bytes,
@@ -375,7 +375,7 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     assert pending_tasks(worker, run) == ["SUBMIT_EXECUTION"]
     assert run_request(client, batch["id"]).json() == run
     uploaded = client.post(
-        f"{NOTEBOOKS}/{batch['notebook_id']}/versions",
+        f"{SCRIPTS}/{batch['script_id']}/versions",
         headers={**token(), "Idempotency-Key": "new-version"},
         files={"file": ("v2.ipynb", notebook_bytes("x = 42"))},
     ).json()
@@ -383,7 +383,7 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
         f"{API}/{batch['id']}",
         headers={**token(), "Idempotency-Key": "config", "If-Match": '"1"'},
         json={
-            "notebook_version_id": uploaded["id"],
+            "script_version_id": uploaded["id"],
             "kernel_profile": "analytics",
         },
     )
@@ -392,11 +392,8 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     payload = fake.payloads[0]
     assert payload["runtime"] == {"type": "JUPYTER", "profile": "python3"}
     assert payload["context"] == {"user_id": "alice", "task_id": run["id"]}
-    assert (
-        payload["metadata"]["notebook_version_id"]
-        == run["notebook_version_id"]
-    )
-    assert payload["metadata"]["notebook_id"] == batch["notebook_id"]
+    assert payload["metadata"]["script_version_id"] == run["script_version_id"]
+    assert payload["metadata"]["script_id"] == batch["script_id"]
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
     assert payload["trigger"]["type"] == "BATCH"
     detail = run_get(client, run).json()
