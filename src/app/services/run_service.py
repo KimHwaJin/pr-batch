@@ -55,6 +55,35 @@ def queue_submission(session: Session, run: BatchRun) -> None:
     enqueue(session, TaskKind.SUBMIT_EXECUTION, run.id)
 
 
+def replace_running(session: Session, batch_id: UUID, actor: Actor) -> int:
+    """REPLACE overlap: cancel waiting runs and ask running ones to stop.
+
+    Returns how many occupying runs stopped immediately (none today: a
+    running run frees its slot only when the Executor confirms the end).
+    """
+    now = database_now(session)
+    runs = session.scalars(
+        select(BatchRun)
+        .where(
+            BatchRun.batch_id == batch_id,
+            BatchRun.status.in_(
+                [RunStatus.WAITING, RunStatus.QUEUED, RunStatus.RUNNING]
+            ),
+        )
+        .with_for_update()
+    )
+    for run in runs:
+        if run.status == RunStatus.WAITING:
+            run.status = RunStatus.CANCELLED
+            run.completed_at = now
+        elif not run.cancel_requested:
+            run.cancel_requested = True
+            if run.status == RunStatus.RUNNING:
+                enqueue(session, TaskKind.CANCEL_EXECUTION, run.id)
+        run.stamp_updated(actor, now)
+    return 0
+
+
 def admit_run(
     session: Session,
     batch: Batch,
@@ -69,10 +98,14 @@ def admit_run(
     active = count_status(session, batch.id, OCCUPYING)
     pending = count_status(session, batch.id, frozenset({RunStatus.WAITING}))
     target, reason, http_status = RunStatus.QUEUED, None, 202
-    if policy["overlap"] == "SKIP" and active:
+    overlap = policy["overlap"]
+    if overlap["mode"] == "REPLACE":
+        active -= replace_running(session, batch.id, actor)
+        pending = 0
+    if overlap["mode"] == "SKIP" and active:
         target, reason = RunStatus.SKIPPED, "OVERLAP"
-    elif active >= policy["max_concurrent"] or pending:
-        if pending >= policy["max_pending"]:
+    elif active >= overlap["max_concurrent"] or pending:
+        if pending >= overlap["max_queued"]:
             target, reason = RunStatus.SKIPPED, "SKIPPED_CAPACITY"
             http_status = 409
         else:
@@ -139,7 +172,7 @@ def promote_waiting(
         )
         if oldest is None:
             return
-        maximum = oldest.snapshot["policy"]["max_concurrent"]
+        maximum = oldest.snapshot["policy"]["overlap"]["max_concurrent"]
         if count_status(session, batch_id, OCCUPYING) >= maximum:
             return
         queue_submission(session, oldest)

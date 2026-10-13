@@ -48,19 +48,19 @@ class Scheduler:
             clock = ScheduleClock(schedule)
             cursor = batch.next_run_at
             assert cursor is not None
-            cutoff = now - timedelta(seconds=policy.misfire_grace_seconds)
+            cutoff = now - timedelta(seconds=policy.misfire.grace_seconds)
             if cursor < cutoff:
                 recovered = []
                 count = 0
                 lower = cursor
-                if policy.misfire == "LATEST":
+                if policy.misfire.mode == "LATEST":
                     count = 1
-                elif policy.misfire == "CATCH_UP":
-                    count = policy.catch_up_max_runs
+                elif policy.misfire.mode == "CATCH_UP":
+                    count = policy.misfire.max_runs
                     lower = max(
                         lower,
                         now
-                        - timedelta(seconds=policy.catch_up_max_age_seconds),
+                        - timedelta(seconds=policy.misfire.max_age_seconds),
                     )
                 previous = clock.find(cutoff, reverse=True)
                 for _ in range(count):
@@ -76,7 +76,7 @@ class Scheduler:
                     config,
                     cursor,
                     until,
-                    f"MISFIRE_{policy.misfire}",
+                    f"MISFIRE_{policy.misfire.mode}",
                     now,
                     SCHEDULER,
                 )

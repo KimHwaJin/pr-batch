@@ -8,7 +8,15 @@ from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
-from app.schemas.schedule import Calendar, Cron, Interval, Once, Schedule
+from app.schemas.schedule import (
+    WEEKDAYS,
+    Calendar,
+    Cron,
+    Interval,
+    Once,
+    Schedule,
+    numeric_cron,
+)
 
 EPSILON = timedelta(microseconds=1)
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -21,7 +29,9 @@ class ScheduleClock:
         self.fields: list[list[int | Literal["*", "l"]]] = []
         self.times: list[time] = []
         if isinstance(self.definition, Cron):
-            fields, _ = croniter.expand(self.definition.expression)
+            fields, _ = croniter.expand(
+                numeric_cron(self.definition.expression)
+            )
             self.fields = fields
             minutes = range(60) if "*" in fields[0] else fields[0]
             hours = range(24) if "*" in fields[1] else fields[1]
@@ -36,11 +46,22 @@ class ScheduleClock:
         if isinstance(definition, Calendar):
             if definition.frequency == "DAILY":
                 return True
+            weekday = WEEKDAYS[day.weekday()]
             if definition.frequency == "WEEKLY":
-                return day.weekday() in definition.weekdays
-            return day.day in definition.month_days or (
-                definition.last_day
-                and day.day == monthrange(day.year, day.month)[1]
+                return weekday in definition.weekdays
+            month_length = monthrange(day.year, day.month)[1]
+            if day.day in definition.month_days:
+                return True
+            if definition.last_day and day.day == month_length:
+                return True
+            return any(
+                rule.weekday == weekday
+                and (
+                    (day.day - 1) // 7 + 1 == rule.nth
+                    if rule.nth > 0
+                    else day.day + 7 > month_length
+                )
+                for rule in definition.nth_weekdays
             )
         dom, months, dow = self.fields[2:5]
         if "*" not in months and day.month not in months:
@@ -79,7 +100,10 @@ class ScheduleClock:
             result = definition.at.astimezone(UTC)
             return result if lower <= result <= upper else None
         if isinstance(definition, Interval):
-            anchor = definition.anchor.astimezone(UTC)
+            anchor = definition.anchor or self.config.start_at
+            if anchor is None:
+                raise ValueError("INTERVAL needs an anchor or start_at.")
+            anchor = anchor.astimezone(UTC)
             delta = timedelta(seconds=definition.seconds)
             if reverse:
                 n = (upper - anchor) // delta

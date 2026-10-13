@@ -5,7 +5,13 @@ from datetime import datetime, time
 from typing import Annotated, Literal, Self
 
 from croniter import croniter
-from pydantic import AwareDatetime, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.common import Contract
 
@@ -15,23 +21,35 @@ class Once(Contract):
     at: AwareDatetime
 
 
+Weekday = Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+WEEKDAYS: tuple[str, ...] = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+
 class Interval(Contract):
     kind: Literal["INTERVAL"]
-    anchor: AwareDatetime
     seconds: int = Field(ge=60, le=31_536_000)
+    # Reference point for "every N seconds". Omitted: the schedule's
+    # start_at, else the time the configuration is saved (filled then).
+    anchor: AwareDatetime | None = None
+
+
+class NthWeekday(Contract):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    weekday: Weekday
+    nth: Literal[1, 2, 3, 4, 5, -1]  # -1: the last one in the month
 
 
 class Calendar(Contract):
     kind: Literal["CALENDAR"]
     frequency: Literal["DAILY", "WEEKLY", "MONTHLY"]
     at: time
-    weekdays: list[Annotated[int, Field(ge=0, le=6)]] = Field(
-        default_factory=list, max_length=7
-    )
+    weekdays: list[Weekday] = Field(default_factory=list, max_length=7)
     month_days: list[Annotated[int, Field(ge=1, le=31)]] = Field(
         default_factory=list, max_length=31
     )
     last_day: bool = False
+    nth_weekdays: list[NthWeekday] = Field(default_factory=list, max_length=35)
 
     @model_validator(mode="after")
     def validate_calendar(self) -> Self:
@@ -41,18 +59,73 @@ class Calendar(Contract):
             raise ValueError("Duplicate weekdays are not allowed.")
         if len(set(self.month_days)) != len(self.month_days):
             raise ValueError("Duplicate month days are not allowed.")
+        if len(set(self.nth_weekdays)) != len(self.nth_weekdays):
+            raise ValueError("Duplicate nth weekdays are not allowed.")
         if self.frequency == "WEEKLY" and not self.weekdays:
-            raise ValueError("WEEKLY requires weekdays (Monday=0).")
+            raise ValueError("WEEKLY requires weekdays, e.g. ['MON'].")
         if self.frequency != "WEEKLY" and self.weekdays:
             raise ValueError("weekdays applies only to WEEKLY.")
+        monthly = self.month_days or self.last_day or self.nth_weekdays
         if self.frequency == "MONTHLY":
-            if not self.month_days and not self.last_day:
-                raise ValueError("MONTHLY requires month_days or last_day.")
-        elif self.month_days or self.last_day:
+            if not monthly:
+                raise ValueError(
+                    "MONTHLY requires month_days, last_day or nth_weekdays."
+                )
+        elif monthly:
             raise ValueError("Month day options apply only to MONTHLY.")
-        self.weekdays.sort()
+        self.weekdays.sort(key=WEEKDAYS.index)
         self.month_days.sort()
         return self
+
+
+CRON_MACROS = {
+    "@yearly": "0 0 1 1 *",
+    "@annually": "0 0 1 1 *",
+    "@monthly": "0 0 1 * *",
+    "@weekly": "0 0 * * 0",
+    "@daily": "0 0 * * *",
+    "@midnight": "0 0 * * *",
+    "@hourly": "0 * * * *",
+}
+MONTH_NAMES = (
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+)
+DOW_NAMES = ("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")
+
+
+def numeric_cron(expression: str) -> str:
+    """Expand macros and month/day names into five numeric fields."""
+    value = " ".join(expression.split()).upper()
+    value = CRON_MACROS.get(value.lower(), value)
+    fields = value.split()
+    if len(fields) != 5:
+        raise ValueError("Use five Cron fields or a macro such as @daily.")
+
+    def names(field: str, table: tuple[str, ...], offset: int) -> str:
+        return re.sub(
+            r"[A-Z]{3}",
+            lambda m: (
+                str(table.index(m.group()) + offset)
+                if m.group() in table
+                else m.group()
+            ),
+            field,
+        )
+
+    fields[3] = names(fields[3], MONTH_NAMES, 1)
+    fields[4] = names(fields[4], DOW_NAMES, 0)
+    return " ".join(fields)
 
 
 class Cron(Contract):
@@ -63,15 +136,19 @@ class Cron(Contract):
     @classmethod
     def validate_expression(cls, value: str) -> str:
         value = " ".join(value.split())
-        if len(value.split()) != 5 or not re.fullmatch(r"[0-9*/ ,\-]+", value):
-            raise ValueError("Use five numeric Cron fields: * ranges , /.")
-        if not croniter.is_valid(value):
+        numeric = numeric_cron(value)
+        if not re.fullmatch(r"[0-9*/ ,\-]+", numeric):
+            raise ValueError(
+                "Cron fields take numbers, names (MON, JAN), * - , / or a "
+                "macro like @daily; L, W and # are not supported."
+            )
+        if not croniter.is_valid(numeric):
             raise ValueError("Invalid Cron expression.")
         try:
-            croniter(value, datetime(2026, 1, 1)).get_next(datetime)
+            croniter(numeric, datetime(2026, 1, 1)).get_next(datetime)
         except ValueError as exc:
             raise ValueError("Cron has no reachable execution date.") from exc
-        return value
+        return value if value.startswith("@") else value.upper()
 
 
 ScheduleDefinition = Annotated[
@@ -100,33 +177,64 @@ class Schedule(Contract):
         return self
 
 
-class Policy(Contract):
-    """Overlap and misfire handling; manual runs also follow overlap."""
+OverlapMode = Literal["SKIP", "QUEUE", "PARALLEL", "REPLACE"]
+MisfireMode = Literal["SKIP", "LATEST", "CATCH_UP"]
 
-    overlap: Literal["SKIP", "QUEUE", "PARALLEL"] = "SKIP"
+
+class Overlap(Contract):
+    """What happens when a run is due while code is still running.
+
+    SKIP: record and skip. QUEUE: wait in order (max_queued).
+    PARALLEL: up to max_concurrent at once. REPLACE: cancel the running
+    one(s) and run the new one when they have stopped.
+    """
+
+    mode: OverlapMode = "SKIP"
     max_concurrent: int = Field(default=1, ge=1, le=100)
-    max_pending: int = Field(default=100, ge=1, le=10000)
-    misfire: Literal["SKIP", "LATEST", "CATCH_UP"] = "SKIP"
-    misfire_grace_seconds: int = Field(default=60, ge=1, le=86400)
-    catch_up_max_runs: int = Field(default=10, ge=1, le=1000)
-    catch_up_max_age_seconds: int = Field(default=86400, ge=60, le=31_536_000)
+    max_queued: int = Field(default=100, ge=1, le=10000)
 
     @model_validator(mode="after")
-    def validate_concurrency(self) -> Self:
-        if self.overlap != "PARALLEL" and self.max_concurrent != 1:
+    def validate_mode(self) -> Self:
+        if self.mode != "PARALLEL" and self.max_concurrent != 1:
             raise ValueError("Only PARALLEL allows max_concurrent > 1.")
         return self
 
 
-class PolicyPatch(Contract):
-    """Partial policy update; omitted fields keep their current value."""
+class Misfire(Contract):
+    """What happens to occurrences missed by more than grace_seconds.
 
-    overlap: Literal["SKIP", "QUEUE", "PARALLEL"] | None = None
+    SKIP: drop them. LATEST: run the most recent one. CATCH_UP: run up to
+    max_runs of those younger than max_age_seconds, oldest first.
+    """
+
+    mode: MisfireMode = "SKIP"
+    grace_seconds: int = Field(default=60, ge=1, le=86400)
+    max_runs: int = Field(default=10, ge=1, le=1000)
+    max_age_seconds: int = Field(default=86400, ge=60, le=31_536_000)
+
+
+class Policy(Contract):
+    """Overlap and misfire handling; manual runs also follow overlap."""
+
+    overlap: Overlap = Field(default_factory=Overlap)
+    misfire: Misfire = Field(default_factory=Misfire)
+
+
+class OverlapPatch(Contract):
+    mode: OverlapMode | None = None
     max_concurrent: int | None = Field(default=None, ge=1, le=100)
-    max_pending: int | None = Field(default=None, ge=1, le=10000)
-    misfire: Literal["SKIP", "LATEST", "CATCH_UP"] | None = None
-    misfire_grace_seconds: int | None = Field(default=None, ge=1, le=86400)
-    catch_up_max_runs: int | None = Field(default=None, ge=1, le=1000)
-    catch_up_max_age_seconds: int | None = Field(
-        default=None, ge=60, le=31_536_000
-    )
+    max_queued: int | None = Field(default=None, ge=1, le=10000)
+
+
+class MisfirePatch(Contract):
+    mode: MisfireMode | None = None
+    grace_seconds: int | None = Field(default=None, ge=1, le=86400)
+    max_runs: int | None = Field(default=None, ge=1, le=1000)
+    max_age_seconds: int | None = Field(default=None, ge=60, le=31_536_000)
+
+
+class PolicyPatch(Contract):
+    """Partial policy update; omitted values keep their current value."""
+
+    overlap: OverlapPatch | None = None
+    misfire: MisfirePatch | None = None

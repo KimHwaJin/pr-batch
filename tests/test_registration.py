@@ -126,7 +126,7 @@ def test_batch_pins_version_until_changed(client):
     batch = create_batch(client).json()
     assert batch["enabled"] is False
     assert batch["script_version_number"] == 1
-    assert batch["policy"]["overlap"] == "SKIP"
+    assert batch["policy"]["overlap"]["mode"] == "SKIP"
     notebook = {"id": batch["script_id"]}
     v2 = add_version(client, notebook, "v2", notebook_bytes("x = 4")).json()
     current = client.get(f"{API}/{batch['id']}", headers=token()).json()
@@ -313,7 +313,8 @@ def test_batch_validation_reports_fields(client):
     assert error["loc"][:3] == ["body", "schedule", "definition"]
     assert "Cron" in error["msg"]
     policy = register(
-        "policy", policy={"overlap": "SKIP", "max_concurrent": 2}
+        "policy",
+        policy={"overlap": {"mode": "SKIP", "max_concurrent": 2}},
     )
     assert policy.status_code == 422
     assert "PARALLEL" in policy.json()["errors"][0]["msg"]
@@ -340,13 +341,16 @@ def test_patch_rules_and_policy_merge(client):
         client,
         current,
         "policy",
-        {"policy": {"overlap": "PARALLEL", "max_concurrent": 3}},
+        {"policy": {"overlap": {"mode": "PARALLEL", "max_concurrent": 3}}},
     )
     assert merged.status_code == 200
-    assert merged.json()["policy"]["max_pending"] == 100
-    assert merged.json()["policy"]["max_concurrent"] == 3
+    assert merged.json()["policy"]["overlap"]["max_queued"] == 100
+    assert merged.json()["policy"]["overlap"]["max_concurrent"] == 3
     invalid = patch_batch(
-        client, merged.json(), "bad-policy", {"policy": {"overlap": "SKIP"}}
+        client,
+        merged.json(),
+        "bad-policy",
+        {"policy": {"overlap": {"mode": "SKIP"}}},
     )
     assert invalid.status_code == 422
     assert invalid.json()["code"] == "INVALID_POLICY"

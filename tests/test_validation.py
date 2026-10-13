@@ -104,7 +104,7 @@ def test_limits_empty_and_invalid_unicode(settings):
             "kind": "CALENDAR",
             "frequency": "WEEKLY",
             "at": "08:00",
-            "weekdays": [0, 1, 2, 3, 4],
+            "weekdays": ["MON", "TUE", "WED", "THU", "FRI"],
         },
         {
             "kind": "CALENDAR",
@@ -130,7 +130,7 @@ def test_supported_schedules(definition):
             "kind": "CALENDAR",
             "frequency": "DAILY",
             "at": "08:00",
-            "weekdays": [1],
+            "weekdays": ["TUE"],
         },
         {"kind": "CRON", "expression": "* * * * * *"},
         {"kind": "CRON", "expression": "0 0 L * *"},
@@ -144,10 +144,16 @@ def test_invalid_schedules(definition):
 
 
 def test_policy_defaults_and_parallel_rule():
-    assert Policy().overlap == "SKIP"
-    assert Policy(overlap="PARALLEL", max_concurrent=3).max_concurrent == 3
+    assert Policy().overlap.mode == "SKIP"
+    assert Policy().misfire.mode == "SKIP"
+    parallel = Policy.model_validate(
+        {"overlap": {"mode": "PARALLEL", "max_concurrent": 3}}
+    )
+    assert parallel.overlap.max_concurrent == 3
     with pytest.raises(ValidationError):
-        Policy(overlap="QUEUE", max_concurrent=2)
+        Policy.model_validate(
+            {"overlap": {"mode": "QUEUE", "max_concurrent": 2}}
+        )
 
 
 @pytest.mark.parametrize(
@@ -271,3 +277,51 @@ def test_runtime_catalog_reads_batch_targets_and_caches():
         broken.available()
     assert exc.value.status == 503
     executor.close()
+
+
+@pytest.mark.parametrize(
+    "expression,numeric",
+    [
+        ("@daily", "0 0 * * *"),
+        ("@hourly", "0 * * * *"),
+        ("0 8 * * mon-fri", "0 8 * * 1-5"),
+        ("0 0 1 JAN,JUL *", "0 0 1 1,7 *"),
+    ],
+)
+def test_cron_macros_and_names(expression, numeric):
+    from app.schemas.schedule import numeric_cron
+
+    assert numeric_cron(expression) == numeric
+    assert Schedule(definition={"kind": "CRON", "expression": expression})
+
+
+def test_monthly_nth_weekday_and_interval_anchor_default():
+    from datetime import datetime
+
+    from app.domain.schedule_clock import SEOUL, ScheduleClock
+
+    first_monday = Schedule(
+        definition={
+            "kind": "CALENDAR",
+            "frequency": "MONTHLY",
+            "at": "09:00",
+            "nth_weekdays": [
+                {"weekday": "MON", "nth": 1},
+                {"weekday": "FRI", "nth": -1},
+            ],
+        }
+    )
+    start = datetime(2026, 11, 1, tzinfo=SEOUL)
+    days = [
+        d.astimezone(SEOUL).day
+        for d in ScheduleClock(first_monday).preview(start, 4)
+    ]
+    # Nov 2026: first Monday 2nd, last Friday 27th; Dec: 7th, 25th.
+    assert days == [2, 27, 7, 25]
+    interval = Schedule(
+        definition={"kind": "INTERVAL", "seconds": 3600},
+        start_at=start,
+    )
+    following = ScheduleClock(interval).find(start)
+    assert following is not None
+    assert following.astimezone(SEOUL).hour == 1

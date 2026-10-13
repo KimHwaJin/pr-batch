@@ -35,7 +35,16 @@ def scheduling(client):
     return Scheduler(client.app.state.sessions)
 
 
-RENAMED = {"misfire_policy": "misfire", "overlap_policy": "overlap"}
+# Flat test options -> nested policy sections.
+POLICY_KEYS = {
+    "overlap_policy": ("overlap", "mode"),
+    "max_concurrent": ("overlap", "max_concurrent"),
+    "max_pending": ("overlap", "max_queued"),
+    "misfire_policy": ("misfire", "mode"),
+    "misfire_grace_seconds": ("misfire", "grace_seconds"),
+    "catch_up_max_runs": ("misfire", "max_runs"),
+    "catch_up_max_age_seconds": ("misfire", "max_age_seconds"),
+}
 
 
 def config(**options):
@@ -43,8 +52,10 @@ def config(**options):
     window = {
         k: options.pop(k) for k in ("start_at", "end_at") if k in options
     }
-    policy = {"overlap": "QUEUE"}
-    policy.update({RENAMED.get(k, k): v for k, v in options.items()})
+    policy: dict[str, dict] = {"overlap": {"mode": "QUEUE"}, "misfire": {}}
+    for key, value in options.items():
+        section, name = POLICY_KEYS[key]
+        policy[section][name] = value
     return metadata(
         schedule={
             "definition": {

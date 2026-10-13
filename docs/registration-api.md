@@ -214,28 +214,40 @@ code_hash로 실제 실행 코드가 같음을 확인할 수 있다.
 
 ## 일정과 정책
 
-| kind | 필드와 규칙 |
-| --- | --- |
-| ONCE | at: 시간대가 포함된 시각 |
-| INTERVAL | anchor: 시간대가 포함된 기준 시각, seconds: 60~31536000 |
-| CALENDAR | frequency: DAILY/WEEKLY/MONTHLY, at: 시간대 없는 시각 |
-| CRON | 숫자 기반 5필드 expression, 목록·범위·간격. 일/요일 OR 의미 |
+### 일정 (`schedule`)
 
-WEEKLY는 weekdays가 필요하며 월요일=0, 일요일=6이다. MONTHLY는 month_days
-(1~31) 또는 last_day=true를 받는다. Cron의 초 필드, 이름, L/W/# 확장은 받지
-않는다. 시간대는 Asia/Seoul이다. start_at/end_at은 선택이며 시작 포함·끝 미포함이다.
-
-| policy 필드 | 값 | 기본 |
+| kind | 필드 | 예 |
 | --- | --- | --- |
-| overlap | SKIP / QUEUE / PARALLEL | SKIP |
-| max_concurrent | 1~100, PARALLEL만 1 초과 | 1 |
-| max_pending | 1~10000 | 100 |
-| misfire | SKIP / LATEST / CATCH_UP | SKIP |
-| misfire_grace_seconds | 1~86400 | 60 |
-| catch_up_max_runs | 1~1000 | 10 |
-| catch_up_max_age_seconds | 60~31536000 | 86400 |
+| ONCE | `at`(시간대 포함 시각) | 2026-11-01T09:00+09:00 한 번 |
+| INTERVAL | `seconds`(60~31536000), `anchor`(선택) | 30분마다 |
+| CALENDAR | `frequency` DAILY/WEEKLY/MONTHLY, `at`(시간대 없는 시각) | 평일 8시, 매월 말일, 매월 첫째 월요일 |
+| CRON | `expression` 5필드 또는 단축어 | `*/10 9-17 * * MON-FRI`, `@daily` |
 
-수동 실행도 overlap 정책을 따르므로 일정이 없는 배치에도 policy가 적용된다.
+- **WEEKLY**: `weekdays`에 요일 이름 `MON`~`SUN`.
+- **MONTHLY**: `month_days`(1~31, 그 날짜가 없는 달은 건너뜀), `last_day: true`(말일),
+  `nth_weekdays: [{"weekday": "MON", "nth": 1}]`(n번째 요일, `nth`는 1~5 또는 -1=마지막) 중 하나 이상.
+- **INTERVAL `anchor`**: "이 시각부터 N초마다"의 기준. 생략하면 `start_at`, 없으면 설정을 저장한 시각으로 채워 응답에 보여준다.
+- **CRON**: 숫자·범위·목록·간격, 요일·월 이름(`MON`, `JAN`), 단축어 `@hourly`, `@daily`(=`@midnight`), `@weekly`,
+  `@monthly`, `@yearly`(=`@annually`). 일·요일을 둘 다 제한하면 OR. 초 단위와 `L/W/#`는 받지 않는다(월말·n번째 요일은 CALENDAR).
+- `timezone`은 Asia/Seoul만 허용한다. `start_at`/`end_at`은 선택이며 시작 포함·끝 미포함이다.
+
+### 정책 (`policy`)
+
+```json
+"policy": {
+  "overlap": {"mode": "QUEUE", "max_concurrent": 1, "max_queued": 100},
+  "misfire": {"mode": "CATCH_UP", "grace_seconds": 60, "max_runs": 10, "max_age_seconds": 86400}
+}
+```
+
+| 구역 | mode | 함께 쓰는 값 | 기본 |
+| --- | --- | --- | --- |
+| overlap (이전 실행이 아직 돌 때) | `SKIP` 건너뜀 / `QUEUE` 순서대로 대기 / `PARALLEL` 동시 실행 / `REPLACE` 실행 중인 것 취소 후 새로 실행 | `max_concurrent` 1~100(PARALLEL만 1 초과), `max_queued` 1~10000 | SKIP, 1, 100 |
+| misfire (장애 등으로 놓친 일정) | `SKIP` 버림 / `LATEST` 가장 최근 1회 / `CATCH_UP` 보충 | `grace_seconds` 1~86400, `max_runs` 1~1000, `max_age_seconds` 60~31536000 | SKIP, 60, 10, 86400 |
+
+- 수동 실행도 overlap 정책을 따른다. REPLACE에서는 대기 중인 실행은 취소되고, 실행 중인 것은 Executor에 취소를
+  요청한 뒤 실제로 끝나면 새 실행이 시작된다.
+- PATCH의 `policy`는 `overlap`·`misfire` 안에서 보낸 값만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
 
 ## 검증과 오류
 

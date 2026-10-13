@@ -530,7 +530,13 @@ def test_capacity_queue_and_manual_overflow(
 ):
     _, worker = execution
     config = metadata(
-        policy={"overlap": policy, "max_concurrent": maximum, "max_pending": 1}
+        policy={
+            "overlap": {
+                "mode": policy,
+                "max_concurrent": maximum,
+                "max_queued": 1,
+            }
+        }
     )
     batch = create_batch(client, config=config).json()
     runs = [
@@ -553,7 +559,7 @@ def test_capacity_queue_and_manual_overflow(
 def test_code_completion_frees_slot_before_collection(client, execution):
     fake, worker = execution
     batch = create_batch(
-        client, config=metadata(policy={"overlap": "QUEUE"})
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
     ).json()
     first = run_request(client, batch["id"]).json()
     second = run_request(client, batch["id"], "second").json()
@@ -576,7 +582,7 @@ def test_code_completion_frees_slot_before_collection(client, execution):
 def test_fifo_promotion_is_serialized(client, execution):
     fake, worker = execution
     batch = create_batch(
-        client, config=metadata(policy={"overlap": "QUEUE"})
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
     ).json()
     runs = [run_request(client, batch["id"], f"r{n}").json() for n in range(4)]
     tick(worker, runs[0])
@@ -790,7 +796,7 @@ def test_manual_body_rejects_unimplemented_overrides(client, execution):
 def test_cancel_waiting_queued_and_running(client, execution):
     fake, worker = execution
     batch = create_batch(
-        client, config=metadata(policy={"overlap": "QUEUE"})
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
     ).json()
     queued = run_request(client, batch["id"], "a").json()
     waiting = run_request(client, batch["id"], "b").json()
@@ -928,3 +934,23 @@ def test_audit_fields_follow_who_changed_the_run(client, execution):
         "USER",
         ALICE,
     )
+
+
+def test_replace_overlap_cancels_running_and_starts_new(client, execution):
+    fake, worker = execution
+    batch = create_batch(
+        client, config=metadata(policy={"overlap": {"mode": "REPLACE"}})
+    ).json()
+    old = run_request(client, batch["id"], "old").json()
+    tick(worker, old)
+    assert run_get(client, old).json()["status"] == "RUNNING"
+    queued = run_request(client, batch["id"], "queued").json()
+    assert queued["status"] == "WAITING"
+    new = run_request(client, batch["id"], "new").json()
+    assert new["status"] == "WAITING"
+    assert run_get(client, queued).json()["status"] == "CANCELLED"
+    assert run_get(client, old).json()["cancel_requested"] is True
+    drain(worker, old)
+    assert run_get(client, old).json()["status"] == "CANCELLED"
+    assert fake.cancels
+    assert run_get(client, new).json()["status"] in {"QUEUED", "RUNNING"}

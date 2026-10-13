@@ -1,5 +1,6 @@
 """Batch registration, partial updates, activation and skip history."""
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,7 +24,7 @@ from app.schemas.batch import (
     UpdateBatch,
 )
 from app.schemas.common import audit_fields
-from app.schemas.schedule import Policy
+from app.schemas.schedule import Interval, Policy, Schedule
 from app.services.common import (
     before_cursor,
     check_revision,
@@ -66,12 +67,33 @@ def batch_view(
 
 
 def merged_policy(current: Policy, patch: dict[str, Any]) -> Policy:
+    """Apply a nested partial policy; the result must be valid as a whole."""
+    merged = current.model_dump()
+    for section, values in patch.items():
+        merged[section] = merged[section] | values
     try:
-        return Policy.model_validate(current.model_dump() | patch)
+        return Policy.model_validate(merged)
     except ValidationError as exc:
         raise ServiceError(
             422, "INVALID_POLICY", "Only PARALLEL allows max_concurrent > 1."
         ) from exc
+
+
+def dump(schedule: Schedule | None) -> dict[str, Any] | None:
+    return schedule.model_dump(mode="json") if schedule else None
+
+
+def anchored(schedule: Schedule | None, now: datetime) -> Schedule | None:
+    """Fill an omitted INTERVAL anchor: start_at, else when it is saved."""
+    if schedule is None:
+        return None
+    definition = schedule.definition
+    if isinstance(definition, Interval) and definition.anchor is None:
+        fixed = definition.model_copy(
+            update={"anchor": schedule.start_at or now}
+        )
+        return schedule.model_copy(update={"definition": fixed})
+    return schedule
 
 
 def script_type_of(session: Session, version: ScriptVersion) -> ScriptType:
@@ -136,11 +158,7 @@ class BatchService:
                 script_id=version.script_id,
                 script_version_id=version.id,
                 runtime=data.runtime.model_dump(mode="json"),
-                schedule=(
-                    data.schedule.model_dump(mode="json")
-                    if data.schedule
-                    else None
-                ),
+                schedule=dump(anchored(data.schedule, batch.created_at)),
                 policy=data.policy.model_dump(mode="json"),
             )
             config.stamp_created(actor, batch.created_at)
@@ -216,15 +234,17 @@ class BatchService:
             )
         else:
             version = config_version(session, current)
+        now = database_now(session)
         schedule = (
-            data.schedule if "schedule" in fields else schedule_of(current)
+            anchored(data.schedule, now)
+            if "schedule" in fields
+            else schedule_of(current)
         )
         policy = policy_of(current)
         if data.policy is not None:
             policy = merged_policy(
                 policy, data.policy.model_dump(exclude_none=True)
             )
-        now = database_now(session)
         if batch.enabled:
             if schedule is None:
                 raise ServiceError(
@@ -261,7 +281,7 @@ class BatchService:
                 if data.runtime
                 else current.runtime
             ),
-            schedule=schedule.model_dump(mode="json") if schedule else None,
+            schedule=dump(schedule),
             policy=policy.model_dump(mode="json"),
         )
         config.stamp_created(Actor.user(owner), now)

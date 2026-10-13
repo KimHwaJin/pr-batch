@@ -58,7 +58,7 @@ def test_once_and_activation_time_boundary():
                 "kind": "CALENDAR",
                 "frequency": "WEEKLY",
                 "at": "08:00",
-                "weekdays": [0, 4],
+                "weekdays": ["MON", "FRI"],
             },
             "2026-10-12T08:00:00+09:00",
             "2026-10-16T08:00:00+09:00",

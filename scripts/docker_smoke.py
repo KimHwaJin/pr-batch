@@ -130,7 +130,7 @@ def main() -> None:
         "schedule": {
             "definition": {"kind": "CRON", "expression": "0 8 * * *"}
         },
-        "policy": {"overlap": "QUEUE", "max_pending": 10},
+        "policy": {"overlap": {"mode": "QUEUE", "max_queued": 10}},
     }
     batch = call(
         "POST",
