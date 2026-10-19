@@ -454,9 +454,7 @@ def test_scheduler_to_executor_worker_contract(client, scheduling):
         "http://executor.test", transport=httpx2.MockTransport(fake.handle)
     )
     try:
-        worker = Dispatcher(
-            scheduling.sessions, Clients(executor, None, 5, 60)
-        )
+        worker = Dispatcher(scheduling.sessions, Clients(executor, 5, 60))
         assert worker.tick()
         history = runs(client, batch)
         assert history[0]["status"] == "RUNNING"

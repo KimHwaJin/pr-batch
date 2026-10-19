@@ -110,6 +110,9 @@ FROM_START를 선택한다. Batch가 새 Execution으로 재시도를 흉내 내
 
 ## 결과와 리포트 저장
 
+> 2026-10-19 결정으로 pr-batch는 리포트를 요청하지 않는다. pr-agentic-service가 Executor
+> `execution.completed` 이벤트로 직접 작성한다. 이 절과 아래 prj_re 리포트 API 제안은 기록용이다.
+
 `GET /api/v1/executions/{id}/result`에서 Operation·Step·Attempt·Artifact를 확인한다.
 대용량 출력 본문은 manifest와 representation 참조에서 읽는다. 공유 결과 경로는
 ID를 조합해 재구축하지 않고 반환된 참조의 범위·크기·해시·identity를 검증한다.

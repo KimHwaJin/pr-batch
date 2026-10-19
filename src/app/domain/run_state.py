@@ -8,15 +8,13 @@ class RunStatus(StrEnum):
     QUEUED = "QUEUED"  # slot reserved; Executor submission pending
     RUNNING = "RUNNING"  # submitted; code runs in the Executor
     COLLECTING = "COLLECTING"  # code finished; collecting cell results
-    REPORTING = "REPORTING"  # result ready; report being generated
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
-    REPORT_FAILED = "REPORT_FAILED"
     CANCELLED = "CANCELLED"
     SKIPPED = "SKIPPED"
 
 
-# Overlap is judged by code execution only; reports never block next runs.
+# Overlap is judged by code execution only; collecting never blocks.
 OCCUPYING = frozenset({RunStatus.QUEUED, RunStatus.RUNNING})
 CANCELLABLE = frozenset(
     {RunStatus.WAITING, RunStatus.QUEUED, RunStatus.RUNNING}
@@ -25,7 +23,6 @@ FINAL = frozenset(
     {
         RunStatus.COMPLETED,
         RunStatus.FAILED,
-        RunStatus.REPORT_FAILED,
         RunStatus.CANCELLED,
         RunStatus.SKIPPED,
     }
@@ -36,17 +33,8 @@ TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.QUEUED: frozenset({RunStatus.RUNNING, RunStatus.CANCELLED}),
     RunStatus.RUNNING: frozenset({RunStatus.COLLECTING}),
     RunStatus.COLLECTING: frozenset(
-        {
-            RunStatus.REPORTING,
-            RunStatus.COMPLETED,
-            RunStatus.FAILED,
-            RunStatus.CANCELLED,
-        }
+        {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
     ),
-    RunStatus.REPORTING: frozenset(
-        {RunStatus.COMPLETED, RunStatus.REPORT_FAILED}
-    ),
-    RunStatus.REPORT_FAILED: frozenset({RunStatus.REPORTING}),
 }
 
 # Executor terminal states that end code execution.

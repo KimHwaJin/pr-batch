@@ -23,19 +23,10 @@ class StepView(BaseModel):
     result_ref: dict[str, Any] | None
 
 
-class ReportView(Audited, BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    generation: int
-    status: str
-    error_code: str | None
-    artifacts: list[dict[str, Any]]
-
-
 class ResultRefs(BaseModel):
     """Executor artifact IDs; download via Executor after ownership check."""
 
     notebook_artifact_id: str | None = None
-    report_artifact_id: str | None = None
 
 
 class RunView(Audited, BaseModel):
@@ -52,6 +43,8 @@ class RunView(Audited, BaseModel):
     status: str
     skip_reason: str | None
     cancel_requested: bool
+    cancel_source: str | None
+    cancel_reason: str | None
     execution_id: UUID | None
     operation_id: UUID | None
     execution_status: str | None
@@ -62,7 +55,6 @@ class RunView(Audited, BaseModel):
     artifacts: list[dict[str, Any]]
     attempts: list[dict[str, Any]]
     retry_info: dict[str, Any] | None
-    report: ReportView | None = None
     result: ResultRefs = ResultRefs()
     submitted_at: datetime | None
     started_at: datetime | None

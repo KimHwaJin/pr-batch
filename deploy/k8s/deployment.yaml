@@ -67,9 +67,6 @@ spec:
               value: "60"
             - name: BATCH_SHUTDOWN_GRACE_SECONDS
               value: "40"
-            # Uncomment once prj_re exposes the report API.
-            # - name: BATCH_REPORT_BASE_URL
-            #   value: http://prj-re-report:8000
           envFrom:
             - secretRef:
                 name: pr-batch-secrets

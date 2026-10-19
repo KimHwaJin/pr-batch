@@ -18,12 +18,10 @@ from conftest import (
     notebook_bytes,
     token,
 )
-from pydantic import SecretStr
 from sqlalchemy import event, func, select, update
 
 from app.db.base import utcnow
 from app.integrations.executor import ExecutorClient, ExecutorError
-from app.integrations.report import ReportClient
 from app.models import BatchRun, RunStepBinding, Task
 from app.runtime.dispatcher import Dispatcher
 from app.runtime.runtime import BackgroundRuntime
@@ -219,52 +217,6 @@ class FakeExecutor:
         )
 
 
-class FakeReport:
-    """Contract-shaped prj_re report API."""
-
-    REPORT = str(uuid4())
-    NOTEBOOK = str(uuid4())
-
-    def __init__(self):
-        self.requests = []
-        self.outcomes = ["RUNNING", "SUCCEEDED"]
-        self.jobs = {}
-
-    def handle(self, request):
-        self.requests.append(
-            (
-                request.method,
-                request.url.path,
-                request.headers["authorization"],
-            )
-        )
-        if request.method == "POST":
-            body = json.loads(request.content)
-            key = body["idempotency_key"]
-            job = self.jobs.setdefault(
-                key,
-                {"report_job_id": f"job-{len(self.jobs) + 1}", "body": body},
-            )
-            return httpx2.Response(
-                202,
-                json={
-                    "report_job_id": job["report_job_id"],
-                    "status": "PENDING",
-                },
-            )
-        status = self.outcomes.pop(0) if self.outcomes else "SUCCEEDED"
-        job_id = request.url.path.rsplit("/", 1)[-1]
-        payload = {"report_job_id": job_id, "status": status}
-        if status == "SUCCEEDED":
-            payload["artifacts"] = [
-                {"type": "REPORT", "artifact_id": self.REPORT},
-                {"type": "NOTEBOOK", "artifact_id": self.NOTEBOOK},
-            ]
-        if status == "FAILED":
-            payload["error_code"] = "LLM_TIMEOUT"
-        return httpx2.Response(200, json=payload)
-
-
 @pytest.fixture
 def execution(client):
     client.app.state.settings.executor_base_url = "http://executor.test"
@@ -272,27 +224,8 @@ def execution(client):
     remote = ExecutorClient(
         "http://executor.test", transport=httpx2.MockTransport(fake.handle)
     )
-    worker = Dispatcher(
-        client.app.state.sessions, Clients(remote, None, 5, 60)
-    )
+    worker = Dispatcher(client.app.state.sessions, Clients(remote, 5, 60))
     yield fake, worker
-    remote.close()
-
-
-@pytest.fixture
-def reporting(client, execution):
-    fake, worker = execution
-    report = FakeReport()
-    remote = ReportClient(
-        "http://prj-re.test",
-        "report-secret-" * 4,
-        "prj_re-report",
-        transport=httpx2.MockTransport(report.handle),
-    )
-    client.app.state.settings.report_base_url = "http://prj-re.test"
-    client.app.state.settings.report_token_secret = SecretStr("x" * 32)
-    worker.clients.report = remote
-    yield fake, report, worker
     remote.close()
 
 
@@ -397,14 +330,18 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     assert payload["metadata"]["script_version_id"] == run["script_version_id"]
     assert payload["metadata"]["script_id"] == batch["script_id"]
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
-    assert payload["trigger"]["type"] == "BATCH"
+    assert payload["trigger"] == {
+        "type": "BATCH",
+        "actor": {"type": "USER", "id": ALICE},
+    }
+    assert payload["metadata"]["batch_id"] == batch["id"]
     detail = run_get(client, run).json()
     assert detail["config_number"] == 1
     assert detail["status"] == "RUNNING"
     assert pending_tasks(worker, run) == ["SYNC_EXECUTION"]
 
 
-def test_pipeline_completes_without_report_service(client, execution):
+def test_pipeline_completes_after_notebook_projection(client, execution):
     fake, worker = execution
     notebook = json.loads(notebook_bytes("x = 1"))
     notebook["cells"].append(
@@ -432,7 +369,8 @@ def test_pipeline_completes_without_report_service(client, execution):
     detail = run_get(client, run).json()
     assert detail["status"] == "COMPLETED"
     assert detail["completed_at"] is not None
-    assert detail["report"] is None
+    assert "report" not in detail
+    assert detail["result"] == {"notebook_artifact_id": fake.artifact_id}
     assert detail["artifacts"][0]["artifact_id"] == fake.artifact_id
     assert [s["original_index"] for s in detail["steps"]] == [0, 2]
     assert detail["steps"][0]["result_ref"]["attempt_id"] == fake.attempt_id
@@ -627,8 +565,8 @@ def test_poll_failure_is_not_code_failure_and_stale_state_is_rejected(
     assert detail["last_error"] == "EXECUTOR_CONTRACT_MISMATCH"
 
 
-def test_failed_execution_never_retries_or_reports(client, reporting):
-    fake, report, worker = reporting
+def test_failed_execution_never_retries(client, execution):
+    fake, worker = execution
     run = run_request(client, create_batch(client).json()["id"]).json()
     tick(worker, run)
     fake.state, fake.version = "FAILED", 3
@@ -636,12 +574,10 @@ def test_failed_execution_never_retries_or_reports(client, reporting):
     detail = run_get(client, run).json()
     assert detail["status"] == "FAILED"
     assert detail["failure_type"] == "USER_CODE_ERROR"
-    assert detail["report"] is None
     assert detail["artifacts"][0]["artifact_id"] == fake.artifact_id
     assert "private source" not in json.dumps(detail)
     assert [method for method, _ in fake.requests].count("POST") == 1
     assert all(not path.endswith("/retry") for _, path in fake.requests)
-    assert report.requests == []
 
 
 @pytest.mark.parametrize("projection", ["PENDING", "FAILED"])
@@ -655,8 +591,11 @@ def test_success_without_ready_notebook(client, execution, projection):
     tick(worker, run)
     detail = run_get(client, run).json()
     if projection == "FAILED":
-        assert detail["status"] == "REPORT_FAILED"
-        assert detail["report"]["error_code"] == "RESULT_NOTEBOOK_UNAVAILABLE"
+        # The code succeeded; only the result notebook is missing.
+        assert detail["status"] == "COMPLETED"
+        assert detail["notebook_status"] == "FAILED"
+        assert detail["result"] == {"notebook_artifact_id": None}
+        assert pending_tasks(worker, run) == []
         return
     assert detail["status"] == "COLLECTING"
     fake.projection, fake.artifact_ready = "SUCCEEDED", True
@@ -809,75 +748,18 @@ def test_cancel_waiting_queued_and_running(client, execution):
     drain(worker, running)
     detail = run_get(client, running).json()
     assert detail["status"] == "CANCELLED"
-    assert detail["report"] is None
-    assert (
-        fake.cancels[0]["idempotency_key"]
-        == f"batch-run:{running['id']}:cancel"
+    assert (detail["cancel_source"], detail["cancel_reason"]) == (
+        "USER",
+        "Cancelled by the batch owner.",
     )
+    assert fake.cancels[0] == {
+        "idempotency_key": f"batch-run:{running['id']}:cancel",
+        "reason": "Cancelled by the batch owner.",
+        "actor": {"type": "USER", "id": ALICE},
+    }
     again = command(client, running, "cancel", "c4")
     assert again.status_code == 409
     assert again.json()["code"] == "NOT_CANCELLABLE"
-
-
-def test_report_success_failure_and_retry_without_rerun(client, reporting):
-    fake, report, worker = reporting
-    run = run_request(client, create_batch(client).json()["id"]).json()
-    tick(worker, run)
-    fake.state, fake.version = "SUCCEEDED", 3
-    report.outcomes = ["RUNNING", "FAILED"]
-    drain(worker, run)
-    detail = run_get(client, run).json()
-    assert detail["status"] == "REPORT_FAILED"
-    assert detail["report"]["generation"] == 1
-    assert detail["report"]["error_code"] == "LLM_TIMEOUT"
-    body = next(iter(report.jobs.values()))["body"]
-    assert body["notebook_artifact_id"] == fake.artifact_id
-    assert body["steps"][0]["result_ref"]["relative_path"] == "manifest.json"
-    assert report.requests[0][2].startswith("Bearer ")
-    retried = command(client, run, "report-retries", "retry-1")
-    assert retried.status_code == 202
-    assert retried.json()["status"] == "REPORTING"
-    report.outcomes = ["SUCCEEDED"]
-    drain(worker, run)
-    detail = run_get(client, run).json()
-    assert detail["status"] == "COMPLETED"
-    assert detail["report"]["generation"] == 2
-    assert detail["report"]["status"] == "SUCCEEDED"
-    assert [method for method, _ in fake.requests].count("POST") == 1
-    assert len(report.jobs) == 2
-    again = command(client, run, "report-retries", "retry-2")
-    assert again.status_code == 409
-
-
-def test_report_retry_requires_configuration(client, execution):
-    fake, worker = execution
-    run = run_request(client, create_batch(client).json()["id"]).json()
-    response = command(client, run, "report-retries", "retry")
-    assert response.status_code == 503
-    assert response.json()["code"] == "REPORT_NOT_CONFIGURED"
-
-
-def test_result_artifact_ids_for_executor_download(client, reporting):
-    fake, report, worker = reporting
-    run = run_request(client, create_batch(client).json()["id"]).json()
-    assert run["result"] == {
-        "notebook_artifact_id": None,
-        "report_artifact_id": None,
-    }
-    tick(worker, run)
-    fake.state, fake.version = "SUCCEEDED", 3
-    for _ in range(3):
-        tick(worker, run)
-    detail = run_get(client, run).json()
-    assert detail["status"] == "REPORTING"
-    assert detail["result"]["notebook_artifact_id"] == fake.artifact_id
-    assert detail["result"]["report_artifact_id"] is None
-    drain(worker, run)
-    detail = run_get(client, run).json()
-    assert detail["result"] == {
-        "notebook_artifact_id": report.NOTEBOOK,
-        "report_artifact_id": report.REPORT,
-    }
 
 
 def test_background_runtime_drives_runs_and_stops(client, execution):
@@ -891,7 +773,7 @@ def test_background_runtime_drives_runs_and_stops(client, execution):
         }
     )
     fake.state, fake.version = "SUCCEEDED", 3
-    clients = Clients(worker.clients.executor, None, 1, 1)
+    clients = Clients(worker.clients.executor, 1, 1)
     runtime = BackgroundRuntime(settings, worker.sessions, clients)
     run = run_request(client, create_batch(client).json()["id"]).json()
     runtime.start()
@@ -947,5 +829,15 @@ def test_replace_overlap_cancels_running_and_starts_new(client, execution):
     assert run_get(client, old).json()["cancel_requested"] is True
     drain(worker, old)
     assert run_get(client, old).json()["status"] == "CANCELLED"
-    assert fake.cancels
+    reason = "Replaced by a newer run (overlap policy REPLACE)."
+    # A manual run triggered the overlap, yet the policy cancels.
+    assert fake.cancels == [
+        {
+            "idempotency_key": f"batch-run:{old['id']}:cancel",
+            "reason": reason,
+            "actor": {"type": "BATCH", "id": batch["id"]},
+        }
+    ]
+    assert run_get(client, old).json()["cancel_source"] == "POLICY"
+    assert run_get(client, queued).json()["cancel_reason"] == reason
     assert run_get(client, new).json()["status"] in {"QUEUED", "RUNNING"}

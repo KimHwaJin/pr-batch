@@ -1,4 +1,4 @@
-"""Run history, report attempts, Executor step bindings and the task queue."""
+"""Run history, Executor step bindings and the task queue."""
 
 from datetime import datetime
 from typing import Any
@@ -36,9 +36,12 @@ class BatchRun(AuditMixin, Base):
         ),
         CheckConstraint(
             "status IN ('WAITING', 'QUEUED', 'RUNNING', 'COLLECTING', "
-            "'REPORTING', 'COMPLETED', 'FAILED', 'REPORT_FAILED', "
-            "'CANCELLED', 'SKIPPED')",
+            "'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED')",
             name="run_status",
+        ),
+        CheckConstraint(
+            "cancel_source IS NULL OR cancel_source IN ('USER', 'POLICY')",
+            name="run_cancel_source",
         ),
         Index("ix_runs_batch_created", "batch_id", "created_at", "id"),
         Index("ix_runs_batch_status", "batch_id", "status"),
@@ -66,6 +69,10 @@ class BatchRun(AuditMixin, Base):
     status: Mapped[str] = mapped_column(String(32))
     skip_reason: Mapped[str | None] = mapped_column(String(64))
     cancel_requested: Mapped[bool] = mapped_column(default=False)
+    # Who asked first (USER: the owner, POLICY: overlap REPLACE) and why;
+    # the cancel task sends them to the Executor as actor and reason.
+    cancel_source: Mapped[str | None] = mapped_column(String(16))
+    cancel_reason: Mapped[str | None] = mapped_column(String(255))
     # Executor-side facts, kept verbatim for diagnosis.
     execution_id: Mapped[UUID | None] = mapped_column(unique=True)
     operation_id: Mapped[UUID | None]
@@ -80,7 +87,6 @@ class BatchRun(AuditMixin, Base):
     retry_info: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Latest communication/contract error while progressing the run.
     last_error: Mapped[str | None] = mapped_column(String(64))
-    report_generation: Mapped[int] = mapped_column(default=0)
     submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
@@ -111,30 +117,6 @@ class RunStepBinding(Base):
     step_id: Mapped[UUID | None]
     status: Mapped[str | None] = mapped_column(String(32))
     result_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-
-
-class RunReport(AuditMixin, Base):
-    """One report attempt; a retry adds a generation, never re-runs code."""
-
-    __tablename__ = "run_reports"
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
-            name="report_status",
-        ),
-        CheckConstraint("generation >= 1", name="report_generation"),
-    )
-
-    run_id: Mapped[UUID] = mapped_column(
-        ForeignKey("batch.batch_runs.id"), primary_key=True
-    )
-    generation: Mapped[int] = mapped_column(primary_key=True)
-    status: Mapped[str] = mapped_column(String(16), default="REQUESTED")
-    job_id: Mapped[str | None] = mapped_column(String(128))
-    artifacts: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, default=list
-    )
-    error_code: Mapped[str | None] = mapped_column(String(64))
 
 
 class Task(Base):

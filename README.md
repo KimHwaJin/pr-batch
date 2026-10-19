@@ -4,7 +4,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 사용자별 스크립트(노트북) 업로드·버전 관리와, 업로드한 스크립트를 언제·어떻게 돌릴지 정하는
 배치 등록(일정·정책), 수동 실행·실행 이력을 제공합니다.
 별도 워커가 Executor 제출과 상태·결과 참조 수집을 담당합니다.
-예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 리포트 생성 연동은 다음 단계입니다.
+예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 실행 결과 리포트는 pr-agentic-service가 Executor 이벤트로 작성합니다.
 
 [스크립트·배치 등록 API 안내](docs/registration-api.md)와
 [실행 API·처리 파이프라인 안내](docs/execution-api.md),
@@ -43,9 +43,9 @@ src/app/
   services/               script, batch, run, idempotency, 공용 조회
   domain/                 순수 로직: run_state(상태 머신), schedule_clock, scripts(타입)·script_parser·notebook_parser
   storage/                공유 PV 스크립트 원본 저장소
-  integrations/           executor(실행), report(prj_re 리포트) HTTP 클라이언트
+  integrations/           executor(실행) HTTP 클라이언트
   runtime/                백그라운드 런타임: 스케줄러 루프, Task dispatcher
-  tasks/                  Task 큐(트랜잭션 outbox)와 handler(제출·조회·수집·취소·리포트)
+  tasks/                  Task 큐(트랜잭션 outbox)와 handler(제출·조회·수집·취소)
 migrations/               Alembic (batch 스키마)
 scripts/                  Docker smoke 테스트
 tests/

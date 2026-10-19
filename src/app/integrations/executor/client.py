@@ -85,18 +85,24 @@ class ExecutorClient:
             "GET", f"api/v1/executions/{execution_id}/result", Result
         )
 
-    def cancel(self, execution_id: UUID, key: str, actor_id: str) -> bool:
-        """Request cancellation; False when Executor reports it too late."""
+    def cancel(
+        self,
+        execution_id: UUID,
+        key: str,
+        actor: dict[str, str],
+        reason: str,
+    ) -> bool:
+        """Request cancellation; False when Executor reports it too late.
+
+        The actor is always sent: without it the Executor keeps the
+        submitter in updated_by and the canceller is lost.
+        """
         try:
             self.request(
                 "POST",
                 f"api/v1/executions/{execution_id}/cancel",
                 CommandAck,
-                {
-                    "idempotency_key": key,
-                    "reason": "Cancelled by the batch owner.",
-                    "actor": {"type": "BATCH", "id": actor_id},
-                },
+                {"idempotency_key": key, "reason": reason, "actor": actor},
             )
         except ExecutorError as exc:
             if str(exc) == "EXECUTOR_HTTP_409":

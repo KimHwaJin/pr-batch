@@ -24,7 +24,7 @@ from app.services.runtime_catalog import (
 )
 from app.storage.script_storage import ScriptStorage
 
-MIGRATION_HEAD = "0001_baseline"
+MIGRATION_HEAD = "0002_drop_reports"
 logger = logging.getLogger(__name__)
 
 
