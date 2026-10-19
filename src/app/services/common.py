@@ -25,13 +25,21 @@ def policy_of(config: BatchConfig) -> Policy:
 
 
 def owned_script(
-    session: Session, owner: str, script_id: UUID, *, lock: bool = False
+    session: Session,
+    owner: str,
+    script_id: UUID,
+    *,
+    lock: bool = False,
+    share: bool = False,
 ) -> Script:
+    """A live script; `share` blocks its deletion until commit."""
     query = select(Script).where(
-        Script.id == script_id, Script.owner_id == owner
+        Script.id == script_id,
+        Script.owner_id == owner,
+        Script.deleted_at.is_(None),
     )
-    if lock:
-        query = query.with_for_update()
+    if lock or share:
+        query = query.with_for_update(read=not lock)
     result = session.scalar(query)
     if result is None:
         raise ServiceError(404, "NOT_FOUND", "Script not found.")
@@ -41,7 +49,11 @@ def owned_script(
 def owned_batch(
     session: Session, owner: str, batch_id: UUID, *, lock: bool = False
 ) -> Batch:
-    query = select(Batch).where(Batch.id == batch_id, Batch.owner_id == owner)
+    query = select(Batch).where(
+        Batch.id == batch_id,
+        Batch.owner_id == owner,
+        Batch.deleted_at.is_(None),
+    )
     if lock:
         query = query.with_for_update()
     result = session.scalar(query)

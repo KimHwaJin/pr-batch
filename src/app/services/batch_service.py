@@ -5,15 +5,23 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import and_, select, tuple_
+from sqlalchemy import and_, exists, select, tuple_
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
 from app.db.base import Actor, utcnow
 from app.db.session import database_now
+from app.domain.run_state import ACTIVE
 from app.domain.schedule_clock import EPSILON, ScheduleClock
 from app.domain.scripts import ScriptType
-from app.models import Batch, BatchConfig, Script, ScriptVersion, SkippedWindow
+from app.models import (
+    Batch,
+    BatchConfig,
+    BatchRun,
+    Script,
+    ScriptVersion,
+    SkippedWindow,
+)
 from app.schemas.batch import (
     BatchPage,
     BatchView,
@@ -124,6 +132,28 @@ def check_config_runtime(
     )
 
 
+def stop_schedule(
+    session: Session,
+    batch: Batch,
+    config: BatchConfig,
+    now: datetime,
+    reason: str,
+) -> None:
+    """Clear the next occurrence, recording it if it was already due."""
+    if batch.next_run_at and batch.next_run_at <= now:
+        record_skipped(
+            session,
+            batch,
+            config,
+            batch.next_run_at,
+            now + EPSILON,
+            reason,
+            now,
+            Actor.user(batch.owner_id),
+        )
+    batch.next_run_at = None
+
+
 class BatchService:
     def __init__(
         self, sessions: sessionmaker[Session], catalog: RuntimeCatalog
@@ -140,8 +170,11 @@ class BatchService:
         script_id: UUID,
         version_number: int | None,
     ) -> ScriptVersion:
-        """Pin an explicit version number, or the script's latest one."""
-        script = owned_script(session, owner, script_id)
+        """Pin an explicit version number, or the script's latest one.
+
+        The share lock keeps the script from being deleted under the pin.
+        """
+        script = owned_script(session, owner, script_id, share=True)
         return script_version(
             session, script.id, version_number or script.latest_version_number
         )
@@ -326,7 +359,7 @@ class BatchService:
                 ScriptVersion,
                 ScriptVersion.id == BatchConfig.script_version_id,
             )
-            .where(Batch.owner_id == owner)
+            .where(Batch.owner_id == owner, Batch.deleted_at.is_(None))
         )
         if script_id is not None:
             query = query.where(BatchConfig.script_id == script_id)
@@ -378,18 +411,7 @@ class BatchService:
                         )
                     batch.next_run_at = following
                 else:
-                    if batch.next_run_at and batch.next_run_at <= now:
-                        record_skipped(
-                            session,
-                            batch,
-                            config,
-                            batch.next_run_at,
-                            now + EPSILON,
-                            "DISABLED",
-                            now,
-                            Actor.user(owner),
-                        )
-                    batch.next_run_at = None
+                    stop_schedule(session, batch, config, now, "DISABLED")
                 batch.enabled = enabled
                 batch.revision += 1
                 batch.stamp_updated(Actor.user(owner), now)
@@ -402,6 +424,40 @@ class BatchService:
             f"activation:{batch_id}",
             key,
             {"enabled": enabled, "expected_revision": expected},
+            action,
+        )
+
+    def delete_batch(
+        self, owner: str, batch_id: UUID, key: str, expected: int
+    ) -> MutationResult:
+        def action(session: Session) -> MutationResult:
+            # Admission (manual or scheduled) holds this lock too, so no
+            # run can start between the check and the delete.
+            batch = owned_batch(session, owner, batch_id, lock=True)
+            check_revision(batch.revision, expected)
+            active = exists().where(
+                BatchRun.batch_id == batch_id, BatchRun.status.in_(ACTIVE)
+            )
+            if session.scalar(select(active)):
+                raise ServiceError(
+                    409,
+                    "BATCH_HAS_ACTIVE_RUNS",
+                    "Wait for or cancel its active runs first.",
+                )
+            now = database_now(session)
+            if batch.enabled:
+                config = current_config(session, batch)
+                stop_schedule(session, batch, config, now, "DELETED")
+                batch.enabled = False
+            batch.revision += 1
+            batch.stamp_deleted(Actor.user(owner), now)
+            return 204, {}
+
+        return self.idempotency.run(
+            owner,
+            f"batch:delete:{batch_id}",
+            key,
+            {"expected_revision": expected},
             action,
         )
 

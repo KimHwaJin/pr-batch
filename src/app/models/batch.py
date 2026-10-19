@@ -16,15 +16,18 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import AuditMixin, Base
+from app.db.base import AuditMixin, Base, SoftDeleteMixin
 
 
-class Batch(AuditMixin, Base):
+class Batch(SoftDeleteMixin, Base):
     __tablename__ = "batches"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="batch_revision_positive"),
         CheckConstraint(
             "enabled OR next_run_at IS NULL", name="disabled_has_no_next_run"
+        ),
+        CheckConstraint(
+            "deleted_at IS NULL OR NOT enabled", name="deleted_is_disabled"
         ),
         Index("ix_batches_due", "enabled", "next_run_at"),
         Index("ix_batches_owner_created", "owner_id", "created_at", "id"),

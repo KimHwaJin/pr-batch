@@ -13,10 +13,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import AuditMixin, Base
+from app.db.base import AuditMixin, Base, SoftDeleteMixin
 
 
-class Script(AuditMixin, Base):
+class Script(SoftDeleteMixin, Base):
     __tablename__ = "scripts"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="script_revision_positive"),

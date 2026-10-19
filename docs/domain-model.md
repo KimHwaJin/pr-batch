@@ -39,7 +39,7 @@ erDiagram
 - **Script와 Batch는 독립**이다. 스크립트 하나를 여러 배치가 쓸 수 있고, 배치는 스크립트의 특정 버전을 가리킨다.
 - **불변 자원**: ScriptVersion, BatchConfig, Run의 스냅샷. 한 번 만들어지면 바뀌지 않아서, 과거 실행이 "무슨 코드를 어떤 설정으로 돌렸는지" 항상 재현 가능하다.
 - **감사 필드**: 모든 자원 응답에 `created_at/by/by_type`, `updated_at/by/by_type`이 있다. 사람이 바꾸면 `USER`, 스케줄러·처리기가 바꾸면 `SYSTEM`([등록 API 안내](registration-api.md) 참고).
-- **자동 삭제 없음**(요건). 삭제 API도 초기에는 두지 않는다.
+- **자동 삭제 없음**(요건). 사용자가 Script·Batch를 삭제하면 API에서 사라지지만(soft delete) 원본 파일·버전·설정·실행 이력은 DB와 PV에 남는다([등록 API 안내](registration-api.md#삭제)).
 
 ## 2. 자원별 설명
 
@@ -201,6 +201,7 @@ Run을 진행시키거나 Run에 딸린 부가 작업을 하는 **외부 호출 
 | MISFIRE_SKIP / MISFIRE_LATEST / MISFIRE_CATCH_UP | 서비스 장애 등으로 놓친 일정을 정책에 따라 생략 |
 | DISABLED | 비활성화 시점에 아직 접수 못 한 과거 예약 |
 | SCHEDULE_REPLACED | 활성 중 일정을 바꿀 때 옛 일정의 미접수분 |
+| DELETED | 활성 배치를 삭제할 때 아직 접수 못 한 과거 예약 |
 
 API: `GET /batches/{id}/skipped-windows`
 
