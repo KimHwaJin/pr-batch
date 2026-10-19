@@ -24,9 +24,15 @@ if make_url(url).drivername != "postgresql+psycopg":
     raise ValueError("Migrations require postgresql+psycopg.")
 
 
+# Kept for audit by 0002 with no model; autogenerate must not drop it.
+UNMODELED_TABLES = {"run_reports_archive"}
+
+
 def include_name(name, type_, parent_names):
     if type_ == "schema":
         return name == "batch"
+    if type_ == "table":
+        return name not in UNMODELED_TABLES
     return True
 
 
