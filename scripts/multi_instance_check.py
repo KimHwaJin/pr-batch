@@ -20,7 +20,7 @@ from scripts.docker_smoke import call, multipart
 from app.core.config import Settings
 
 API = "http://app:8000/api/v1"
-FINAL = {"COMPLETED", "FAILED", "REPORT_FAILED", "CANCELLED", "SKIPPED"}
+FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
 
 
 def auth(owner: str) -> dict[str, str]:

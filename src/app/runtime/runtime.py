@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
 from app.integrations.executor import ExecutorClient
-from app.integrations.report import ReportClient
 from app.runtime.dispatcher import Dispatcher
 from app.runtime.scheduler import Scheduler
 from app.tasks.handlers import Clients
@@ -27,17 +26,8 @@ logger = logging.getLogger(__name__)
 
 def build_clients(settings: Settings) -> Clients:
     assert settings.executor_base_url is not None
-    report = None
-    if settings.report_base_url is not None:
-        assert settings.report_token_secret is not None
-        report = ReportClient(
-            settings.report_base_url,
-            settings.report_token_secret.get_secret_value(),
-            settings.report_token_audience,
-        )
     return Clients(
         executor=ExecutorClient(settings.executor_base_url),
-        report=report,
         sync_initial_seconds=settings.sync_initial_seconds,
         sync_max_seconds=settings.sync_max_seconds,
     )
@@ -119,8 +109,6 @@ class BackgroundRuntime:
         for thread in self.threads:
             thread.join(max(0.0, deadline - time.monotonic()))
         self.clients.executor.close()
-        if self.clients.report is not None:
-            self.clients.report.close()
         logger.info("Background runtime stopped.")
 
     def healthy(self, max_age_seconds: float = 120) -> bool:

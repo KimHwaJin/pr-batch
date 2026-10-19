@@ -49,11 +49,7 @@ def get_runtime_catalog(request: Request) -> RuntimeCatalog:
 
 
 def get_run_service(request: Request) -> RunService:
-    settings = cast(Settings, request.app.state.settings)
-    return RunService(
-        request.app.state.sessions,
-        reports_enabled=settings.report_base_url is not None,
-    )
+    return RunService(request.app.state.sessions)
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

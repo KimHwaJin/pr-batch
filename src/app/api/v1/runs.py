@@ -1,4 +1,4 @@
-"""Run admission, cancellation, report retry and history."""
+"""Run admission, cancellation and history."""
 
 from uuid import UUID
 
@@ -55,14 +55,3 @@ def cancel_run(
     owner: Owner, service: Runs, batch_id: UUID, run_id: UUID, key: Key
 ) -> JSONResponse:
     return mutation_response(service.cancel(owner, batch_id, run_id, key))
-
-
-@router.post(
-    "/{run_id}/report-retries", response_model=RunView, status_code=202
-)
-def retry_report(
-    owner: Owner, service: Runs, batch_id: UUID, run_id: UUID, key: Key
-) -> JSONResponse:
-    return mutation_response(
-        service.retry_report(owner, batch_id, run_id, key)
-    )

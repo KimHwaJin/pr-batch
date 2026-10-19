@@ -186,7 +186,7 @@ IPython 문법도 원문으로 보관한다.
 
 ## 감사 필드 (모든 자원 응답 공통)
 
-서비스 표준에 따라 Script, ScriptVersion, Batch, Run, Report, SkippedWindow 응답은 모두 아래 여섯 필드를 갖는다.
+서비스 표준에 따라 Script, ScriptVersion, Batch, Run, SkippedWindow 응답은 모두 아래 여섯 필드를 갖는다.
 
 | 필드 | 의미 |
 | --- | --- |
@@ -197,7 +197,7 @@ IPython 문법도 원문으로 보관한다.
 - Script·Batch처럼 사용자가 관리하는 자원은 항상 USER가 생성·수정한다. 스케줄러가 `next_run_at`을 옮기는 것은
   수정으로 보지 않아 `updated_*`가 바뀌지 않는다.
 - Run은 수동 실행이면 USER, 예약 실행이면 `SYSTEM / scheduler`가 생성한다. 실행 진행(상태·결과 반영)은
-  `SYSTEM / dispatcher`, 취소·리포트 재시도는 USER가 수정한 것으로 남는다. 새 정보가 없는 상태 조회는 수정이 아니다.
+  `SYSTEM / dispatcher`, 취소는 USER가 수정한 것으로 남는다. 새 정보가 없는 상태 조회는 수정이 아니다.
 - 버전·설정 이력처럼 바뀌지 않는 자원은 `updated_*`가 생성값과 같다.
 
 ## NOTEBOOK 처리 규칙

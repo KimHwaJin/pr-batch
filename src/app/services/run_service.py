@@ -1,5 +1,5 @@
-"""Run admission (manual and scheduled), cancellation, report retries and
-owner-scoped history. Nothing here calls a remote service; outbound calls
+"""Run admission (manual and scheduled), cancellation and owner-scoped
+history. Nothing here calls a remote service; outbound calls
 are enqueued as tasks in the same transaction as the state change."""
 
 from datetime import datetime
@@ -17,12 +17,10 @@ from app.models import (
     Batch,
     BatchConfig,
     BatchRun,
-    RunReport,
     RunStepBinding,
     ScriptVersion,
 )
 from app.schemas.run import (
-    ReportView,
     ResultRefs,
     RunDetail,
     RunPage,
@@ -51,6 +49,16 @@ def count_status(
     )
 
 
+USER_CANCEL_REASON = "Cancelled by the batch owner."
+REPLACE_CANCEL_REASON = "Replaced by a newer run (overlap policy REPLACE)."
+
+
+def request_cancel(run: BatchRun, source: str, reason: str) -> None:
+    """Record the first cancel request; the Executor keeps the first too."""
+    if run.cancel_source is None:
+        run.cancel_source, run.cancel_reason = source, reason
+
+
 def queue_submission(session: Session, run: BatchRun) -> None:
     run.status = RunStatus.QUEUED
     enqueue(session, TaskKind.SUBMIT_EXECUTION, run.id)
@@ -74,6 +82,8 @@ def replace_running(session: Session, batch_id: UUID, actor: Actor) -> int:
         .with_for_update()
     )
     for run in runs:
+        # Policy-driven even when a manual run triggered the overlap.
+        request_cancel(run, "POLICY", REPLACE_CANCEL_REASON)
         if run.status == RunStatus.WAITING:
             run.status = RunStatus.CANCELLED
             run.completed_at = now
@@ -189,7 +199,8 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
         "lifecycle": {"operation_mode": "SINGLE"},
         "trigger": {
             "type": "BATCH",
-            "actor": {"type": "BATCH", "id": str(run.batch_id)},
+            # The owner runs the batch; metadata.batch_id names the batch.
+            "actor": {"type": "USER", "id": run.owner_id},
         },
         "runtime": dict(run.runtime),
         "context": {"user_id": run.owner_id, "task_id": str(run.id)},
@@ -220,34 +231,16 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
     }
 
 
-def latest_report(session: Session, run: BatchRun) -> RunReport | None:
-    if not run.report_generation:
-        return None
-    return session.get(RunReport, (run.id, run.report_generation))
-
-
 def run_view(session: Session, run: BatchRun) -> RunView:
-    report = latest_report(session, run)
     view = RunView.model_validate(run)
-    if report is not None:
-        view.report = ReportView.model_validate(report)
-    view.result = ResultRefs(
-        notebook_artifact_id=result_artifact(run, report, "NOTEBOOK"),
-        report_artifact_id=result_artifact(run, report, "REPORT"),
-    )
+    view.result = ResultRefs(notebook_artifact_id=result_notebook(run))
     return view
 
 
 class RunService:
-    def __init__(
-        self,
-        sessions: sessionmaker[Session],
-        *,
-        reports_enabled: bool = False,
-    ) -> None:
+    def __init__(self, sessions: sessionmaker[Session]) -> None:
         self.sessions = sessions
         self.idempotency = Idempotency(sessions)
-        self.reports_enabled = reports_enabled
 
     def owned_run(
         self,
@@ -291,6 +284,7 @@ class RunService:
                     409, "NOT_CANCELLABLE", "Run can no longer be cancelled."
                 )
             run.stamp_updated(Actor.user(owner), database_now(session))
+            request_cancel(run, "USER", USER_CANCEL_REASON)
             if run.status == RunStatus.WAITING:
                 run.status = RunStatus.CANCELLED
                 run.completed_at = database_now(session)
@@ -303,28 +297,6 @@ class RunService:
 
         return self.idempotency.run(
             owner, f"run:cancel:{run_id}", key, {}, action
-        )
-
-    def retry_report(
-        self, owner: str, batch_id: UUID, run_id: UUID, key: str
-    ) -> MutationResult:
-        if not self.reports_enabled:
-            raise ServiceError(
-                503, "REPORT_NOT_CONFIGURED", "Configure the report API."
-            )
-
-        def action(session: Session) -> MutationResult:
-            owned_batch(session, owner, batch_id, lock=True)
-            run = self.owned_run(session, owner, batch_id, run_id, lock=True)
-            if run.status != RunStatus.REPORT_FAILED:
-                raise ServiceError(
-                    409, "REPORT_NOT_RETRYABLE", "Only failed reports retry."
-                )
-            start_report(session, run, Actor.user(owner))
-            return 202, run_view(session, run).model_dump(mode="json")
-
-        return self.idempotency.run(
-            owner, f"run:report:{run_id}", key, {}, action
         )
 
     def get(self, owner: str, batch_id: UUID, run_id: UUID) -> RunDetail:
@@ -373,46 +345,16 @@ class RunService:
             )
 
 
-def result_artifact(
-    run: BatchRun, report: RunReport | None, kind: str
-) -> str | None:
-    """Prefer the report-appended notebook; reports come from the report.
+def result_notebook(run: BatchRun) -> str | None:
+    """The result notebook; reports live in pr-agentic-service.
 
     pr-batch does not relay downloads: prj_re checks ownership through this
     service, then streams the artifact from the Executor download API.
     """
-    if report is not None and report.status == "SUCCEEDED":
-        for artifact in report.artifacts:
-            if artifact.get("type") == kind:
-                return artifact.get("artifact_id")
-    if kind == "NOTEBOOK":
-        for artifact in run.artifacts:
-            if (
-                artifact.get("type") == "NOTEBOOK"
-                and artifact.get("status") == "AVAILABLE"
-            ):
-                return artifact.get("artifact_id")
+    for artifact in run.artifacts:
+        if (
+            artifact.get("type") == "NOTEBOOK"
+            and artifact.get("status") == "AVAILABLE"
+        ):
+            return artifact.get("artifact_id")
     return None
-
-
-def start_report(session: Session, run: BatchRun, actor: Actor) -> None:
-    """Open a new report generation; code is never executed again."""
-    now = database_now(session)
-    run.stamp_updated(actor, now)
-    run.report_generation += 1
-    run.status = RunStatus.REPORTING
-    run.completed_at = None
-    report = RunReport(
-        run_id=run.id,
-        generation=run.report_generation,
-        status="REQUESTED",
-        artifacts=[],
-    )
-    report.stamp_created(actor, now)
-    session.add(report)
-    enqueue(
-        session,
-        TaskKind.REQUEST_REPORT,
-        run.id,
-        {"generation": run.report_generation},
-    )

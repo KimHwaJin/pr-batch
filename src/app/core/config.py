@@ -33,10 +33,6 @@ class Settings(BaseSettings):
     executor_base_url: str | None = None
     # BATCH runtimes come from the Executor; cache them this long.
     runtime_catalog_ttl_seconds: float = Field(default=30, ge=1, le=3600)
-    # prj_re report API; when unset, successful runs complete unreported.
-    report_base_url: str | None = None
-    report_token_secret: SecretStr | None = None
-    report_token_audience: str = "prj_re-report"
 
     # In-process background runtime (scheduler + task dispatcher).
     background_enabled: bool = True
@@ -56,11 +52,8 @@ class Settings(BaseSettings):
             raise ValueError("storage_root must be an absolute path.")
         if len(self.auth_secret.get_secret_value().encode()) < 32:
             raise ValueError("auth_secret must contain at least 32 bytes.")
-        for name in ("executor_base_url", "report_base_url"):
-            value = getattr(self, name)
-            if value is None:
-                continue
-            endpoint = urlsplit(value)
+        if self.executor_base_url is not None:
+            endpoint = urlsplit(self.executor_base_url)
             if (
                 endpoint.scheme not in {"http", "https"}
                 or not endpoint.hostname
@@ -70,14 +63,8 @@ class Settings(BaseSettings):
                 or endpoint.fragment
             ):
                 raise ValueError(
-                    f"{name}: use an HTTP base URL without credentials."
-                )
-        if self.report_base_url is not None:
-            secret = self.report_token_secret
-            if secret is None or len(secret.get_secret_value().encode()) < 32:
-                raise ValueError(
-                    "report_token_secret (32+ bytes) is required with "
-                    "report_base_url."
+                    "executor_base_url: use an HTTP base URL without "
+                    "credentials."
                 )
         if self.sync_initial_seconds > self.sync_max_seconds:
             raise ValueError("sync_initial_seconds exceeds sync_max_seconds.")

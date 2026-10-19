@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.integrations.executor import ExecutorError
-from app.integrations.report import ReportError
 from app.models import Batch, BatchRun
 from app.tasks.handlers import HANDLERS, Clients
 from app.tasks.queue import (
@@ -22,7 +21,7 @@ from app.tasks.queue import (
 )
 
 logger = logging.getLogger(__name__)
-RemoteError = (ExecutorError, ReportError)
+RemoteError = ExecutorError
 
 
 def progress(run: BatchRun) -> tuple[object, ...]:
@@ -36,7 +35,6 @@ def progress(run: BatchRun) -> tuple[object, ...]:
         run.observed_version,
         run.notebook_status,
         run.failure_type,
-        run.report_generation,
         run.last_error,
         run.completed_at,
         len(run.artifacts or ()),

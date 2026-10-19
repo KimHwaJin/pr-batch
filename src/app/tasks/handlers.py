@@ -12,7 +12,6 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.domain.run_state import EXECUTOR_TERMINAL, RunStatus
 from app.integrations.executor import (
@@ -22,14 +21,8 @@ from app.integrations.executor import (
     Result,
     require,
 )
-from app.integrations.report import ReportClient, ReportJob
-from app.models import BatchRun, RunReport, RunStepBinding, Task
-from app.services.run_service import (
-    latest_report,
-    promote_waiting,
-    start_report,
-    submission_request,
-)
+from app.models import BatchRun, RunStepBinding, Task
+from app.services.run_service import promote_waiting, submission_request
 from app.tasks.queue import (
     ClaimedTask,
     TaskKind,
@@ -42,7 +35,6 @@ from app.tasks.queue import (
 @dataclass
 class Clients:
     executor: ExecutorClient
-    report: ReportClient | None
     sync_initial_seconds: int
     sync_max_seconds: int
 
@@ -235,27 +227,13 @@ class CollectResult:
             a.type == "NOTEBOOK" and a.status == "AVAILABLE"
             for a in response.artifacts
         )
-        if run.notebook_status == "SUCCEEDED" and notebook_ready:
+        # The code succeeded either way; a FAILED projection only means no
+        # result notebook, which notebook_status keeps visible.
+        if (
+            run.notebook_status == "SUCCEEDED" and notebook_ready
+        ) or run.notebook_status == "FAILED":
             complete(task)
-            if clients.report is None:
-                finish(run, RunStatus.COMPLETED, now)
-                return
-            start_report(session, run, DISPATCHER)
-            return
-        if run.notebook_status == "FAILED":
-            # Code succeeded but no result notebook exists to report on.
-            complete(task)
-            run.report_generation += 1
-            report = RunReport(
-                run_id=run.id,
-                generation=run.report_generation,
-                status="FAILED",
-                error_code="RESULT_NOTEBOOK_UNAVAILABLE",
-                artifacts=[],
-            )
-            report.stamp_created(DISPATCHER, now)
-            session.add(report)
-            finish(run, RunStatus.REPORT_FAILED, now)
+            finish(run, RunStatus.COMPLETED, now)
             return
         # The notebook projection can finish after the execution.
         poll_again(task, now, clients)
@@ -269,138 +247,25 @@ class CancelExecution:
             or not run.cancel_requested
         ):
             return None
+        if run.cancel_source == "USER":
+            actor = {"type": "USER", "id": run.owner_id}
+        else:
+            actor = {"type": "BATCH", "id": str(run.batch_id)}
         return (
             run.execution_id,
             f"batch-run:{run.id}:cancel",
-            str(run.batch_id),
+            actor,
+            # Requests stored before cancel_source existed carry no reason.
+            run.cancel_reason or "Cancelled by pr-batch.",
         )
 
     def call(self, clients, context):
-        execution_id, key, actor = context
-        return clients.executor.cancel(execution_id, key, actor)
+        execution_id, key, actor, reason = context
+        return clients.executor.cancel(execution_id, key, actor, reason)
 
     def apply(self, session, task, run, context, response, now, clients):
         # SYNC_EXECUTION observes the resulting CANCELLED state.
         complete(task)
-
-
-def report_payload(
-    session: Session, run: BatchRun, generation: int
-) -> dict[str, Any]:
-    notebook = next(
-        (
-            a["artifact_id"]
-            for a in run.artifacts
-            if a.get("type") == "NOTEBOOK" and a.get("status") == "AVAILABLE"
-        ),
-        None,
-    )
-    return {
-        "idempotency_key": f"batch-run:{run.id}:report:{generation}",
-        "batch_run_id": str(run.id),
-        "generation": generation,
-        "owner_id": run.owner_id,
-        "execution_id": str(run.execution_id),
-        "notebook_artifact_id": notebook,
-        "steps": [
-            {
-                "sequence": row.sequence,
-                "original_index": row.original_index,
-                "step_id": str(row.step_id) if row.step_id else None,
-                "result_ref": row.result_ref,
-            }
-            for row in bindings(session, run)
-        ],
-    }
-
-
-def apply_report_job(
-    run: BatchRun, report: RunReport, job: ReportJob, now: datetime
-) -> bool:
-    """Record a job snapshot; True once the report reached a final state."""
-    report.job_id = job.report_job_id
-    report.stamp_updated(DISPATCHER, now)
-    if job.status == "SUCCEEDED":
-        report.status = "SUCCEEDED"
-        report.artifacts = [a.model_dump() for a in job.artifacts]
-        finish(run, RunStatus.COMPLETED, now)
-        return True
-    if job.status == "FAILED":
-        report.status = "FAILED"
-        report.error_code = job.error_code or "REPORT_FAILED"
-        finish(run, RunStatus.REPORT_FAILED, now)
-        return True
-    report.status = "RUNNING"
-    return False
-
-
-class RequestReport:
-    def prepare(self, session, run, task):
-        generation = task.payload.get("generation")
-        report = latest_report(session, run)
-        if (
-            run.status != RunStatus.REPORTING
-            or report is None
-            or report.generation != generation
-            or report.job_id is not None
-        ):
-            return None
-        return run.owner_id, report_payload(session, run, generation)
-
-    def call(self, clients, context):
-        assert clients.report is not None
-        owner, payload = context
-        return clients.report.request_report(owner, payload)
-
-    def apply(self, session, task, run, context, response, now, clients):
-        complete(task)
-        report = latest_report(session, run)
-        if (
-            run.status != RunStatus.REPORTING
-            or report is None
-            or report.generation != context[1]["generation"]
-        ):
-            return
-        if not apply_report_job(run, report, response, now):
-            enqueue(
-                session,
-                TaskKind.SYNC_REPORT,
-                run.id,
-                {"generation": report.generation},
-                delay_seconds=clients.sync_initial_seconds,
-            )
-
-
-class SyncReport:
-    def prepare(self, session, run, task):
-        report = latest_report(session, run)
-        if (
-            run.status != RunStatus.REPORTING
-            or report is None
-            or report.generation != task.payload.get("generation")
-            or report.job_id is None
-        ):
-            return None
-        return run.owner_id, report.job_id, report.generation
-
-    def call(self, clients, context):
-        assert clients.report is not None
-        owner, job_id, _ = context
-        return clients.report.report(owner, job_id)
-
-    def apply(self, session, task, run, context, response, now, clients):
-        report = latest_report(session, run)
-        if (
-            run.status != RunStatus.REPORTING
-            or report is None
-            or report.generation != context[2]
-        ):
-            complete(task)
-            return
-        if apply_report_job(run, report, response, now):
-            complete(task)
-        else:
-            poll_again(task, now, clients)
 
 
 HANDLERS: dict[TaskKind, Handler] = {
@@ -408,6 +273,4 @@ HANDLERS: dict[TaskKind, Handler] = {
     TaskKind.SYNC_EXECUTION: SyncExecution(),
     TaskKind.COLLECT_RESULT: CollectResult(),
     TaskKind.CANCEL_EXECUTION: CancelExecution(),
-    TaskKind.REQUEST_REPORT: RequestReport(),
-    TaskKind.SYNC_REPORT: SyncReport(),
 }

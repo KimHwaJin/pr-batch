@@ -15,7 +15,7 @@ import jwt
 
 from app.core.config import Settings
 
-FINAL = {"COMPLETED", "FAILED", "REPORT_FAILED", "CANCELLED", "SKIPPED"}
+FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
 NOTEBOOK = {
     "nbformat": 4,
     "nbformat_minor": 5,
