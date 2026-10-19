@@ -1,4 +1,4 @@
-"""Batch registration, update, activation and skip-history endpoints."""
+"""Batch registration, update, activation, delete and skip history."""
 
 from typing import Annotated
 from uuid import UUID
@@ -74,6 +74,18 @@ def update_batch(
     return mutation_response(
         service.update_batch(owner, batch_id, key, expected, data)
     )
+
+
+@router.delete("/{batch_id}", status_code=204)
+def delete_batch(
+    owner: Owner,
+    service: Batches,
+    batch_id: UUID,
+    key: Key,
+    expected: Revision,
+) -> Response:
+    status, _ = service.delete_batch(owner, batch_id, key, expected)
+    return Response(status_code=status)
 
 
 @router.post("/{batch_id}/enable", response_model=BatchView)

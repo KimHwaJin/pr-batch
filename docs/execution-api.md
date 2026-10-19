@@ -33,7 +33,9 @@ Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 
 ## HTTP 계약
 
-공통 prefix는 `/api/v1/batches/{batch_id}/runs`이며 사용자 JWT가 필요하다. 다른 사용자의 배치·실행은 404다.
+공통 prefix는 `/api/v1/batches/{batch_id}/runs`이며 사용자 JWT가 필요하다. 다른 사용자의 배치·실행과
+삭제된 배치의 실행은 404다(이력은 DB에 보관). 진행 중인 실행이 있는 배치는 삭제할 수 없다
+([등록 API 안내](registration-api.md#삭제)).
 
 | Method | 경로 | 동작 |
 | --- | --- | --- |

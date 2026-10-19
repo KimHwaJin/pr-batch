@@ -1,4 +1,4 @@
-"""Script upload, version and download endpoints."""
+"""Script upload, version, download and delete endpoints."""
 
 from typing import Annotated
 from uuid import UUID
@@ -78,6 +78,18 @@ def rename_script(
     return mutation_response(
         service.rename_script(owner, script_id, key, expected, data.name)
     )
+
+
+@router.delete("/{script_id}", status_code=204)
+def delete_script(
+    owner: Owner,
+    service: Scripts,
+    script_id: UUID,
+    key: Key,
+    expected: Revision,
+) -> Response:
+    status, _ = service.delete_script(owner, script_id, key, expected)
+    return Response(status_code=status)
 
 
 @router.post(

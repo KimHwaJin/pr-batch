@@ -71,7 +71,7 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 같은 키·본문으로 재요청한다. 명령 재전송 응답은 최초 snapshot이므로 최신 상태는
 상세 GET으로 읽는다. 멱등성 기록은 자동 삭제하지 않는다.
 
-스크립트 이름 변경, 배치 수정·활성화·비활성화에는 상세 GET의 `ETag` 값을
+스크립트 이름 변경·삭제, 배치 수정·활성화·비활성화·삭제에는 상세 GET의 `ETag` 값을
 `If-Match`에 넣는다. 현재 revision과 다르면 409다. 새 버전 업로드는 스크립트 행
 잠금으로 번호를 할당하므로 If-Match 없이 사용할 수 있고, 실제 새 버전이 생성되면
 스크립트 revision이 증가한다.
@@ -90,6 +90,7 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 | GET | / | 내 스크립트 목록 |
 | GET | /{script_id} | 상세 + 최신 버전 요약, ETag |
 | PATCH | /{script_id} | `{"name"}` 변경. If-Match |
+| DELETE | /{script_id} | 삭제. If-Match, 204 ([삭제](#삭제)) |
 | POST | /{script_id}/versions | 수정본 업로드. 새 버전 201, 같은 원본 200 |
 | GET | /{script_id}/versions | 버전 목록 (번호 역순, 번호 cursor) |
 | GET | /{script_id}/versions/{version_id} | 버전 상세 + 셀 목록 |
@@ -124,6 +125,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | GET | `/api/v1/runtimes` | 등록 가능한 런타임 `{type, profile}` 목록 (Executor BATCH 풀 기준) |
 | GET | /{batch_id} | 상세, ETag |
 | PATCH | /{batch_id} | 보낸 필드만 변경. If-Match |
+| DELETE | /{batch_id} | 삭제. If-Match, 204 ([삭제](#삭제)) |
 | POST | /{batch_id}/enable, /disable | [예약 안내](scheduling-api.md) |
 | POST·GET | /{batch_id}/runs | [실행 안내](execution-api.md) |
 | GET | /{batch_id}/skipped-windows | 생략된 예약 구간 |
@@ -183,6 +185,23 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 
 노트북 메타데이터에 Python 외 언어가 명시되면 거절한다. 코드 문법은 서버에서 실행·변환하지 않으며
 IPython 문법도 원문으로 보관한다.
+
+### 삭제
+
+스크립트와 배치는 **soft delete**다. 요건상 원본·버전·실행 이력을 지우지 않으므로 행과 PV 파일은 그대로 두고
+`deleted_at`·`deleted_by_type`·`deleted_by`만 기록한다. 삭제한 자원은 상세·목록·하위 경로(버전, 원본
+다운로드, 실행, 생략 구간)가 모두 404이고, 새 배치가 가리킬 수도 없다. 되살리는 API는 없다.
+
+| 대상 | 막히는 경우 (409) | 삭제 시 함께 일어나는 일 |
+| --- | --- | --- |
+| 배치 | `BATCH_HAS_ACTIVE_RUNS`: WAITING·QUEUED·RUNNING·COLLECTING 실행이 있음. 취소하거나 끝나길 기다린다 | 활성 배치는 비활성화된다. 이미 지난 미접수 예약은 `DELETED` 생략 구간으로 남는다 |
+| 스크립트 | `SCRIPT_IN_USE`: 삭제되지 않은 배치의 현재 설정이 이 스크립트를 가리킴. 배치를 지우거나 다른 스크립트로 바꾼다 | 없음 |
+| 스크립트 | `SCRIPT_HAS_ACTIVE_RUNS`: 이 스크립트 버전으로 진행 중인 실행이 있음(배치가 다른 스크립트로 옮겨간 뒤에도) | |
+
+- 배치의 과거 설정 이력이나 삭제된 배치가 가리키던 것은 스크립트 삭제를 막지 않는다.
+- 배치 삭제는 실행 접수와 같은 배치 행 잠금을, 스크립트 삭제는 배치 등록·수정이 거는 스크립트 공유 잠금을
+  기다리므로 동시에 요청해도 "실행 중인 배치 삭제"나 "삭제된 스크립트를 가리키는 배치"가 생기지 않는다.
+- 같은 `Idempotency-Key`로 재시도하면 다시 204, 다른 키로 다시 삭제하면 404다.
 
 ## 감사 필드 (모든 자원 응답 공통)
 
@@ -268,7 +287,7 @@ chunked 요청도 실제 수신 바이트로 제한한다.
 
 JSON 본문 오류는 422 `VALIDATION_ERROR`와 `errors[]`의 `loc`, `type`, `msg`를
 준다. 사용자가 보낸 값은 되돌려주지 않는다. 401은 서비스 토큰 오류, 403은 scope 오류,
-404는 접근 불가능한 자원, 409는 멱등성·revision 충돌과 `SCHEDULE_REQUIRED`,
+404는 접근 불가능하거나 삭제된 자원, 409는 멱등성·revision 충돌, `SCHEDULE_REQUIRED`와 삭제 차단 사유,
 413은 크기 상한이다. DB·PV 사용 불가와 원본 해시 불일치는 503이며 내부 경로나
 코드 본문을 반환하지 않는다.
 
@@ -283,5 +302,6 @@ make check
 테스트는 batch 스키마에 migration을 적용하고 테스트마다 테이블을 비운다.
 변수를 생략하면 PostgreSQL 테스트는 skip하고 입력·인증·저장소 단위 검증만 실행한다.
 
-DB migration은 출시 전 정리로 `0001_baseline` 하나다. 이전 0001~0003을 적용한
-로컬 DB는 `batch` 스키마를 지운 뒤 다시 migration한다.
+DB migration은 `0001_baseline`(출시 전 정리), `0002_drop_reports`, `0003_soft_delete` 순서다.
+정리 이전의 0001~0003을 적용한 로컬 DB는 `batch` 스키마를 지운 뒤 다시 migration한다.
+`0003_soft_delete`는 삭제된 행이 있으면 되돌리기(downgrade)를 거절한다.

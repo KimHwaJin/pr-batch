@@ -27,6 +27,8 @@ FINAL = frozenset(
         RunStatus.SKIPPED,
     }
 )
+# Still progressing; their batch and script cannot be deleted yet.
+ACTIVE = frozenset(RunStatus) - FINAL
 
 TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.WAITING: frozenset({RunStatus.QUEUED, RunStatus.CANCELLED}),

@@ -3,13 +3,15 @@
 from pathlib import PurePath
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
 from app.db.base import Actor
+from app.db.session import database_now
+from app.domain.run_state import ACTIVE
 from app.domain.scripts import ParsedScript, ScriptType
-from app.models import Script, ScriptVersion
+from app.models import Batch, BatchConfig, BatchRun, Script, ScriptVersion
 from app.schemas.common import audit_fields
 from app.schemas.script import (
     CellCounts,
@@ -193,6 +195,46 @@ class ScriptService:
             action,
         )
 
+    def delete_script(
+        self, owner: str, script_id: UUID, key: str, expected: int
+    ) -> MutationResult:
+        def action(session: Session) -> MutationResult:
+            # The row lock waits for batches pinning it (they share-lock).
+            script = owned_script(session, owner, script_id, lock=True)
+            check_revision(script.revision, expected)
+            pinned = exists().where(
+                Batch.id == BatchConfig.batch_id,
+                Batch.config_number == BatchConfig.number,
+                Batch.deleted_at.is_(None),
+                BatchConfig.script_id == script_id,
+            )
+            running = exists().where(
+                BatchRun.script_id == script_id, BatchRun.status.in_(ACTIVE)
+            )
+            if session.scalar(select(pinned)):
+                raise ServiceError(
+                    409,
+                    "SCRIPT_IN_USE",
+                    "Delete or repoint the batches using this script first.",
+                )
+            if session.scalar(select(running)):
+                raise ServiceError(
+                    409,
+                    "SCRIPT_HAS_ACTIVE_RUNS",
+                    "Wait for or cancel its active runs first.",
+                )
+            script.revision += 1
+            script.stamp_deleted(Actor.user(owner), database_now(session))
+            return 204, {}
+
+        return self.idempotency.run(
+            owner,
+            f"script:delete:{script_id}",
+            key,
+            {"expected_revision": expected},
+            action,
+        )
+
     def get_script(self, owner: str, script_id: UUID) -> ScriptView:
         with self.sessions() as session:
             script = owned_script(session, owner, script_id)
@@ -214,7 +256,7 @@ class ScriptService:
                     == Script.latest_version_number,
                 ),
             )
-            .where(Script.owner_id == owner)
+            .where(Script.owner_id == owner, Script.deleted_at.is_(None))
         )
         if cursor:
             query = query.where(

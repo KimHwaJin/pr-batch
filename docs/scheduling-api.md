@@ -126,7 +126,7 @@ LATEST는 나이 제한을 적용하지 않는다. 정상 유예 구간의 일�
 장기간 생략된 예약을 실행 행으로 모두 만들지 않는다. skipped-windows 응답은
 `from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, `config_number`,
 reason을 반환한다. 사유는 MISFIRE_SKIP, MISFIRE_LATEST, MISFIRE_CATCH_UP,
-DISABLED, SCHEDULE_REPLACED다. limit 1~100, UUID cursor로 페이지를 넘긴다.
+DISABLED, SCHEDULE_REPLACED, DELETED다. limit 1~100, UUID cursor로 페이지를 넘긴다.
 소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은
 별도 API다.
 

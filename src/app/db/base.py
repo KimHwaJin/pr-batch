@@ -59,3 +59,22 @@ class AuditMixin:
     def stamp_updated(self, actor: Actor, at: datetime | None = None) -> None:
         self.updated_at = at or utcnow()
         self.updated_by_type, self.updated_by = actor.type, actor.id
+
+
+class SoftDeleteMixin(AuditMixin):
+    """User deletion hides a record but keeps it and its history.
+
+    Requirements forbid discarding originals and run history, so delete
+    only stamps who and when; owner-scoped lookups treat it as gone.
+    """
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    deleted_by_type: Mapped[str | None] = mapped_column(String(16))
+    deleted_by: Mapped[str | None] = mapped_column(String(255))
+
+    def stamp_deleted(self, actor: Actor, at: datetime) -> None:
+        self.deleted_at = at
+        self.deleted_by_type, self.deleted_by = actor.type, actor.id
+        self.stamp_updated(actor, at)
