@@ -1,12 +1,40 @@
-"""Explicit configuration; importing modules opens no connections."""
+"""Explicit configuration; importing modules opens no connections.
 
+Sources, highest first: constructor arguments, ``BATCH_*`` environment
+variables, ``.env``, then ``config.{APP_ENV}.yml`` at the project root
+when ``APP_ENV`` is set. ConfigMaps and Secrets are unavailable on the
+platform, so each environment ships its own YAML file in the image.
+"""
+
+import os
 from pathlib import Path
 from typing import Self
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 from sqlalchemy.engine import make_url
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+APP_ENVS = ("dev", "stg", "prd")
+
+
+def environment_file() -> Path | None:
+    """The YAML file for ``APP_ENV``; None when it is unset."""
+    app_env = os.environ.get("APP_ENV")
+    if not app_env:
+        return None
+    if app_env not in APP_ENVS:
+        raise ValueError(f"APP_ENV must be one of {', '.join(APP_ENVS)}.")
+    path = PROJECT_ROOT / f"config.{app_env}.yml"
+    if not path.is_file():
+        raise FileNotFoundError(f"APP_ENV={app_env} needs {path}.")
+    return path
 
 
 class Settings(BaseSettings):
@@ -42,6 +70,23 @@ class Settings(BaseSettings):
     sync_initial_seconds: int = Field(default=5, ge=1, le=300)
     sync_max_seconds: int = Field(default=60, ge=1, le=3600)
     shutdown_grace_seconds: float = Field(default=40, ge=1, le=600)
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        sources = [init_settings, env_settings, dotenv_settings]
+        path = environment_file()
+        if path is not None:
+            sources.append(
+                YamlConfigSettingsSource(settings_cls, yaml_file=path)
+            )
+        return (*sources, file_secret_settings)
 
     @model_validator(mode="after")
     def validate_configuration(self) -> Self:

@@ -6,20 +6,31 @@ an advisory lock lets exactly one replica migrate while others wait.
 
 import os
 
+import yaml
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, pool, text
 from sqlalchemy.engine import make_url
 
+from app.core.config import environment_file
 from app.models import Base
 
 MIGRATION_LOCK = 7_301_202_610  # arbitrary, stable advisory lock key
 
-load_dotenv()
-url = (
-    context.config.attributes.get("database_url")
-    or os.environ["BATCH_DATABASE_URL"]
-)
+
+def configured_url() -> str:
+    """Same precedence as Settings, for the alembic CLI."""
+    load_dotenv()
+    url = os.environ.get("BATCH_DATABASE_URL")
+    path = environment_file()
+    if url is None and path is not None:
+        url = (yaml.safe_load(path.read_text()) or {}).get("database_url")
+    if url is None:
+        raise KeyError("Set BATCH_DATABASE_URL or APP_ENV.")
+    return url
+
+
+url = context.config.attributes.get("database_url") or configured_url()
 if make_url(url).drivername != "postgresql+psycopg":
     raise ValueError("Migrations require postgresql+psycopg.")
 
