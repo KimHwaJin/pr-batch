@@ -48,28 +48,10 @@ spec:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
           env:
-            - name: BATCH_STORAGE_ROOT
-              value: /workspace/shared
-            - name: BATCH_EXECUTOR_BASE_URL
-              value: http://executor:8000
-            - name: BATCH_DB_AUTO_MIGRATE
-              value: "true"
-            # Connection budget: (3 + 3) per pod x maxReplicas 4 = 24.
-            - name: BATCH_DB_POOL_SIZE
-              value: "3"
-            - name: BATCH_DB_MAX_OVERFLOW
-              value: "3"
-            - name: BATCH_TASK_CONCURRENCY
-              value: "4"
-            - name: BATCH_SYNC_INITIAL_SECONDS
-              value: "5"
-            - name: BATCH_SYNC_MAX_SECONDS
-              value: "60"
-            - name: BATCH_SHUTDOWN_GRACE_SECONDS
-              value: "40"
-          envFrom:
-            - secretRef:
-                name: pr-batch-secrets
+            # Settings come from config.prd.yml in the image; the platform
+            # offers no ConfigMaps or Secrets. BATCH_* vars still override.
+            - name: APP_ENV
+              value: prd
           resources:
             requests:
               cpu: 250m
