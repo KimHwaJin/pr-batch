@@ -217,7 +217,7 @@ prj_re의 사용자별 내부 bearer token을 pr-batch까지 그대로 넘기는
 - 예약 실행은 사용자가 접속해 있지 않은 시각에 돌기 때문에, 그때 쓸 수 있는 사용자 토큰이 없다.
   pr-batch → prj_re 리포트 호출은 사용자 토큰과 무관한 서비스 인증이어야 한다.
 - 사용자 토큰을 pr-batch가 검증하려면 prj_re에 매 요청 조회하거나 서명 키를 공유해야 해서 결합이 커진다.
-- 서비스 간 단기 JWT는 prj_re 쪽 변경이 작고(서명 1회), pr-batch는 키 하나로 검증한다.
+- 서비스 간 단기 JWT는 prj_re 쪽 변경이 작고(서명 1회), pr-batch는 공개키 파일 하나로 검증한다(서명용 개인키는 호출 서비스만 보관).
   나중에 사내 표준(mTLS, OIDC client credentials 등)이 정해지면 `app/core/security.py` 경계에서 교체한다.
 
 prj_re에 요청할 변경: ① pr-batch 호출 시 사용자 bearer token 대신 pr-batch용 단기 JWT 발급,
