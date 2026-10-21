@@ -15,7 +15,7 @@ Python 3.12와 uv, PostgreSQL, 공유 PV가 필요하다. Redis는 사용하지 
 ```sh
 uv sync --locked
 cp .env.example .env
-# .env의 DB URL, 공유 PV 절대경로, 인증 비밀키, Executor 주소 수정
+# .env의 DB URL, 공유 PV 절대경로, 토큰 검증 공개키 경로, Executor 주소 수정
 uv run --locked alembic upgrade head
 uv run --locked uvicorn app.main:create_app --factory
 ```
@@ -50,7 +50,8 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 호출 서비스에 전달할 토큰 발급 방법·예제·오류 대응은 [호출 서비스 인증 가이드](client-auth.md),
 엔드포인트별 호출 예시는 [API별 호출 가이드](client-api.md)에 정리했다.
 
-이번 구현은 내부 호출용 HS256 JWT를 사용한다. 기존 `prj_re`에 자동 연결된 것이
+이번 구현은 내부 호출용 RS256 JWT를 사용한다. 호출 서비스들은 같은 개인키로 서명하고,
+pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다. 기존 `prj_re`에 자동 연결된 것이
 아니며 gateway에서 아래 토큰을 발급·전달하는 연동이 필요하다.
 
 | JWT claim | 값 |
@@ -62,9 +63,8 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 | exp | 만료 UTC Unix 초, 정수. iat 이후 최대 300초(`AUTH_MAX_LIFETIME_SECONDS`) |
 | scope | `batch:manage` |
 
-`Authorization: Bearer <token>`으로 전달한다. 공유 비밀키
-`AUTH_SECRET`(환경변수로는 `BATCH_AUTH_SECRET`)는 32바이트 이상 무작위 값으로 설정하고 사용자에게 전달하지
-않는다. 요청 body의 사용자 ID나 `X-User-Id`는 인증 근거가 아니다.
+`Authorization: Bearer <token>`으로 전달한다. 개인키는 호출 서비스에만 두고 사용자에게
+전달하지 않는다. 키 쌍 생성과 배치는 [keys/README.md](../keys/README.md)를 따른다. 요청 body의 사용자 ID나 `X-User-Id`는 인증 근거가 아니다.
 외부 클라이언트가 서비스 인증 헤더를 그대로 전달하게 하지 않고 `prj_re`가 검증한
 사용자로 새 토큰을 발급한다. 운영에서는 TLS와 내부 서비스 접근 제한을 적용한다.
 회사 표준 서비스 인증이 정해지면 `src/app/core/security.py` 경계에서 교체할 수 있다.

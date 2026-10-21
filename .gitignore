@@ -19,6 +19,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+.local-keys/
 
 # Editor and operating system files
 .idea/

@@ -84,7 +84,7 @@ uv sync --locked
 활성화하지 않아도 됩니다.
 
 PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 뒤 연결값,
-커널 목록, 인증 비밀키를 설정합니다. 공유 PV 경로는 미리 생성·마운트해야 합니다.
+커널 목록, 토큰 검증 공개키 경로를 설정합니다(`make auth-keys`가 로컬 키 쌍을 `.local-keys/`에 만듭니다). 공유 PV 경로는 미리 생성·마운트해야 합니다.
 
 배포 환경(dev, stg, prd)은 ConfigMap·Secret 대신 계별 YAML 파일로 설정합니다.
 `config.example.yml`을 `config.dev.yml`, `config.stg.yml`, `config.prd.yml`로 복사해
@@ -135,8 +135,8 @@ make docker-down
   `../executor/shared_dir`을 같은 경로로 마운트합니다(`EXECUTOR_SHARED_DIR`).
   두 이미지 모두 UID 1000으로 실행합니다.
 - 커널 기본값은 로컬 BATCH 런타임의 `default`입니다(`PR_BATCH_KERNEL_PROFILES`).
-- 인증 비밀키 기본값은 로컬 전용입니다. 다른 환경에서는 `PR_BATCH_AUTH_SECRET`을
-  반드시 지정합니다.
+- 토큰 검증 키는 `make auth-keys`가 만든 로컬 키 쌍(`.local-keys/`, git 제외)을 마운트해 씁니다.
+  배포 환경은 `keys/`에 커밋한 공개키를 `AUTH_PUBLIC_KEY_FILE`로 가리킵니다([keys/README.md](keys/README.md)).
 
 변수는 셸이나 Compose 변수 파일로 지정합니다. 컨테이너는 저장소의 `.env`를
 읽지 않습니다.

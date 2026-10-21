@@ -43,6 +43,15 @@ NOTEBOOK = {
 }
 
 
+def private_key() -> bytes:
+    """Calling-service signing key; the Compose stack mounts .local-keys."""
+    path = os.environ.get(
+        "PR_BATCH_AUTH_PRIVATE_KEY_FILE", ".local-keys/auth_private.pem"
+    )
+    with open(path, "rb") as file:
+        return file.read()
+
+
 def token(settings: Settings) -> str:
     now = int(time.time())
     claims = {
@@ -53,9 +62,7 @@ def token(settings: Settings) -> str:
         "exp": now + 300,
         "scope": "batch:manage",
     }
-    return jwt.encode(
-        claims, settings.auth_secret.get_secret_value(), algorithm="HS256"
-    )
+    return jwt.encode(claims, private_key(), algorithm="RS256")
 
 
 def call(

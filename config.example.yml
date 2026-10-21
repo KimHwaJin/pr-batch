@@ -6,7 +6,8 @@
 PORT: 8000
 DATABASE_URL: postgresql+psycopg://batch:CHANGE_ME@postgres:5432/batch
 STORAGE_ROOT: /mnt/data/dtest  # project root; files go under batch/inputs/
-AUTH_SECRET: CHANGE_ME_32_BYTES_OR_MORE_SHARED_WITH_PRJ_RE
+# RSA public key that verifies caller tokens; see keys/README.md.
+AUTH_PUBLIC_KEY_FILE: keys/auth_public.pem
 AUTH_ISSUER: prj_re
 AUTH_AUDIENCE: pr-batch
 EXECUTOR_BASE_URL: http://executor:8000

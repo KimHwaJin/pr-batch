@@ -15,7 +15,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from scripts.docker_smoke import call, multipart
+from scripts.docker_smoke import call, multipart, private_key
 
 from app.core.config import Settings
 
@@ -34,8 +34,7 @@ def auth(owner: str) -> dict[str, str]:
         "exp": now + 300,
         "scope": "batch:manage",
     }
-    secret = settings.auth_secret.get_secret_value()
-    token = jwt.encode(claims, secret, algorithm="HS256")
+    token = jwt.encode(claims, private_key(), algorithm="RS256")
     return {"Authorization": f"Bearer {token}"}
 
 

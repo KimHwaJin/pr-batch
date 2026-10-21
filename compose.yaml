@@ -9,7 +9,9 @@ x-batch-env: &batch-env
   BATCH_DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
   # Same host directory the Executor mounts as INPUT_STORAGE_ROOT.
   BATCH_STORAGE_ROOT: /workspace/shared
-  BATCH_AUTH_SECRET: ${PR_BATCH_AUTH_SECRET:-local-only-insecure-secret-change-me-0123456789}
+  # Local key pair from `make auth-keys`, mounted below; the smoke checks
+  # sign with its private half.
+  BATCH_AUTH_PUBLIC_KEY_FILE: .local-keys/auth_public.pem
   BATCH_AUTH_ISSUER: prj_re
   BATCH_AUTH_AUDIENCE: pr-batch
   BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
@@ -22,6 +24,7 @@ x-batch-app: &batch-app
   environment: *batch-env
   volumes:
     - ${EXECUTOR_SHARED_DIR:-../executor/shared_dir}:/workspace/shared
+    - ./.local-keys:/app/.local-keys:ro
   networks:
     - shared-infra
   restart: unless-stopped

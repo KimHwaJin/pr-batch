@@ -1,4 +1,8 @@
-"""Trusted gateway identity via short-lived, audience-bound service tokens."""
+"""Trusted caller identity via short-lived, audience-bound RS256 tokens.
+
+Callers sign with the shared private key; pr-batch holds only the public
+key, so nothing in this service can mint a token.
+"""
 
 from typing import Annotated, cast
 from uuid import UUID
@@ -25,8 +29,8 @@ def current_owner(
             raise ValueError("Missing token.")
         claims = jwt.decode(
             credentials.credentials,
-            settings.auth_secret.get_secret_value(),
-            algorithms=["HS256"],
+            settings.auth_public_key,
+            algorithms=["RS256"],
             audience=settings.auth_audience,
             issuer=settings.auth_issuer,
             options={"require": ["exp", "iat", "sub", "iss", "aud"]},
