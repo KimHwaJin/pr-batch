@@ -47,6 +47,9 @@ class Settings(BaseSettings):
         env_prefix="BATCH_", env_file=".env", extra="ignore"
     )
 
+    # Bind address for the pr-batch entry point (PORT in config.yml).
+    host: str = "0.0.0.0"
+    port: int = Field(default=8000, ge=1, le=65535)
     database_url: SecretStr
     storage_root: Path
     auth_secret: SecretStr

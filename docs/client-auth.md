@@ -68,8 +68,8 @@ import uuid
 
 import jwt  # pip install "pyjwt>=2.8"
 
-BATCH_AUTH_SECRET = "..."         # 배치팀에서 받은 공유 비밀키 (32바이트 이상)
-BATCH_AUTH_ISSUER = "prj_re"      # 배치팀에서 받은 issuer
+BATCH_AUTH_SECRET = "..."  # 배치팀에서 받은 공유 비밀키 (32바이트 이상)
+BATCH_AUTH_ISSUER = "prj_re"  # 배치팀에서 받은 issuer
 BATCH_AUTH_AUDIENCE = "pr-batch"  # 배치팀에서 받은 audience
 
 
@@ -82,7 +82,7 @@ def batch_token(user_id: str, ttl_seconds: int = 300) -> str:
         "aud": BATCH_AUTH_AUDIENCE,
         "scope": "batch:manage",
         "iat": now,
-        "exp": now + ttl_seconds,        # iat 이후 1초 ~ 300초
+        "exp": now + ttl_seconds,  # iat 이후 1초 ~ 300초
     }
     return jwt.encode(claims, BATCH_AUTH_SECRET, algorithm="HS256")
 ```

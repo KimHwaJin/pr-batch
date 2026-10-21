@@ -2,6 +2,8 @@
 # APP_ENV=dev|stg|prd. Keys are the Settings field names in any case,
 # without the BATCH_ prefix (a prefixed key is silently ignored); a
 # BATCH_* environment variable still overrides a key.
+# Listen port; keep deploy/k8s containerPort and Service targetPort in step.
+PORT: 8000
 DATABASE_URL: postgresql+psycopg://batch:CHANGE_ME@postgres:5432/batch
 STORAGE_ROOT: /mnt/data/dtest  # project root; files go under batch/inputs/
 AUTH_SECRET: CHANGE_ME_32_BYTES_OR_MORE_SHARED_WITH_PRJ_RE

@@ -580,26 +580,38 @@ def client(user_id: str) -> httpx.Client:
 def run_and_wait(user_id: str, batch_id: str) -> dict:
     key = str(uuid.uuid4())  # 재시도할 때도 같은 키를 쓴다
     with client(user_id) as api:
-        run = api.post(f"/batches/{batch_id}/runs", headers={"Idempotency-Key": key})
+        run = api.post(
+            f"/batches/{batch_id}/runs", headers={"Idempotency-Key": key}
+        )
         if run.status_code not in (202, 409):
             run.raise_for_status()
         run = run.json()
     while run["status"] not in ("COMPLETED", "FAILED", "CANCELLED", "SKIPPED"):
         time.sleep(5)
-        with client(user_id) as api:  # 토큰 유효 기간이 짧으므로 조회마다 새로 발급
-            run = api.get(f"/batches/{batch_id}/runs/{run['id']}").raise_for_status().json()
+        with client(
+            user_id
+        ) as api:  # 토큰 유효 기간이 짧으므로 조회마다 새로 발급
+            run = (
+                api.get(f"/batches/{batch_id}/runs/{run['id']}")
+                .raise_for_status()
+                .json()
+            )
     return run
 
 
 def update_batch_name(user_id: str, batch_id: str, name: str) -> dict:
     with client(user_id) as api:
         current = api.get(f"/batches/{batch_id}").raise_for_status()
-        return api.patch(
-            f"/batches/{batch_id}",
-            headers={
-                "Idempotency-Key": str(uuid.uuid4()),
-                "If-Match": current.headers["ETag"],
-            },
-            json={"name": name},
-        ).raise_for_status().json()
+        return (
+            api.patch(
+                f"/batches/{batch_id}",
+                headers={
+                    "Idempotency-Key": str(uuid.uuid4()),
+                    "If-Match": current.headers["ETag"],
+                },
+                json={"name": name},
+            )
+            .raise_for_status()
+            .json()
+        )
 ```
