@@ -80,7 +80,7 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: shared
-              mountPath: /workspace/shared
+              mountPath: /mnt/data
             - name: tmp
               mountPath: /tmp
       volumes:

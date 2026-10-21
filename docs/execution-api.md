@@ -27,7 +27,11 @@ make serve   # http://127.0.0.1:8100
 | `BATCH_SHUTDOWN_GRACE_SECONDS` | 40 | SIGTERM 후 진행 중인 원격 호출을 끝내는 최대 시간 |
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
-`batch-input/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
+`batch/inputs/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
+PV는 프로젝트 루트(예: `/mnt/data/dtest`) 아래 서비스별 폴더(`batch/`, `executor/`)로 나눈다.
+`BATCH_STORAGE_ROOT`와 Executor `INPUT_STORAGE_ROOT`는 프로젝트 루트,
+Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
+`batch-input/`으로 시작하는 기존 경로는 DB에 저장된 그대로 계속 읽는다.
 런타임 선택지는 Executor BATCH 풀에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목). Executor 호출에는 인증이 없으며(내부 서비스)
 사용자 JWT를 Executor에 넘기지 않는다.
 

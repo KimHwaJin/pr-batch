@@ -219,7 +219,7 @@ BatchView {
 | skipped_windows | 기존, schedule_number → config_number | FK (batch_id, config_number) |
 
 - 배치 목록의 `script_id` 필터는 현재 설정(`batch_configs` join)으로 거른다.
-- 원본 저장 경로: `batch-input/users/<owner-hash>/scripts/<notebook-id>/versions/<version-id>/`.
+- 원본 저장 경로: `batch/inputs/users/<owner-hash>/scripts/<notebook-id>/versions/<version-id>/`.
   Executor에는 기존과 같이 셀 파일 상대경로와 SHA-256으로 제출한다.
 
 ## 6. 바뀌지 않는 부분
