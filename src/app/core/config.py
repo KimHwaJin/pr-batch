@@ -75,7 +75,8 @@ class Settings(BaseSettings):
     # with the matching private key; a relative path is under the project
     # root, so a key committed in keys/ ships in the image.
     auth_public_key_file: Path
-    auth_issuer: str = "prj_re"
+    # Every calling service puts this same value in "iss".
+    auth_issuer: str = "batch-client"
     auth_audience: str = "pr-batch"
     auth_max_lifetime_seconds: int = Field(default=300, ge=30, le=3600)
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)

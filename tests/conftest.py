@@ -48,7 +48,7 @@ def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
     now = int(time.time())
     claims = {
         "sub": user_id(owner),
-        "iss": "prj_re",
+        "iss": "batch-client",
         "aud": "pr-batch",
         "iat": now,
         "exp": now + 120,

@@ -12,7 +12,7 @@ x-batch-env: &batch-env
   # Local key pair from `make auth-keys`, mounted below; the smoke checks
   # sign with its private half.
   BATCH_AUTH_PUBLIC_KEY_FILE: .local-keys/auth_public.pem
-  BATCH_AUTH_ISSUER: prj_re
+  BATCH_AUTH_ISSUER: batch-client
   BATCH_AUTH_AUDIENCE: pr-batch
   BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
   BATCH_SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
