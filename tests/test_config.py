@@ -43,6 +43,17 @@ def test_reads_the_app_env_file(project, monkeypatch):
     assert settings.auth_secret.get_secret_value() == SECRET
 
 
+def test_keys_are_case_insensitive(project, monkeypatch):
+    (project / "config.dev.yml").write_text(
+        "DATABASE_URL: postgresql+psycopg://u:p@db:5432/batch\n"
+        f"STORAGE_ROOT: {project}\n"
+        f"AUTH_SECRET: {SECRET}\n"
+        "DB_POOL_SIZE: 9\n"
+    )
+    monkeypatch.setenv("APP_ENV", "dev")
+    assert Settings(_env_file=None).db_pool_size == 9
+
+
 def test_environment_overrides_the_file(project, monkeypatch):
     write_config(project, "prd")
     monkeypatch.setenv("APP_ENV", "prd")

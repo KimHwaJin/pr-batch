@@ -24,7 +24,11 @@ def configured_url() -> str:
     url = os.environ.get("BATCH_DATABASE_URL")
     path = environment_file()
     if url is None and path is not None:
-        url = (yaml.safe_load(path.read_text()) or {}).get("database_url")
+        values = yaml.safe_load(path.read_text()) or {}
+        # Keys match Settings fields case-insensitively, as in the app.
+        url = {str(k).lower(): v for k, v in values.items()}.get(
+            "database_url"
+        )
     if url is None:
         raise KeyError("Set BATCH_DATABASE_URL or APP_ENV.")
     return url

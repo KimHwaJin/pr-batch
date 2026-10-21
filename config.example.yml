@@ -1,17 +1,18 @@
 # Copy to config.dev.yml, config.stg.yml or config.prd.yml and set
-# APP_ENV=dev|stg|prd. Keys are the Settings field names without the
-# BATCH_ prefix; a BATCH_* environment variable still overrides a key.
-database_url: postgresql+psycopg://batch:CHANGE_ME@postgres:5432/batch
-storage_root: /mnt/data/dtest  # project root; files go under batch/inputs/
-auth_secret: CHANGE_ME_32_BYTES_OR_MORE_SHARED_WITH_PRJ_RE
-auth_issuer: prj_re
-auth_audience: pr-batch
-executor_base_url: http://executor:8000
-db_auto_migrate: true
+# APP_ENV=dev|stg|prd. Keys are the Settings field names in any case,
+# without the BATCH_ prefix (a prefixed key is silently ignored); a
+# BATCH_* environment variable still overrides a key.
+DATABASE_URL: postgresql+psycopg://batch:CHANGE_ME@postgres:5432/batch
+STORAGE_ROOT: /mnt/data/dtest  # project root; files go under batch/inputs/
+AUTH_SECRET: CHANGE_ME_32_BYTES_OR_MORE_SHARED_WITH_PRJ_RE
+AUTH_ISSUER: prj_re
+AUTH_AUDIENCE: pr-batch
+EXECUTOR_BASE_URL: http://executor:8000
+DB_AUTO_MIGRATE: true
 # Connection budget: (3 + 3) per pod x maxReplicas 4 = 24.
-db_pool_size: 3
-db_max_overflow: 3
-task_concurrency: 4
-sync_initial_seconds: 5
-sync_max_seconds: 60
-shutdown_grace_seconds: 40
+DB_POOL_SIZE: 3
+DB_MAX_OVERFLOW: 3
+TASK_CONCURRENCY: 4
+SYNC_INITIAL_SECONDS: 5
+SYNC_MAX_SECONDS: 60
+SHUTDOWN_GRACE_SECONDS: 40
