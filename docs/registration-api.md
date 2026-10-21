@@ -47,20 +47,23 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 
 ## prj_re 인증 계약
 
+호출 서비스에 전달할 토큰 발급 방법·예제·오류 대응은 [호출 서비스 인증 가이드](client-auth.md),
+엔드포인트별 호출 예시는 [API별 호출 가이드](client-api.md)에 정리했다.
+
 이번 구현은 내부 호출용 HS256 JWT를 사용한다. 기존 `prj_re`에 자동 연결된 것이
 아니며 gateway에서 아래 토큰을 발급·전달하는 연동이 필요하다.
 
 | JWT claim | 값 |
 | --- | --- |
 | sub | 로그인 검증이 끝난 사용자 UUID (prj_re 사용자 ID). UUID가 아니면 401 |
-| iss | 기본 `prj_re`, `BATCH_AUTH_ISSUER`로 설정 |
-| aud | 기본 `pr-batch`, `BATCH_AUTH_AUDIENCE`로 설정 |
+| iss | 기본 `prj_re`, 설정 키 `AUTH_ISSUER` |
+| aud | 기본 `pr-batch`, 설정 키 `AUTH_AUDIENCE` |
 | iat | 발급 UTC Unix 초, 정수 |
-| exp | 만료 UTC Unix 초, 정수. iat 이후 최대 300초 |
+| exp | 만료 UTC Unix 초, 정수. iat 이후 최대 300초(`AUTH_MAX_LIFETIME_SECONDS`) |
 | scope | `batch:manage` |
 
 `Authorization: Bearer <token>`으로 전달한다. 공유 비밀키
-`BATCH_AUTH_SECRET`는 32바이트 이상 무작위 값으로 설정하고 사용자에게 전달하지
+`AUTH_SECRET`(환경변수로는 `BATCH_AUTH_SECRET`)는 32바이트 이상 무작위 값으로 설정하고 사용자에게 전달하지
 않는다. 요청 body의 사용자 ID나 `X-User-Id`는 인증 근거가 아니다.
 외부 클라이언트가 서비스 인증 헤더를 그대로 전달하게 하지 않고 `prj_re`가 검증한
 사용자로 새 토큰을 발급한다. 운영에서는 TLS와 내부 서비스 접근 제한을 적용한다.
@@ -138,7 +141,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
   "script_id": "00000000-0000-0000-0000-000000000001",
   "runtime": {"type": "JUPYTER", "profile": "default"},
   "schedule": {"definition": {"kind": "CRON", "expression": "0 8 * * *"}},
-  "policy": {"overlap": "QUEUE", "misfire": "LATEST"}
+  "policy": {"overlap": {"mode": "QUEUE"}, "misfire": {"mode": "LATEST"}}
 }
 ```
 
