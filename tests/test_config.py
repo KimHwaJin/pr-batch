@@ -77,3 +77,19 @@ def test_missing_file_fails(project, monkeypatch):
     monkeypatch.setenv("APP_ENV", "dev")
     with pytest.raises(FileNotFoundError, match=r"config\.dev\.yml"):
         Settings(_env_file=None)
+
+
+def test_common_file_applies_and_environment_file_wins(project, monkeypatch):
+    (project / "config.yml").write_text(
+        "database_url: postgresql+psycopg://u:p@db:5432/batch\n"
+        f"storage_root: {project}\n"
+        f"auth_secret: {SECRET}\n"
+        "db_pool_size: 5\n"
+        "task_concurrency: 6\n"
+    )
+    settings = Settings(_env_file=None)
+    assert (settings.db_pool_size, settings.task_concurrency) == (5, 6)
+    (project / "config.prd.yml").write_text("db_pool_size: 8\n")
+    monkeypatch.setenv("APP_ENV", "prd")
+    settings = Settings(_env_file=None)
+    assert (settings.db_pool_size, settings.task_concurrency) == (8, 6)

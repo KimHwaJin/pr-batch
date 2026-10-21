@@ -13,8 +13,9 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY alembic.ini ./
-# config.{APP_ENV}.yml per environment (no ConfigMaps or Secrets).
-COPY logger.yml config.*.yml ./
+# config.yml (shared) and config.{APP_ENV}.yml (per environment); no
+# ConfigMaps or Secrets. config.example.yml keeps the glob non-empty.
+COPY logger.yml config*.yml ./
 COPY migrations ./migrations
 COPY scripts ./scripts
 COPY src ./src

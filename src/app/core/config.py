@@ -1,9 +1,10 @@
 """Explicit configuration; importing modules opens no connections.
 
 Sources, highest first: constructor arguments, ``BATCH_*`` environment
-variables, ``.env``, then ``config.{APP_ENV}.yml`` at the project root
-when ``APP_ENV`` is set. ConfigMaps and Secrets are unavailable on the
-platform, so each environment ships its own YAML file in the image.
+variables, ``.env``, ``config.{APP_ENV}.yml`` (values for one environment,
+when ``APP_ENV`` is set), then ``config.yml`` (values shared by every
+environment, when present), both at the project root. ConfigMaps and
+Secrets are unavailable on the platform, so the files ship in the image.
 """
 
 import os
@@ -24,17 +25,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 APP_ENVS = ("dev", "stg", "prd")
 
 
-def environment_file() -> Path | None:
-    """The YAML file for ``APP_ENV``; None when it is unset."""
+def config_files() -> list[Path]:
+    """YAML settings files, highest precedence first."""
+    files = []
     app_env = os.environ.get("APP_ENV")
-    if not app_env:
-        return None
-    if app_env not in APP_ENVS:
-        raise ValueError(f"APP_ENV must be one of {', '.join(APP_ENVS)}.")
-    path = PROJECT_ROOT / f"config.{app_env}.yml"
-    if not path.is_file():
-        raise FileNotFoundError(f"APP_ENV={app_env} needs {path}.")
-    return path
+    if app_env:
+        if app_env not in APP_ENVS:
+            raise ValueError(f"APP_ENV must be one of {', '.join(APP_ENVS)}.")
+        path = PROJECT_ROOT / f"config.{app_env}.yml"
+        if not path.is_file():
+            raise FileNotFoundError(f"APP_ENV={app_env} needs {path}.")
+        files.append(path)
+    common = PROJECT_ROOT / "config.yml"
+    if common.is_file():
+        files.append(common)
+    return files
 
 
 class Settings(BaseSettings):
@@ -80,13 +85,17 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        sources = [init_settings, env_settings, dotenv_settings]
-        path = environment_file()
-        if path is not None:
-            sources.append(
-                YamlConfigSettingsSource(settings_cls, yaml_file=path)
-            )
-        return (*sources, file_secret_settings)
+        files = [
+            YamlConfigSettingsSource(settings_cls, yaml_file=path)
+            for path in config_files()
+        ]
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            *files,
+            file_secret_settings,
+        )
 
     @model_validator(mode="after")
     def validate_configuration(self) -> Self:
