@@ -198,7 +198,7 @@ def test_only_the_shared_private_key_signs(settings):
     now = int(time.time())
     claims = {
         "sub": "00000000-0000-4000-8000-000000000001",
-        "iss": "prj_re",
+        "iss": "batch-client",
         "aud": "pr-batch",
         "iat": now,
         "exp": now + 60,

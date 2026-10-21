@@ -45,7 +45,7 @@ uv run --locked python scripts\auth_keys.py C:\batch-keys\prd # Windows PowerShe
 | 값 | pr-batch 설정 키 | 기본값 | 비고 |
 | --- | --- | --- | --- |
 | 서명 개인키 파일 | (pr-batch는 짝이 되는 `AUTH_PUBLIC_KEY_FILE`만 가짐) | — | `auth_private.pem`, RSA 2048비트 이상, PEM. 환경(dev/stg/prd)마다 다르다 |
-| issuer | `AUTH_ISSUER` | `prj_re` | 토큰 `iss`와 정확히 같아야 한다 |
+| issuer | `AUTH_ISSUER` | `batch-client` | 토큰 `iss`와 정확히 같아야 한다. 모든 호출 서비스가 같은 값을 쓴다 |
 | audience | `AUTH_AUDIENCE` | `pr-batch` | 토큰 `aud`와 같아야 한다 |
 | 최대 유효 기간 | `AUTH_MAX_LIFETIME_SECONDS` | `300` | `exp - iat` 상한. 설정 가능 범위 30~3600초 |
 | 서비스 주소 | — | 클러스터 안 `http://pr-batch:8000` | 배포 환경에 맞는 주소를 확인한다 |
@@ -70,7 +70,7 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOi...
 | claim | 필수 | 값 | 검증 내용 |
 | --- | --- | --- | --- |
 | `sub` | O | 로그인 검증이 끝난 사용자 UUID 문자열 | UUID가 아니면 401. 대소문자는 구분하지 않으며 소문자 표준형으로 저장한다 |
-| `iss` | O | 배치팀이 알려준 issuer (기본 `prj_re`) | 정확히 일치해야 한다 |
+| `iss` | O | 배치팀이 알려준 issuer (기본 `batch-client`) | 정확히 일치해야 한다(대소문자·공백 포함) |
 | `aud` | O | 배치팀이 알려준 audience (기본 `pr-batch`) | 문자열, 또는 이 값을 포함한 배열 |
 | `iat` | O | 발급 시각, UTC Unix 초, **정수** | 실수(1734567890.5)나 문자열이면 401. 서버 시각보다 미래면 401 |
 | `exp` | O | 만료 시각, UTC Unix 초, **정수** | 지났으면 401. `0 < exp - iat <= 300` 이어야 한다 |
@@ -98,7 +98,7 @@ import jwt  # pip install "pyjwt[crypto]>=2.8"
 
 # 배치팀에서 받은 개인키 파일. 프로세스 시작 시 한 번 읽어 둔다.
 PRIVATE_KEY = Path("/secure/path/auth_private.pem").read_bytes()
-BATCH_AUTH_ISSUER = "prj_re"  # 배치팀에서 받은 issuer
+BATCH_AUTH_ISSUER = "batch-client"  # 배치팀에서 받은 issuer
 BATCH_AUTH_AUDIENCE = "pr-batch"  # 배치팀에서 받은 audience
 
 
@@ -142,7 +142,7 @@ PrivateKey key = KeyFactory.getInstance("RSA")
 long now = Instant.now().getEpochSecond();
 String token = Jwts.builder()
     .subject(userId)                    // 사용자 UUID
-    .issuer("prj_re")
+    .issuer("batch-client")
     .audience().add("pr-batch").and()
     .claim("scope", "batch:manage")
     .issuedAt(Date.from(Instant.ofEpochSecond(now)))
@@ -164,6 +164,16 @@ curl --fail-with-body http://pr-batch:8000/api/v1/runtimes \
 
 로컬 개발에서는 `make dev-token`(= `scripts/dev_token.py`)이 로컬 키 쌍(`.local-keys/`, `make auth-keys`로
 자동 생성)으로 5분짜리 토큰을 출력한다. 로컬 키 쌍은 공유 환경에 쓰지 않는다.
+
+배포 환경(dev/stg 등)의 Swagger를 테스트할 때는 그 환경의 개인키를 지정하고, 기본값과 다르면 issuer·audience도 지정한다.
+`--user`를 생략하면 고정 테스트 사용자(`00000000-0000-4000-8000-000000000de0`)로 발급된다.
+
+```sh
+uv run --locked python scripts/dev_token.py \
+  --private-key <그 환경 auth_private.pem> --user <사용자 UUID> --issuer <그 환경 AUTH_ISSUER> --audience <그 환경 AUTH_AUDIENCE>
+```
+
+Swagger(`/docs`)에서는 **Authorize**에 토큰만(`Bearer` 없이) 붙여넣는다. 5분이 지나면 다시 발급한다.
 
 ## 인증 오류
 
