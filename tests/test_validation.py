@@ -199,7 +199,7 @@ def test_only_the_shared_private_key_signs(settings):
     claims = {
         "sub": "00000000-0000-4000-8000-000000000001",
         "iss": "batch-client",
-        "aud": "pr-batch",
+        "aud": "batch-service",
         "iat": now,
         "exp": now + 60,
         "scope": "batch:manage",

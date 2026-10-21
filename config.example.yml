@@ -9,7 +9,7 @@ STORAGE_ROOT: /mnt/data/dtest  # project root; files go under batch/inputs/
 # RSA public key that verifies caller tokens; see keys/README.md.
 AUTH_PUBLIC_KEY_FILE: keys/auth_public.pem
 AUTH_ISSUER: batch-client
-AUTH_AUDIENCE: pr-batch
+AUTH_AUDIENCE: batch-service
 EXECUTOR_BASE_URL: http://executor:8000
 DB_AUTO_MIGRATE: true
 # Connection budget: (3 + 3) per pod x maxReplicas 4 = 24.

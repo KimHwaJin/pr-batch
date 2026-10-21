@@ -209,7 +209,7 @@ Task 하나는 "짧은 claim 트랜잭션 → 커넥션 반납 → 원격 호출
 | 구간 | 방식 |
 | --- | --- |
 | 사용자 → prj_re | SSO (필수, prj_re 책임) |
-| prj_re → pr-batch | **prj_re가 SSO로 확인한 사용자 ID로 pr-batch 전용 단기 JWT를 발급**해 호출(현재 구현 유지). RS256(호출 서비스가 공유 개인키로 서명, pr-batch는 공개키 파일로 검증), `aud=pr-batch`, `scope=batch:manage`, 수명 5분 이하 |
+| prj_re → pr-batch | **prj_re가 SSO로 확인한 사용자 ID로 pr-batch 전용 단기 JWT를 발급**해 호출(현재 구현 유지). RS256(호출 서비스가 공유 개인키로 서명, pr-batch는 공개키 파일로 검증), `iss=batch-client`, `aud=batch-service`, `scope=batch:manage`, 수명 5분 이하 |
 | pr-batch → Executor | 인증 없음 (내부 서비스). 내부망·NetworkPolicy로 접근 제한 |
 | pr-batch → prj_re 리포트 API | **pr-batch가 서비스 토큰을 발급**해 호출. `iss=pr-batch`, `aud=prj_re-report`, 실행 소유자 ID claim 포함, 수명 5분 이하 |
 
