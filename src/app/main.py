@@ -13,6 +13,7 @@ from sqlalchemy import text
 from app.api.router import api_router
 from app.core.config import Settings
 from app.core.exceptions import ServiceError, register_exception_handlers
+from app.core.logging_setup import configure_logging
 from app.core.middleware import RequestSizeLimit
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_db_engine, create_sessions
@@ -30,9 +31,7 @@ logger = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
-    )
+    configure_logging()
     engine = create_db_engine(settings)
     sessions = create_sessions(engine)
 
