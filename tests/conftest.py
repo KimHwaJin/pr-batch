@@ -49,7 +49,7 @@ def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
     claims = {
         "sub": user_id(owner),
         "iss": "batch-client",
-        "aud": "pr-batch",
+        "aud": "batch-service",
         "iat": now,
         "exp": now + 120,
         "scope": "batch:manage",

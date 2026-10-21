@@ -46,7 +46,7 @@ uv run --locked python scripts\auth_keys.py C:\batch-keys\prd # Windows PowerShe
 | --- | --- | --- | --- |
 | 서명 개인키 파일 | (pr-batch는 짝이 되는 `AUTH_PUBLIC_KEY_FILE`만 가짐) | — | `auth_private.pem`, RSA 2048비트 이상, PEM. 환경(dev/stg/prd)마다 다르다 |
 | issuer | `AUTH_ISSUER` | `batch-client` | 토큰 `iss`와 정확히 같아야 한다. 모든 호출 서비스가 같은 값을 쓴다 |
-| audience | `AUTH_AUDIENCE` | `pr-batch` | 토큰 `aud`와 같아야 한다 |
+| audience | `AUTH_AUDIENCE` | `batch-service` | 토큰 `aud`와 같아야 한다 |
 | 최대 유효 기간 | `AUTH_MAX_LIFETIME_SECONDS` | `300` | `exp - iat` 상한. 설정 가능 범위 30~3600초 |
 | 서비스 주소 | — | 클러스터 안 `http://pr-batch:8000` | 배포 환경에 맞는 주소를 확인한다 |
 
@@ -71,7 +71,7 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOi...
 | --- | --- | --- | --- |
 | `sub` | O | 로그인 검증이 끝난 사용자 UUID 문자열 | UUID가 아니면 401. 대소문자는 구분하지 않으며 소문자 표준형으로 저장한다 |
 | `iss` | O | 배치팀이 알려준 issuer (기본 `batch-client`) | 정확히 일치해야 한다(대소문자·공백 포함) |
-| `aud` | O | 배치팀이 알려준 audience (기본 `pr-batch`) | 문자열, 또는 이 값을 포함한 배열 |
+| `aud` | O | 배치팀이 알려준 audience (기본 `batch-service`) | 문자열, 또는 이 값을 포함한 배열 |
 | `iat` | O | 발급 시각, UTC Unix 초, **정수** | 실수(1734567890.5)나 문자열이면 401. 서버 시각보다 미래면 401 |
 | `exp` | O | 만료 시각, UTC Unix 초, **정수** | 지났으면 401. `0 < exp - iat <= 300` 이어야 한다 |
 | `scope` | O | 정확히 문자열 `batch:manage` | 없거나 다르면 **403**. 공백으로 여러 scope를 이어 붙인 값(`"batch:manage other"`)이나 배열도 403 |
@@ -99,7 +99,7 @@ import jwt  # pip install "pyjwt[crypto]>=2.8"
 # 배치팀에서 받은 개인키 파일. 프로세스 시작 시 한 번 읽어 둔다.
 PRIVATE_KEY = Path("/secure/path/auth_private.pem").read_bytes()
 BATCH_AUTH_ISSUER = "batch-client"  # 배치팀에서 받은 issuer
-BATCH_AUTH_AUDIENCE = "pr-batch"  # 배치팀에서 받은 audience
+BATCH_AUTH_AUDIENCE = "batch-service"  # 배치팀에서 받은 audience
 
 
 def batch_token(user_id: str, ttl_seconds: int = 300) -> str:
@@ -143,7 +143,7 @@ long now = Instant.now().getEpochSecond();
 String token = Jwts.builder()
     .subject(userId)                    // 사용자 UUID
     .issuer("batch-client")
-    .audience().add("pr-batch").and()
+    .audience().add("batch-service").and()
     .claim("scope", "batch:manage")
     .issuedAt(Date.from(Instant.ofEpochSecond(now)))
     .expiration(Date.from(Instant.ofEpochSecond(now + 300)))

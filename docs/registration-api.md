@@ -58,7 +58,7 @@ pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다
 | --- | --- |
 | sub | 로그인 검증이 끝난 사용자 UUID (prj_re 사용자 ID). UUID가 아니면 401 |
 | iss | 기본 `batch-client`, 설정 키 `AUTH_ISSUER`. 모든 호출 서비스가 같은 값을 쓴다 |
-| aud | 기본 `pr-batch`, 설정 키 `AUTH_AUDIENCE` |
+| aud | 기본 `batch-service`, 설정 키 `AUTH_AUDIENCE` |
 | iat | 발급 UTC Unix 초, 정수 |
 | exp | 만료 UTC Unix 초, 정수. iat 이후 최대 300초(`AUTH_MAX_LIFETIME_SECONDS`) |
 | scope | `batch:manage` |
