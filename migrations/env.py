@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, pool, text
 from sqlalchemy.engine import make_url
 
-from app.core.config import environment_file
+from app.core.config import config_files
 from app.models import Base
 
 MIGRATION_LOCK = 7_301_202_610  # arbitrary, stable advisory lock key
@@ -22,15 +22,16 @@ def configured_url() -> str:
     """Same precedence as Settings, for the alembic CLI."""
     load_dotenv()
     url = os.environ.get("BATCH_DATABASE_URL")
-    path = environment_file()
-    if url is None and path is not None:
+    for path in config_files():
+        if url is not None:
+            break
         values = yaml.safe_load(path.read_text()) or {}
         # Keys match Settings fields case-insensitively, as in the app.
         url = {str(k).lower(): v for k, v in values.items()}.get(
             "database_url"
         )
     if url is None:
-        raise KeyError("Set BATCH_DATABASE_URL or APP_ENV.")
+        raise KeyError("Set BATCH_DATABASE_URL, config.yml or APP_ENV.")
     return url
 
 
