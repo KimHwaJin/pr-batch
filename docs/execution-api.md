@@ -33,11 +33,11 @@ PV는 프로젝트 루트(예: `/mnt/data/dtest`) 아래 서비스별 폴더(`ba
 Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
 `batch-input/`으로 시작하는 기존 경로는 DB에 저장된 그대로 계속 읽는다.
 런타임 선택지는 Executor BATCH 풀에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목). Executor 호출에는 인증이 없으며(내부 서비스)
-사용자 JWT를 Executor에 넘기지 않는다.
+pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 
 ## HTTP 계약
 
-공통 prefix는 `/api/v1/batches/{batch_id}/runs`이며 사용자 JWT가 필요하다. 다른 사용자의 배치·실행과
+공통 prefix는 `/api/v1/batches/{batch_id}/runs`이며 서비스 JWT(`sub`=사용자, [인증 가이드](client-auth.md))가 필요하다. 다른 사용자의 배치·실행과
 삭제된 배치의 실행은 404다(이력은 DB에 보관). 진행 중인 실행이 있는 배치는 삭제할 수 없다
 ([등록 API 안내](registration-api.md#삭제)).
 
@@ -78,7 +78,7 @@ Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
 
 **결과 다운로드는 pr-batch가 중계하지 않는다.** `result.notebook_artifact_id`(실행 결과 노트북)를 보고, prj_re가
 Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자에게 전달한다. Executor는 인증이
-없는 내부 서비스이므로 브라우저에 직접 노출하지 않고, prj_re는 먼저 pr-batch에서 사용자 JWT로 실행을
+없는 내부 서비스이므로 브라우저에 직접 노출하지 않고, prj_re는 먼저 그 사용자의 서비스 JWT로 pr-batch에서 실행을
 조회해 소유권을 확인한 뒤 그 artifact만 내려받는다.
 
 **리포트는 pr-batch가 만들지 않는다.** pr-agentic-service가 Executor `execution.completed` 이벤트(성공

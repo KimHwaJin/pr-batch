@@ -15,7 +15,8 @@
 
 ## 활성화·중지 API
 
-공통 prefix는 `/api/v1/batches`다. prj_re가 기존 사용자 JWT를 전달한다.
+공통 prefix는 `/api/v1/batches`다. 호출 서비스가 사용자 UUID(`sub`)로 발급한 RS256 서비스 JWT를
+전달한다([호출 서비스 인증 가이드](client-auth.md)).
 
 | Method | 경로 | 기능 |
 | --- | --- | --- |
@@ -32,7 +33,7 @@ ETag를 반환한다. 실제 활성화 상태를 바꿀 때 revision을 증가�
 
 ```sh
 curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
-  -H "Authorization: Bearer $GATEWAY_TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: enable-request-001" \
   -H 'If-Match: "1"'
 ```

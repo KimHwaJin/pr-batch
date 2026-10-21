@@ -28,6 +28,18 @@ pr-batch API를 호출하는 서비스(prj_re gateway 등)가 요청 헤더에 �
 - 개인키가 유출되면 키 쌍을 새로 만들어 모든 호출 서비스의 개인키와 pr-batch의 공개키를 함께 바꾼다.
   여러 서비스가 한 개인키를 공유하므로 한 곳의 유출이 전체 교체로 이어진다는 점을 감안해 보관한다.
 
+### 키 쌍 만들기
+
+배치팀이 환경마다 한 번 만든다. 도커 없이 macOS·Linux·Windows 어디서나 만들 수 있다.
+
+```sh
+uv run --locked python scripts/auth_keys.py <출력 폴더>      # macOS·Linux
+uv run --locked python scripts\auth_keys.py C:\batch-keys\prd # Windows PowerShell
+```
+
+레포 없이 Python만 있거나 openssl(Git Bash 포함)로 만드는 방법, 공개키 배치와 키 교체 절차는
+[keys/README.md](../keys/README.md)를 따른다.
+
 ## 배치팀에서 받아야 하는 값
 
 | 값 | pr-batch 설정 키 | 기본값 | 비고 |
