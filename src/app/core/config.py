@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from pydantic import Field, PrivateAttr, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -42,6 +44,23 @@ def config_files() -> list[Path]:
     return files
 
 
+def load_auth_public_key(path: Path) -> RSAPublicKey:
+    """Read and check the token verification key at startup."""
+    resolved = path if path.is_absolute() else PROJECT_ROOT / path
+    try:
+        key = load_pem_public_key(resolved.read_bytes())
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            "auth_public_key_file: cannot read a PEM public key at "
+            f"{resolved}."
+        ) from exc
+    if not isinstance(key, RSAPublicKey) or key.key_size < 2048:
+        raise ValueError(
+            "auth_public_key_file: use an RSA public key of 2048 bits or more."
+        )
+    return key
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BATCH_", env_file=".env", extra="ignore"
@@ -52,7 +71,10 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     database_url: SecretStr
     storage_root: Path
-    auth_secret: SecretStr
+    # PEM RSA public key that verifies caller tokens (RS256). Callers sign
+    # with the matching private key; a relative path is under the project
+    # root, so a key committed in keys/ ships in the image.
+    auth_public_key_file: Path
     auth_issuer: str = "prj_re"
     auth_audience: str = "pr-batch"
     auth_max_lifetime_seconds: int = Field(default=300, ge=30, le=3600)
@@ -78,6 +100,8 @@ class Settings(BaseSettings):
     sync_initial_seconds: int = Field(default=5, ge=1, le=300)
     sync_max_seconds: int = Field(default=60, ge=1, le=3600)
     shutdown_grace_seconds: float = Field(default=40, ge=1, le=600)
+
+    _auth_public_key: RSAPublicKey = PrivateAttr()
 
     @classmethod
     def settings_customise_sources(
@@ -107,8 +131,7 @@ class Settings(BaseSettings):
             raise ValueError("Use a postgresql+psycopg database URL.")
         if not self.storage_root.is_absolute():
             raise ValueError("storage_root must be an absolute path.")
-        if len(self.auth_secret.get_secret_value().encode()) < 32:
-            raise ValueError("auth_secret must contain at least 32 bytes.")
+        self._auth_public_key = load_auth_public_key(self.auth_public_key_file)
         if self.executor_base_url is not None:
             endpoint = urlsplit(self.executor_base_url)
             if (
@@ -126,3 +149,7 @@ class Settings(BaseSettings):
         if self.sync_initial_seconds > self.sync_max_seconds:
             raise ValueError("sync_initial_seconds exceeds sync_max_seconds.")
         return self
+
+    @property
+    def auth_public_key(self) -> RSAPublicKey:
+        return self._auth_public_key

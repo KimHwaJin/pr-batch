@@ -1,12 +1,17 @@
 """Input, auth, and storage checks do not require a database."""
 
+import base64
+import hashlib
+import hmac
 import json
 import time
 from uuid import uuid4
 
 import httpx2
+import jwt
 import pytest
-from conftest import API, SCRIPTS, notebook_bytes, token
+from conftest import API, PUBLIC_PEM, SCRIPTS, notebook_bytes, token
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -173,6 +178,45 @@ def test_invalid_gateway_identity(settings, overrides):
     with TestClient(create_app(settings)) as client:
         response = client.get(API, headers=token(**overrides))
     assert response.status_code == 401
+
+
+def hs256(claims: dict, secret: bytes) -> str:
+    """HS256 token built by hand: PyJWT refuses a PEM as HMAC secret."""
+
+    def part(data: bytes) -> bytes:
+        return base64.urlsafe_b64encode(data).rstrip(b"=")
+
+    signing_input = b".".join(
+        part(json.dumps(value).encode())
+        for value in ({"alg": "HS256", "typ": "JWT"}, claims)
+    )
+    signature = hmac.new(secret, signing_input, hashlib.sha256).digest()
+    return (signing_input + b"." + part(signature)).decode()
+
+
+def test_only_the_shared_private_key_signs(settings):
+    now = int(time.time())
+    claims = {
+        "sub": "00000000-0000-4000-8000-000000000001",
+        "iss": "prj_re",
+        "aud": "pr-batch",
+        "iat": now,
+        "exp": now + 60,
+        "scope": "batch:manage",
+    }
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    forged = [
+        jwt.encode(claims, other, algorithm="RS256"),
+        # Algorithm confusion: the public key used as an HMAC secret.
+        hs256(claims, PUBLIC_PEM),
+    ]
+    with TestClient(create_app(settings)) as client:
+        assert client.get(API, headers=token()).status_code != 401
+        for value in forged:
+            response = client.get(
+                API, headers={"Authorization": f"Bearer {value}"}
+            )
+            assert response.status_code == 401
 
 
 def test_owner_header_is_not_authentication(settings):

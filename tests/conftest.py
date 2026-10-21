@@ -11,6 +11,8 @@ import jwt
 import pytest
 from alembic import command
 from alembic.config import Config
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import create_engine, text
@@ -21,7 +23,12 @@ from app.main import create_app
 from app.schemas.batch import RuntimeSpec
 from app.services.runtime_catalog import StaticRuntimeCatalog
 
-TEST_SECRET = "local-test-only-" * 4
+# Callers sign with the private half; Settings reads the public PEM file.
+CALLER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+PUBLIC_PEM = CALLER_KEY.public_key().public_bytes(
+    serialization.Encoding.PEM,
+    serialization.PublicFormat.SubjectPublicKeyInfo,
+)
 API = "/api/v1/batches"
 SCRIPTS = "/api/v1/scripts"
 
@@ -48,7 +55,8 @@ def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
         "scope": "batch:manage",
     }
     claims.update(overrides)
-    return {"Authorization": f"Bearer {jwt.encode(claims, TEST_SECRET)}"}
+    encoded = jwt.encode(claims, CALLER_KEY, algorithm="RS256")
+    return {"Authorization": f"Bearer {encoded}"}
 
 
 def notebook_bytes(
@@ -95,13 +103,15 @@ def metadata(**updates: object) -> dict:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    key_file = tmp_path / "auth_public.pem"
+    key_file.write_bytes(PUBLIC_PEM)
     return Settings(
         _env_file=None,
         database_url=SecretStr(
             "postgresql+psycopg://unused:unused@127.0.0.1:1/unit_test"
         ),
         storage_root=tmp_path,
-        auth_secret=SecretStr(TEST_SECRET),
+        auth_public_key_file=key_file,
         db_auto_migrate=False,
         background_enabled=False,
     )
