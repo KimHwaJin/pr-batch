@@ -87,7 +87,8 @@ PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 �
 배포 환경(dev, stg, prd)은 ConfigMap·Secret 대신 계별 YAML 파일로 설정합니다.
 `config.example.yml`을 `config.dev.yml`, `config.stg.yml`, `config.prd.yml`로 복사해
 값을 채우고 `APP_ENV=dev|stg|prd`를 지정하면 해당 파일을 읽습니다. 키는 `Settings`
-필드명(`BATCH_` 접두어 없음)이고, 우선순위는 `BATCH_*` 환경변수 > `.env` > YAML
+필드명이며 대소문자는 구분하지 않습니다(`DATABASE_URL`, `database_url` 모두 가능).
+`BATCH_` 접두어를 붙인 키는 오류 없이 무시되니 붙이지 않습니다. 우선순위는 `BATCH_*` 환경변수 > `.env` > YAML
 순입니다. `APP_ENV`가 없으면 YAML을 읽지 않으며, 값이 잘못됐거나 파일이 없으면
 시작할 때 실패합니다. `alembic` CLI도 같은 순서로 DB URL을 찾습니다.
 
