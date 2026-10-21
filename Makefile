@@ -24,7 +24,8 @@ migrate:
 
 serve:
 	# API + scheduler + task dispatcher in one process (as deployed).
-	uv run --locked uvicorn app.main:create_app --factory --port 8100
+	# Port comes from settings: BATCH_PORT in .env (8100 locally) or PORT in config.yml.
+	uv run --locked pr-batch
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.

@@ -107,7 +107,10 @@ make serve
 
 API·스케줄러·Task dispatcher가 한 프로세스로 뜨고, 시작 시 migration을 적용합니다
 (`BATCH_DB_AUTO_MIGRATE=false`로 끌 수 있고, 그때는 `make migrate`).
-기본 주소는 `http://127.0.0.1:8100`(로컬 Executor의 8000과 겹치지 않게), API 문서는 `/docs`입니다.
+포트는 설정의 `PORT`(`config.yml`/`config.{APP_ENV}.yml`, 환경변수로는 `BATCH_PORT`)를 따르고
+기본값은 8000입니다. `make` 없이 실행할 때는 `uv run --locked pr-batch`입니다. `.env.example`은
+`BATCH_PORT=8100`이라 로컬 주소는 `http://127.0.0.1:8100`(로컬 Executor의 8000과 겹치지 않게),
+API 문서는 `/docs`입니다.
 
 ## Docker로 Executor 연계 테스트
 

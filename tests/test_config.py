@@ -1,6 +1,7 @@
 """Settings layering: environment over .env over config.{APP_ENV}.yml."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -20,6 +21,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "BATCH_STORAGE_ROOT",
         "BATCH_AUTH_SECRET",
         "BATCH_DB_POOL_SIZE",
+        "BATCH_PORT",
     ):
         monkeypatch.delenv(name, raising=False)
     return tmp_path
@@ -93,3 +95,24 @@ def test_common_file_applies_and_environment_file_wins(project, monkeypatch):
     monkeypatch.setenv("APP_ENV", "prd")
     settings = Settings(_env_file=None)
     assert (settings.db_pool_size, settings.task_concurrency) == (8, 6)
+
+
+def test_port_comes_from_config_yml(project, monkeypatch):
+    write_config(project, "dev")
+    (project / "config.yml").write_text("PORT: 9100\n")
+    monkeypatch.setenv("APP_ENV", "dev")
+    assert Settings(_env_file=None).port == 9100
+
+
+def test_entry_point_serves_on_configured_port(monkeypatch):
+    from app import serve
+
+    calls = {}
+    monkeypatch.setattr(
+        serve, "Settings", lambda: SimpleNamespace(host="127.0.0.1", port=9200)
+    )
+    monkeypatch.setattr(
+        serve.uvicorn, "run", lambda app, **kwargs: calls.update(kwargs)
+    )
+    serve.run()
+    assert calls == {"factory": True, "host": "127.0.0.1", "port": 9200}
