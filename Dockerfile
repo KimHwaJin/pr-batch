@@ -14,7 +14,7 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY alembic.ini ./
 # config.{APP_ENV}.yml per environment (no ConfigMaps or Secrets).
-COPY config.*.yml ./
+COPY logger.yml config.*.yml ./
 COPY migrations ./migrations
 COPY scripts ./scripts
 COPY src ./src

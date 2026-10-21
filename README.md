@@ -92,6 +92,11 @@ PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 �
 순입니다. `APP_ENV`가 없으면 YAML을 읽지 않으며, 값이 잘못됐거나 파일이 없으면
 시작할 때 실패합니다. `alembic` CLI도 같은 순서로 DB URL을 찾습니다.
 
+로깅은 사내 HCP 라이브러리가 설치돼 있으면 `hcp.framework.logger.init_logger()`가
+맡고, 없으면 루트의 `logger.yml`을 표준 `logging.dictConfig`로 적용합니다
+(`src/app/core/logging_setup.py`). 외부에서는 HCP 없이 그대로 동작하고, 사내로 옮길
+때는 HCP 의존성과 사내용 `logger.yml`만 바꾸면 됩니다.
+
 ```sh
 make serve
 ```
