@@ -40,7 +40,7 @@ class ScriptStorage:
             )
         user_id = UUID(owner)  # authenticated user UUID; never raw input
         directory = (
-            f"batch-input/users/{user_id}/scripts/{script_id}"
+            f"batch/inputs/users/{user_id}/scripts/{script_id}"
             f"/versions/{version}"
         )
         destination = self.safe_path(directory)

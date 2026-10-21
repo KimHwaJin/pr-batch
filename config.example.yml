@@ -2,7 +2,7 @@
 # APP_ENV=dev|stg|prd. Keys are the Settings field names without the
 # BATCH_ prefix; a BATCH_* environment variable still overrides a key.
 database_url: postgresql+psycopg://batch:CHANGE_ME@postgres:5432/batch
-storage_root: /workspace/shared
+storage_root: /mnt/data/dtest  # project root; files go under batch/inputs/
 auth_secret: CHANGE_ME_32_BYTES_OR_MORE_SHARED_WITH_PRJ_RE
 auth_issuer: prj_re
 auth_audience: pr-batch

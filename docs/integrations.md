@@ -42,7 +42,7 @@ Jupyter driver는 `execute_request`를 사용하고 `allow_stdin=false`이므로
           "type": "PYTHON_EXECUTE",
           "source": {
             "type": "PATH",
-            "path": "batch-input/<batch-id>/<version-id>/cells/000000.py",
+            "path": "batch/inputs/<batch-id>/<version-id>/cells/000000.py",
             "sha256": "<actual-64-character-sha256>"
           }
         }

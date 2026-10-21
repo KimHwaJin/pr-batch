@@ -28,7 +28,7 @@ DB 초기화는 앱 기동과 분리한다. 되돌리기 명령은 등록 데이
 `alembic downgrade`는 보존할 데이터가 있는 환경에서 실행하지 않는다.
 
 `BATCH_STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
-`batch-input/users/<사용자 UUID>/scripts/<id>/versions/<version>/` 아래 저장한다.
+`batch/inputs/users/<사용자 UUID>/scripts/<id>/versions/<version>/` 아래 저장한다.
 사용자 UUID는 인증 토큰의 `sub`를 표준 형식(소문자, 하이픈)으로 바꾼 값이다.
 사용자 파일명은 경로로 사용하지 않는다. 버전 디렉터리는 0750, 파일은 0640이며
 Executor가 읽을 공유 그룹·UID/GID·마운트 권한을 운영 환경에서 맞춘다.

@@ -89,7 +89,7 @@ sequenceDiagram
 배치 원본의 논리 경로 제안:
 
 ```text
-batch-input/users/<opaque-owner-id>/batches/<batch-id>/
+batch/inputs/users/<opaque-owner-id>/batches/<batch-id>/
   versions/<version-id>/original.ipynb
   versions/<version-id>/cells/000000.py
   versions/<version-id>/cells/000001.py

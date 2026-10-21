@@ -205,7 +205,7 @@ def test_storage_escape_and_symlink(settings, tmp_path):
         storage.save("../../alice", uuid4(), uuid4(), notebook)
     owner = uuid4()
     path, _ = storage.save(str(owner), uuid4(), uuid4(), notebook)
-    assert path.startswith(f"batch-input/users/{owner}/scripts/")
+    assert path.startswith(f"batch/inputs/users/{owner}/scripts/")
     assert (
         storage.read(path, notebook.sha256, len(notebook.raw)) == notebook.raw
     )
