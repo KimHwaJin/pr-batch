@@ -1,0 +1,8 @@
+# APP_ENV=dev. Values that differ per environment; shared ones are in
+# config.yml. Credentials live in this file: the platform has no Secrets.
+DATABASE_URL: "postgresql+psycopg://batch:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/batch"
+# Project root on the shared PV; files go under batch/inputs/.
+STORAGE_ROOT: /mnt/data/dtest
+# This environment's public key; see keys/README.md.
+AUTH_PUBLIC_KEY_FILE: keys/auth_public.dev.pem
+EXECUTOR_BASE_URL: http://executor:8000
