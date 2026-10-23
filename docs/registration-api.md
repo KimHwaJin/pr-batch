@@ -153,6 +153,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | runtime | O | Executor 실행 요청의 `runtime`과 같은 `{type, profile}`. `GET /api/v1/runtimes` 목록 중 하나 |
 | schedule | X | 없으면 수동 실행 전용. 활성화하려면 필요 |
 | policy | X | 보낸 값만 적용하고 나머지는 기본값 |
+| tenant_id | X | 이 배치 실행의 Executor 이벤트를 받을 시스템 ID. Executor 규칙과 같다: `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가(위반 422). 있으면 이벤트가 `executor.events.{tenant_id}`로만 가고, 없으면 공용 `executor.events` |
 
 응답(BatchView)은 등록 요청과 같은 모양에 `script_version_number`, `enabled`,
 `next_run_at`, `preview_runs`, `config_number`, `revision`, 생성·수정 시각을 더한다.
@@ -160,13 +161,16 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 
 ### 배치 수정 규칙
 
-- 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`runtime`·`policy`의
+- 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`runtime`·`policy`·`tenant_id`의
   null은 422다.
 - `name`만 바꾸면 실행 설정 이력(`config_number`)은 늘지 않는다.
 - `script_id`만 바꾸면 그 스크립트의 최신 버전으로, `script_version_number: null`이면
   현재 스크립트의 최신 버전으로 다시 고정한다.
 - `schedule: null`은 일정 제거다. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - `policy`는 보낸 하위 필드만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
+- `tenant_id`는 한 번만 정할 수 있다(null → 값, 기존 배치 백필용). 같은 값은 그대로 두고,
+  다른 값은 409 `TENANT_IMMUTABLE`, null은 422다. 실행 도중 이벤트 수신자가 바뀌어 결과가
+  유실되는 것을 막는다. 새 실행 설정(`config_number`)으로 기록되어 다음 실행부터 적용된다.
 - 새 스크립트 버전을 올려도 기존 배치는 바뀌지 않는다. 이미 접수된 실행은 접수 당시
   설정을 유지한다.
 

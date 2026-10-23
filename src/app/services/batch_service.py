@@ -63,6 +63,7 @@ def batch_view(
         runtime=RuntimeSpec.model_validate(config.runtime),
         schedule=schedule,
         policy=policy_of(config),
+        tenant_id=config.tenant_id,
         enabled=batch.enabled,
         next_run_at=batch.next_run_at,
         preview_runs=(
@@ -204,6 +205,7 @@ class BatchService:
                 runtime=data.runtime.model_dump(mode="json"),
                 schedule=dump(anchored(data.schedule, batch.created_at)),
                 policy=data.policy.model_dump(mode="json"),
+                tenant_id=data.tenant_id,
             )
             config.stamp_created(actor, batch.created_at)
             session.add(config)
@@ -284,6 +286,17 @@ class BatchService:
             if "schedule" in fields
             else schedule_of(current)
         )
+        tenant_id = current.tenant_id
+        if "tenant_id" in fields and data.tenant_id != tenant_id:
+            if tenant_id is not None:
+                # Running executions keep sending events to the old
+                # receiver; changing it would lose their results.
+                raise ServiceError(
+                    409,
+                    "TENANT_IMMUTABLE",
+                    "tenant_id can only be set once.",
+                )
+            tenant_id = data.tenant_id
         policy = policy_of(current)
         if data.policy is not None:
             policy = merged_policy(
@@ -327,6 +340,7 @@ class BatchService:
             ),
             schedule=dump(schedule),
             policy=policy.model_dump(mode="json"),
+            tenant_id=tenant_id,
         )
         config.stamp_created(Actor.user(owner), now)
         session.add(config)

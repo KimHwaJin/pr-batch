@@ -138,6 +138,9 @@ def admit_run(
             "code_hash": version.code_hash,
             "schedule": config.schedule,
             "policy": policy,
+            # Fixed per run: the Executor idempotency fingerprint includes
+            # it, so a resubmission must send the same value.
+            "tenant_id": config.tenant_id,
         },
         status=target,
         skip_reason=reason,
@@ -194,7 +197,7 @@ def promote_waiting(
 def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
     version = session.get(ScriptVersion, run.script_version_id)
     assert version is not None
-    return {
+    request: dict[str, Any] = {
         "idempotency_key": f"batch-run:{run.id}:submit",
         "lifecycle": {"operation_mode": "SINGLE"},
         "trigger": {
@@ -229,6 +232,14 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "script_version_id": str(run.script_version_id),
         },
     }
+    # Runs created before this field have no snapshot key. They resubmit
+    # their original body unchanged: the Executor rejects a key reused with
+    # a different body (fingerprint includes metadata and tenant_id).
+    if "tenant_id" in run.snapshot:
+        request["metadata"]["run_id"] = str(run.id)
+        if run.snapshot["tenant_id"]:
+            request["tenant_id"] = run.snapshot["tenant_id"]
+    return request
 
 
 def run_view(session: Session, run: BatchRun) -> RunView:

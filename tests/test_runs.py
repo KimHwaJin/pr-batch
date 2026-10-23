@@ -39,6 +39,7 @@ class FakeExecutor:
         self.requests = []
         self.lose_response = False
         self.http_error = None
+        self.error_code = None
         self.state = "RUNNING"
         self.version = 2
         self.projection = "SUCCEEDED"
@@ -54,6 +55,16 @@ class FakeExecutor:
     def handle(self, request):
         self.requests.append((request.method, request.url.path))
         if self.http_error:
+            if self.error_code:
+                return httpx2.Response(
+                    self.http_error,
+                    json={
+                        "error": {
+                            "code": self.error_code,
+                            "message": "private remote error",
+                        }
+                    },
+                )
             return httpx2.Response(
                 self.http_error, text="private remote error"
             )
@@ -841,3 +852,125 @@ def test_replace_overlap_cancels_running_and_starts_new(client, execution):
     assert run_get(client, old).json()["cancel_source"] == "POLICY"
     assert run_get(client, queued).json()["cancel_reason"] == reason
     assert run_get(client, new).json()["status"] in {"QUEUED", "RUNNING"}
+
+
+def test_submission_carries_tenant_and_run_id(client, execution):
+    fake, worker = execution
+    batch = create_batch(client, config=metadata(tenant_id="pr-agentic"))
+    run = run_request(client, batch.json()["id"]).json()
+    assert run["snapshot"]["tenant_id"] == "pr-agentic"
+    tick(worker, run)
+    body = fake.payloads[0]
+    assert body["tenant_id"] == "pr-agentic"
+    assert "tenant_id" not in body["context"]
+    assert body["metadata"]["run_id"] == run["id"]
+    other = create_batch(client, key="no-tenant").json()
+    run = run_request(client, other["id"], key="run-2").json()
+    tick(worker, run)
+    assert "tenant_id" not in fake.payloads[1]
+    assert fake.payloads[1]["metadata"]["run_id"] == run["id"]
+
+
+def test_tenant_is_fixed_when_the_run_is_created(client, execution):
+    fake, worker = execution
+    batch = create_batch(client).json()
+    run = run_request(client, batch["id"]).json()
+    response = client.patch(
+        f"{API}/{batch['id']}",
+        headers={
+            **token(),
+            "Idempotency-Key": "set-tenant",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+        json={"tenant_id": "pr-agentic"},
+    )
+    assert response.status_code == 200, response.text
+    tick(worker, run)
+    assert "tenant_id" not in fake.payloads[0]
+
+
+def test_runs_created_before_tenants_resubmit_the_original_body(
+    client, execution
+):
+    fake, worker = execution
+    batch = create_batch(client, config=metadata(tenant_id="pr-agentic"))
+    run = run_request(client, batch.json()["id"]).json()
+    with worker.sessions.begin() as session:
+        stored = session.get(BatchRun, UUID(run["id"]))
+        stored.snapshot = {
+            k: v for k, v in stored.snapshot.items() if k != "tenant_id"
+        }
+    tick(worker, run)
+    body = fake.payloads[0]
+    assert "tenant_id" not in body
+    assert set(body["metadata"]) == {
+        "batch_id",
+        "script_id",
+        "script_version_id",
+    }
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (422, "INVALID_EXECUTION_SPEC"),
+        (422, "UNSUPPORTED_RUNTIME_PROFILE"),
+        (409, "INVALID_STATE_TRANSITION"),
+    ],
+)
+def test_rejected_submission_fails_and_frees_the_slot(
+    client, execution, status, code
+):
+    fake, worker = execution
+    batch = create_batch(
+        client,
+        config=metadata(
+            policy={"overlap": {"mode": "QUEUE", "max_queued": 1}}
+        ),
+    ).json()
+    first = run_request(client, batch["id"]).json()
+    second = run_request(client, batch["id"], key="run-2").json()
+    assert run_get(client, second).json()["status"] == "WAITING"
+    fake.http_error, fake.error_code = status, code
+    tick(worker, first)
+    detail = run_get(client, first).json()
+    assert detail["status"] == "FAILED"
+    assert detail["failure_type"] == "SUBMIT_REJECTED"
+    assert detail["last_error"] == f"EXECUTOR_HTTP_{status}:{code}"
+    assert detail["completed_at"] is not None
+    assert "private remote" not in json.dumps(detail)
+    assert pending_tasks(worker, first) == []
+    assert run_get(client, second).json()["status"] == "QUEUED"
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(409, "IDEMPOTENCY_CONFLICT"), (409, "PERSISTENCE_CONFLICT")],
+)
+def test_conflicts_keep_retrying(client, execution, status, code):
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    fake.http_error, fake.error_code = status, code
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert detail["status"] == "QUEUED"
+    assert detail["last_error"] == f"EXECUTOR_HTTP_{status}:{code}"
+    assert pending_tasks(worker, run) == ["SUBMIT_EXECUTION"]
+
+
+def test_rejection_after_an_uncertain_attempt_is_not_final(client, execution):
+    """The lost submission may exist; validation runs before the lookup."""
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    fake.lose_response = True
+    tick(worker, run)
+    fake.http_error, fake.error_code = 422, "INVALID_EXECUTION_SPEC"
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert detail["status"] == "QUEUED"
+    assert detail["last_error"] == "EXECUTOR_HTTP_422:INVALID_EXECUTION_SPEC"
+    assert pending_tasks(worker, run) == ["SUBMIT_EXECUTION"]
+    fake.http_error = None
+    tick(worker, run)
+    assert run_get(client, run).json()["status"] == "RUNNING"
+    assert len(fake.receipts) == 1

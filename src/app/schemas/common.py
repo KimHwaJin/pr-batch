@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, StringConstraints
 
 Name = Annotated[
     str,
@@ -23,6 +23,25 @@ KernelName = Annotated[
         max_length=128,
         pattern=r"^[^\x00-\x1f\x7f]+$",
     ),
+]
+
+
+# Executor reserves these; its event Stream names use them.
+RESERVED_TENANT_IDS = frozenset({"dlq", "work"})
+
+
+def not_reserved(value: str) -> str:
+    if value in RESERVED_TENANT_IDS:
+        raise ValueError(f"tenant_id '{value}' is reserved.")
+    return value
+
+
+# Same rule as the Executor's submit `tenant_id`: the system that receives
+# the execution's events (Stream executor.events.{tenant_id}).
+TenantId = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-z][a-z0-9-]{1,62}[a-z0-9]$"),
+    AfterValidator(not_reserved),
 ]
 
 

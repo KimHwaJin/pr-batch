@@ -67,7 +67,7 @@ pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 | RUNNING | Executor에서 코드 실행 중 | 예 |
 | COLLECTING | 코드 종료, 셀 결과·결과 노트북 수집 | 아니오 |
 | COMPLETED | 코드 성공, 결과 노트북 projection 종료 (`notebook_status`가 FAILED면 결과 노트북 없음) | — |
-| FAILED | 코드 실행 실패 | — |
+| FAILED | 코드 실행 실패, 또는 Executor가 제출을 거절(`failure_type=SUBMIT_REJECTED`) | — |
 | CANCELLED | 사용자 취소 또는 REPLACE 정책 취소 (`cancel_source`) | — |
 | SKIPPED | 겹침·대기열 초과로 실행 안 함 | — |
 
@@ -97,10 +97,16 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 | 방향 | 방법 |
 | --- | --- |
 | pr-batch → Executor | 실행 응답의 `execution_id`(제출 후 채워짐, QUEUED 동안은 null), `operation_id`, 상세의 셀별 `steps[].step_id` |
-| Executor → pr-batch | Execution의 `context.task_id` = pr-batch `run_id`, `context.user_id` = 사용자 UUID, `metadata`에 `batch_id`, `script_id`, `script_version_id` |
+| Executor → pr-batch | Execution의 `context.task_id` = pr-batch `run_id`, `context.user_id` = 사용자 UUID, `metadata`에 `batch_id`, `script_id`, `script_version_id`, `run_id` |
 
 제출 trigger는 `{type: BATCH, actor: {type: USER, id: owner_id}}`다. actor가 소유자이므로 배치는
 `metadata.batch_id`로 식별한다. Executor가 BATCH trigger에 USER actor를 허용한 뒤에 배포해야 한다.
+
+배치에 `tenant_id`가 있으면 제출 본문 최상위에 싣는다(`context` 안이 아니다). 값은 실행을 만들 때
+`snapshot.tenant_id`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 그대로 간다. Executor
+멱등성 비교에 `tenant_id`와 `metadata`가 들어가므로, 이 필드가 생기기 전에 만든 실행(snapshot에 키가
+없음)은 `tenant_id`와 `metadata.run_id` 없이 원래 본문으로 재제출한다. 회차 식별자는 명세 권장대로
+`metadata.run_id`에도 둔다. `context.task_id`는 기존 소비자(pr-agentic-service) 때문에 당분간 유지한다.
 
 예: Executor에서 `GET /api/v1/executions?task_id=<run_id>`로 해당 실행을 찾거나, pr-batch 실행 응답의
 `execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
@@ -122,6 +128,11 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
   DB 커넥션을 잡지 않는다.
 - Handler는 실행 직전에 Run 상태를 확인하고, 이미 지난 단계의 Task면 아무것도 하지 않고 끝낸다.
 - 반영 시 lease 토큰이 바뀌었거나 만료됐으면 버린다(늦게 끝난 옛 Pod의 쓰기 차단).
+- Executor가 제출을 확실히 거절하면(422 전부, 409 `INVALID_STATE_TRANSITION`) 같은 본문으로는 성공할
+  수 없으므로 FAILED(`failure_type=SUBMIT_REJECTED`, `last_error=EXECUTOR_HTTP_{status}:{code}`)로
+  끝내고 자리를 푼다. 단 앞선 제출 시도가 응답 없이 끝난 적이 있으면 그 실행이 이미 만들어졌을 수 있어
+  (Executor는 멱등성 조회 전에 검증한다) 거절도 재시도한다. 409 `IDEMPOTENCY_CONFLICT`(같은 키의 실행이
+  있음)·`PERSISTENCE_CONFLICT`도 재시도한다. 취소의 409는 `INVALID_STATE_TRANSITION`일 때만 "이미 종료"다.
 - 통신·계약 오류는 실행 실패가 아니다. `last_error`에 남기고 2초부터 최대 300초까지 지수 backoff +
   jitter로 다시 시도한다. 제출 응답이 유실돼도 같은 멱등성 키로 재확인하므로 새 Execution이 생기지 않는다.
 - Executor의 `SUCCEEDED`, `FAILED`, `CANCELLED`는 코드 실행 종료이며, 이때 다음 실행 자리가 풀린다.

@@ -1,5 +1,7 @@
 """Bounded Executor HTTP client."""
 
+import json
+import re
 import time
 from typing import Any
 from uuid import UUID
@@ -16,9 +18,44 @@ from app.integrations.executor.contracts import (
     RuntimeTargetPage,
 )
 
+ERROR_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,45}$")
+ERROR_BODY_MAX_BYTES = 16 * 1024
+# The Executor checked the request and created nothing (validation runs
+# before the idempotency lookup, POST /executions spec section 4-5).
+SUBMIT_REJECTIONS = {
+    422: None,  # any code
+    409: {"INVALID_STATE_TRANSITION"},
+}
+
 
 class ExecutorError(Exception):
-    """Only a safe machine code is persisted, never remote response bodies."""
+    """Only a safe machine code is persisted, never remote response bodies.
+
+    ``status`` and ``code`` (the Executor's ``error.code``, when it sent a
+    well-formed one) let callers tell rejections from outages.
+    """
+
+    def __init__(
+        self, message: str, status: int | None = None, code: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.status, self.code = status, code
+
+    @property
+    def submit_rejected(self) -> bool:
+        """A definite refusal of a submission, not a lost or failed call."""
+        if self.status not in SUBMIT_REJECTIONS or self.code is None:
+            return False
+        codes = SUBMIT_REJECTIONS[self.status]
+        return codes is None or self.code in codes
+
+
+def error_code(body: bytes) -> str | None:
+    try:
+        code = json.loads(body)["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return code if isinstance(code, str) and ERROR_CODE.match(code) else None
 
 
 def require(condition: bool) -> None:
@@ -57,8 +94,13 @@ class ExecutorClient:
             started = time.monotonic()
             with self.client.stream(method, path, json=payload) as response:
                 if not 200 <= response.status_code < 300:
+                    status = response.status_code
+                    code = error_code(self.read_error(response, started))
                     raise ExecutorError(
-                        f"EXECUTOR_HTTP_{response.status_code}"
+                        f"EXECUTOR_HTTP_{status}"
+                        + (f":{code}" if code else ""),
+                        status,
+                        code,
                     )
                 body = bytearray()
                 for chunk in response.iter_bytes():
@@ -73,6 +115,18 @@ class ExecutorClient:
             raise ExecutorError("EXECUTOR_UNREACHABLE") from exc
         except (ValidationError, ValueError) as exc:
             raise ExecutorError("EXECUTOR_INVALID_RESPONSE") from exc
+
+    @staticmethod
+    def read_error(response: httpx2.Response, started: float) -> bytes:
+        body = bytearray()
+        for chunk in response.iter_bytes():
+            body.extend(chunk)
+            if (
+                len(body) > ERROR_BODY_MAX_BYTES
+                or time.monotonic() - started > 30
+            ):
+                return b""
+        return bytes(body)
 
     def submit(self, payload: dict[str, Any]) -> Receipt:
         return self.request("POST", "api/v1/executions", Receipt, payload)
@@ -105,7 +159,11 @@ class ExecutorClient:
                 {"idempotency_key": key, "reason": reason, "actor": actor},
             )
         except ExecutorError as exc:
-            if str(exc) == "EXECUTOR_HTTP_409":
+            # Only a terminal execution; an idempotency conflict is a bug.
+            if exc.status == 409 and exc.code in {
+                None,
+                "INVALID_STATE_TRANSITION",
+            }:
                 return False
             raise
         return True
