@@ -1,9 +1,10 @@
 """Explicit configuration; importing modules opens no connections.
 
-Sources, highest first: constructor arguments, ``BATCH_*`` environment
-variables, ``.env``, ``config.{APP_ENV}.yml`` (values for one environment,
-when ``APP_ENV`` is set), then ``config.yml`` (values shared by every
-environment, when present), both at the project root. ConfigMaps and
+Sources, highest first: constructor arguments, environment variables
+named after the fields (no prefix, any case), ``.env``,
+``config.{APP_ENV}.yml`` (values for one environment, when ``APP_ENV``
+is set), then ``config.yml`` (values shared by every environment, when
+present), both at the project root. ConfigMaps and
 Secrets are unavailable on the platform, so the files ship in the image.
 """
 
@@ -62,9 +63,7 @@ def load_auth_public_key(path: Path) -> RSAPublicKey:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="BATCH_", env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Bind address for the pr-batch entry point (PORT in config.yml).
     host: str = "0.0.0.0"

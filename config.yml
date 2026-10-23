@@ -1,6 +1,6 @@
 # Shared by every environment and read even without APP_ENV (local runs
-# too); config.{APP_ENV}.yml overrides a key, BATCH_* variables and .env
-# override both. Keys are Settings field names without the BATCH_ prefix.
+# too); config.{APP_ENV}.yml overrides a key, environment variables and
+# .env of the same name override both. Keys are Settings field names.
 HOST: 0.0.0.0
 # Listen port; keep deploy/k8s containerPort in step.
 PORT: 8000

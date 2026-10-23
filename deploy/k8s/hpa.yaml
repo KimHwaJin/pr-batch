@@ -1,5 +1,5 @@
 # CPU HPA is mandated by the platform. Background work is mostly network
-# waiting, so throughput is bounded by BATCH_TASK_CONCURRENCY per pod, not
+# waiting, so throughput is bounded by TASK_CONCURRENCY per pod, not
 # by CPU; scaling mainly follows API load (e.g. notebook validation).
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

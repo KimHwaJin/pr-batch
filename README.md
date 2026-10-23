@@ -92,7 +92,7 @@ PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 �
 고정값은 루트의 `config.yml`에 두면 `APP_ENV`와 관계없이 항상 읽고, 같은 키는 계별 파일이
 덮어씁니다. 키는 `Settings`
 필드명이며 대소문자는 구분하지 않습니다(`DATABASE_URL`, `database_url` 모두 가능).
-`BATCH_` 접두어를 붙인 키는 오류 없이 무시되니 붙이지 않습니다. 우선순위는 `BATCH_*` 환경변수 > `.env` > YAML
+환경변수도 접두어 없이 같은 이름(`PORT`, `DATABASE_URL` 등)을 씁니다. 우선순위는 환경변수 > `.env` > YAML
 순입니다(계별 YAML > `config.yml`). `APP_ENV`가 없으면 계별 YAML을 읽지 않으며, 값이 잘못됐거나 파일이 없으면
 시작할 때 실패합니다. `alembic` CLI도 같은 순서로 DB URL을 찾습니다.
 
@@ -106,10 +106,10 @@ make serve
 ```
 
 API·스케줄러·Task dispatcher가 한 프로세스로 뜨고, 시작 시 migration을 적용합니다
-(`BATCH_DB_AUTO_MIGRATE=false`로 끌 수 있고, 그때는 `make migrate`).
-포트는 설정의 `PORT`(`config.yml`/`config.{APP_ENV}.yml`, 환경변수로는 `BATCH_PORT`)를 따르고
+(`DB_AUTO_MIGRATE=false`로 끌 수 있고, 그때는 `make migrate`).
+포트는 설정의 `PORT`(`config.yml`/`config.{APP_ENV}.yml`, 환경변수로는 `PORT`)를 따르고
 기본값은 8000입니다. `make` 없이 실행할 때는 `uv run --locked pr-batch`입니다. `.env.example`은
-`BATCH_PORT=8100`이라 로컬 주소는 `http://127.0.0.1:8100`(로컬 Executor의 8000과 겹치지 않게),
+`PORT=8100`이라 로컬 주소는 `http://127.0.0.1:8100`(로컬 Executor의 8000과 겹치지 않게),
 API 문서는 `/docs`입니다.
 
 ## Docker로 Executor 연계 테스트

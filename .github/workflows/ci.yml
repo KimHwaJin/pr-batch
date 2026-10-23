@@ -28,7 +28,7 @@ jobs:
           --health-retries 10
     env:
       BATCH_TEST_DATABASE_URL: postgresql+psycopg://batch_test:batch_test_local@localhost:5432/pr_batch_test
-      BATCH_DATABASE_URL: postgresql+psycopg://batch_test:batch_test_local@localhost:5432/pr_batch_test
+      DATABASE_URL: postgresql+psycopg://batch_test:batch_test_local@localhost:5432/pr_batch_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -11,25 +11,25 @@ API 프로세스 하나가 HTTP API와 백그라운드 런타임(스케줄러 �
 
 ```sh
 uv sync --locked
-# .env: BATCH_EXECUTOR_BASE_URL=http://127.0.0.1:8000 (/api/v1은 붙이지 않는다)
+# .env: EXECUTOR_BASE_URL=http://127.0.0.1:8000 (/api/v1은 붙이지 않는다)
 make serve   # http://127.0.0.1:8100
 ```
 
 | 설정 | 기본 | 의미 |
 | --- | --- | --- |
-| `BATCH_EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수·활성화는 503 `EXECUTOR_NOT_CONFIGURED`, 백그라운드 런타임도 시작하지 않음 |
-| `BATCH_BACKGROUND_ENABLED` | true | 이 프로세스에서 백그라운드 런타임 실행 |
-| `BATCH_DB_AUTO_MIGRATE` | true | 시작 시 advisory lock 아래 `alembic upgrade head` |
-| `BATCH_TASK_CONCURRENCY` | 4 | Pod당 동시에 처리하는 Task 수 (= Executor 동시 요청 상한) |
-| `BATCH_SYNC_INITIAL_SECONDS` / `BATCH_SYNC_MAX_SECONDS` | 5 / 60 | 상태 조회 간격. 두 배씩 늘려 최대값까지 |
-| `BATCH_TASK_LEASE_SECONDS` | 90 | Task lease. 만료되면 다른 Pod가 이어받음 |
-| `BATCH_DB_POOL_SIZE` / `BATCH_DB_MAX_OVERFLOW` | 3 / 3 | Pod당 최대 DB 커넥션 6 |
-| `BATCH_SHUTDOWN_GRACE_SECONDS` | 40 | SIGTERM 후 진행 중인 원격 호출을 끝내는 최대 시간 |
+| `EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수·활성화는 503 `EXECUTOR_NOT_CONFIGURED`, 백그라운드 런타임도 시작하지 않음 |
+| `BACKGROUND_ENABLED` | true | 이 프로세스에서 백그라운드 런타임 실행 |
+| `DB_AUTO_MIGRATE` | true | 시작 시 advisory lock 아래 `alembic upgrade head` |
+| `TASK_CONCURRENCY` | 4 | Pod당 동시에 처리하는 Task 수 (= Executor 동시 요청 상한) |
+| `SYNC_INITIAL_SECONDS` / `SYNC_MAX_SECONDS` | 5 / 60 | 상태 조회 간격. 두 배씩 늘려 최대값까지 |
+| `TASK_LEASE_SECONDS` | 90 | Task lease. 만료되면 다른 Pod가 이어받음 |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 3 / 3 | Pod당 최대 DB 커넥션 6 |
+| `SHUTDOWN_GRACE_SECONDS` | 40 | SIGTERM 후 진행 중인 원격 호출을 끝내는 최대 시간 |
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 `batch/inputs/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
 PV는 프로젝트 루트(예: `/mnt/data/dtest`) 아래 서비스별 폴더(`batch/`, `executor/`)로 나눈다.
-`BATCH_STORAGE_ROOT`와 Executor `INPUT_STORAGE_ROOT`는 프로젝트 루트,
+`STORAGE_ROOT`와 Executor `INPUT_STORAGE_ROOT`는 프로젝트 루트,
 Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
 `batch-input/`으로 시작하는 기존 경로는 DB에 저장된 그대로 계속 읽는다.
 런타임 선택지는 Executor BATCH 풀에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목). Executor 호출에는 인증이 없으며(내부 서비스)

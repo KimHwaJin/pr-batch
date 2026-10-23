@@ -20,14 +20,14 @@ uv run --locked alembic upgrade head
 uv run --locked uvicorn app.main:create_app --factory
 ```
 
-`BATCH_DATABASE_URL`은 `postgresql+psycopg://...` 형식이다.
+`DATABASE_URL`은 `postgresql+psycopg://...` 형식이다.
 migration은 자기 `batch` 스키마와 그 안의 Alembic 버전 테이블만 사용한다.
 공유 DB의 다른 서비스 테이블을 변경하지 않는다. 스키마 생성 권한은 migration
 실행 역할에 필요하며 일반 API 역할에는 해당 테이블의 접근 권한만 부여할 수 있다.
 DB 초기화는 앱 기동과 분리한다. 되돌리기 명령은 등록 데이터를 삭제하므로
 `alembic downgrade`는 보존할 데이터가 있는 환경에서 실행하지 않는다.
 
-`BATCH_STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
+`STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
 `batch/inputs/users/<사용자 UUID>/scripts/<id>/versions/<version>/` 아래 저장한다.
 사용자 UUID는 인증 토큰의 `sub`를 표준 형식(소문자, 하이픈)으로 바꾼 값이다.
 사용자 파일명은 경로로 사용하지 않는다. 버전 디렉터리는 0750, 파일은 0640이며
@@ -179,7 +179,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 ```
 
 - 쓸 수 있는 조합은 `GET /api/v1/runtimes`가 돌려준다. Executor `GET /api/v1/runtime-targets`에서 BATCH 풀의
-  활성(enabled) 대상들이 지원하는 프로필을 모은 것이며 `BATCH_RUNTIME_CATALOG_TTL_SECONDS`(기본 30초) 동안 캐시한다.
+  활성(enabled) 대상들이 지원하는 프로필을 모은 것이며 `RUNTIME_CATALOG_TTL_SECONDS`(기본 30초) 동안 캐시한다.
   Executor에 커널이 추가되면 pr-batch 설정 변경 없이 바로 쓸 수 있다.
 - 등록·런타임 변경·활성화 때 이 목록으로 검증한다. 없는 조합은 422 `UNKNOWN_RUNTIME`, 스크립트 타입이 돌 수 없는
   런타임은 422 `RUNTIME_NOT_SUPPORTED`(NOTEBOOK은 JUPYTER만), Executor를 조회할 수 없으면 503

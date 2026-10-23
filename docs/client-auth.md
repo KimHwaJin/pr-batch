@@ -50,8 +50,8 @@ uv run --locked python scripts\auth_keys.py C:\batch-keys\prd # Windows PowerShe
 | 최대 유효 기간 | `AUTH_MAX_LIFETIME_SECONDS` | `300` | `exp - iat` 상한. 설정 가능 범위 30~3600초 |
 | 서비스 주소 | — | 클러스터 안 `http://pr-batch:8000` | 배포 환경에 맞는 주소를 확인한다 |
 
-pr-batch는 이 값을 `config.yml`과 `config.{APP_ENV}.yml`(키 대소문자 무관)에서 읽고, `BATCH_` 접두사
-환경변수(예: `BATCH_AUTH_ISSUER`)가 있으면 그 값이 우선한다.
+pr-batch는 이 값을 `config.yml`과 `config.{APP_ENV}.yml`(키 대소문자 무관)에서 읽고, 같은 이름의
+환경변수(예: `AUTH_ISSUER`)가 있으면 그 값이 우선한다.
 
 ## 헤더
 
