@@ -3,15 +3,15 @@
 services:
   app:
     environment: &multi-env
-      BATCH_DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
-      BATCH_STORAGE_ROOT: /workspace/shared
-      BATCH_AUTH_PUBLIC_KEY_FILE: .local-keys/auth_public.pem
-      BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
-      BATCH_SYNC_INITIAL_SECONDS: "2"
-      BATCH_SYNC_MAX_SECONDS: "5"
+      DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
+      STORAGE_ROOT: /workspace/shared
+      AUTH_PUBLIC_KEY_FILE: .local-keys/auth_public.pem
+      EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
+      SYNC_INITIAL_SECONDS: "2"
+      SYNC_MAX_SECONDS: "5"
       # Short lease so recovery after a frozen/killed replica is observable.
-      BATCH_TASK_LEASE_SECONDS: "30"
-      BATCH_DB_AUTO_MIGRATE: "true"
+      TASK_LEASE_SECONDS: "30"
+      DB_AUTO_MIGRATE: "true"
   app-2:
     extends:
       file: compose.yaml

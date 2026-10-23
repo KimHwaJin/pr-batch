@@ -20,11 +20,11 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "keys" / "auth_public.pem").write_bytes(PUBLIC_PEM)
     for name in (
         "APP_ENV",
-        "BATCH_DATABASE_URL",
-        "BATCH_STORAGE_ROOT",
-        "BATCH_AUTH_PUBLIC_KEY_FILE",
-        "BATCH_DB_POOL_SIZE",
-        "BATCH_PORT",
+        "DATABASE_URL",
+        "STORAGE_ROOT",
+        "AUTH_PUBLIC_KEY_FILE",
+        "DB_POOL_SIZE",
+        "PORT",
     ):
         monkeypatch.delenv(name, raising=False)
     return tmp_path
@@ -68,7 +68,7 @@ def test_keys_are_case_insensitive(project, monkeypatch):
 def test_environment_overrides_the_file(project, monkeypatch):
     write_config(project, "prd")
     monkeypatch.setenv("APP_ENV", "prd")
-    monkeypatch.setenv("BATCH_DB_POOL_SIZE", "2")
+    monkeypatch.setenv("DB_POOL_SIZE", "2")
     assert Settings(_env_file=None).db_pool_size == 2
 
 

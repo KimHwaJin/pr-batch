@@ -6,18 +6,18 @@
 name: pr-batch
 
 x-batch-env: &batch-env
-  BATCH_DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
+  DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
   # Same host directory the Executor mounts as INPUT_STORAGE_ROOT.
-  BATCH_STORAGE_ROOT: /workspace/shared
+  STORAGE_ROOT: /workspace/shared
   # Local key pair from `make auth-keys`, mounted below; the smoke checks
   # sign with its private half.
-  BATCH_AUTH_PUBLIC_KEY_FILE: .local-keys/auth_public.pem
-  BATCH_AUTH_ISSUER: batch-client
-  BATCH_AUTH_AUDIENCE: batch-service
-  BATCH_EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
-  BATCH_SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
-  BATCH_SYNC_MAX_SECONDS: ${PR_BATCH_SYNC_MAX_SECONDS:-10}
-  BATCH_DB_AUTO_MIGRATE: "true"
+  AUTH_PUBLIC_KEY_FILE: .local-keys/auth_public.pem
+  AUTH_ISSUER: batch-client
+  AUTH_AUDIENCE: batch-service
+  EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
+  SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
+  SYNC_MAX_SECONDS: ${PR_BATCH_SYNC_MAX_SECONDS:-10}
+  DB_AUTO_MIGRATE: "true"
 
 x-batch-app: &batch-app
   image: pr-batch:local

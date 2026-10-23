@@ -62,7 +62,7 @@ flowchart LR
 | --- | --- |
 | HTTP API | 등록·조회·수동 실행 접수. 원격 서비스를 직접 호출하지 않고 DB에 기록만 함 |
 | Scheduler loop | 1초 주기. 도래한 배치 하나를 `FOR UPDATE SKIP LOCKED`로 잡아 Run과 첫 Task를 같은 트랜잭션으로 생성. 여러 레플리카가 동시에 돌아도 같은 예약을 두 번 만들지 않음 |
-| Task dispatcher | 스레드 풀(Pod당 동시성 `BATCH_TASK_CONCURRENCY`, 기본 4). Task를 lease로 claim → DB 트랜잭션 밖에서 원격 호출 1회 → fence 확인 후 결과 반영 + 다음 Task 예약 |
+| Task dispatcher | 스레드 풀(Pod당 동시성 `TASK_CONCURRENCY`, 기본 4). Task를 lease로 claim → DB 트랜잭션 밖에서 원격 호출 1회 → fence 확인 후 결과 반영 + 다음 Task 예약 |
 | Heartbeat | 루프마다 마지막 활동 시각을 메모리에 기록. liveness가 이 값을 봄 |
 
 현재 코드의 동기 SQLAlchemy·HTTP 클라이언트는 그대로 쓰고, 백그라운드 작업은 스레드에서
@@ -148,7 +148,7 @@ pr-batch의 백그라운드 일은 대부분 네트워크 대기라 CPU가 거�
 하므로 **앱 시작 시 자동 migration**으로 바꾼다(현재는 앱이 migration을 하지 않는 정책).
 Pod 쉘에서 `alembic upgrade head`를 수동 실행하는 것은 장애 복구용 비상 수단으로만 문서화한다.
 
-- `BATCH_DB_AUTO_MIGRATE=true`이면 시작 시 PostgreSQL advisory lock을 잡고 `alembic upgrade head`.
+- `DB_AUTO_MIGRATE=true`이면 시작 시 PostgreSQL advisory lock을 잡고 `alembic upgrade head`.
   여러 Pod가 동시에 떠도 한 Pod만 수행하고 나머지는 기다림.
 - 롤링 배포 중에는 옛 버전과 새 버전 Pod가 잠시 공존하므로 migration은 "추가 → 코드 전환 →
   제거" 순서(expand/contract)로 나눠, 직전 버전 코드와 호환되게 작성한다.

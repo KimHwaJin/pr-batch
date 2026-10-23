@@ -125,16 +125,16 @@ def database_url() -> Iterator[str]:
     database = make_url(url).database
     if not database or not database.endswith("_test"):
         pytest.fail("Integration database name must end with _test.")
-    previous = os.environ.get("BATCH_DATABASE_URL")
-    os.environ["BATCH_DATABASE_URL"] = url
+    previous = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = url
     try:
         command.upgrade(Config("alembic.ini"), "head")
         yield url
     finally:
         if previous is None:
-            os.environ.pop("BATCH_DATABASE_URL", None)
+            os.environ.pop("DATABASE_URL", None)
         else:
-            os.environ["BATCH_DATABASE_URL"] = previous
+            os.environ["DATABASE_URL"] = previous
 
 
 @pytest.fixture

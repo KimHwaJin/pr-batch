@@ -21,7 +21,7 @@ MIGRATION_LOCK = 7_301_202_610  # arbitrary, stable advisory lock key
 def configured_url() -> str:
     """Same precedence as Settings, for the alembic CLI."""
     load_dotenv()
-    url = os.environ.get("BATCH_DATABASE_URL")
+    url = os.environ.get("DATABASE_URL")
     for path in config_files():
         if url is not None:
             break
@@ -31,7 +31,7 @@ def configured_url() -> str:
             "database_url"
         )
     if url is None:
-        raise KeyError("Set BATCH_DATABASE_URL, config.yml or APP_ENV.")
+        raise KeyError("Set DATABASE_URL, config.yml or APP_ENV.")
     return url
 
 
