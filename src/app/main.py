@@ -25,7 +25,7 @@ from app.services.runtime_catalog import (
 )
 from app.storage.script_storage import ScriptStorage
 
-MIGRATION_HEAD = "0003_soft_delete"
+MIGRATION_HEAD = "0004_executor_tenant"
 logger = logging.getLogger(__name__)
 
 

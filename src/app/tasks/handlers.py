@@ -17,6 +17,7 @@ from app.domain.run_state import EXECUTOR_TERMINAL, RunStatus
 from app.integrations.executor import (
     Detail,
     ExecutorClient,
+    ExecutorError,
     Receipt,
     Result,
     require,
@@ -30,6 +31,9 @@ from app.tasks.queue import (
     enqueue,
     reschedule,
 )
+
+# Task payload flag: a SUBMIT attempt failed without a definite answer.
+UNCERTAIN = "uncertain"
 
 
 @dataclass
@@ -84,6 +88,19 @@ def poll_again(task: Task, now: datetime, clients: Clients) -> None:
     reschedule(task, now + timedelta(seconds=wait), payload)
 
 
+@dataclass
+class Submission:
+    request: dict[str, Any]
+    # An earlier attempt may have reached the Executor (lost response,
+    # outage): a later rejection then does not prove nothing was created.
+    uncertain: bool
+
+
+@dataclass
+class Rejected:
+    error: ExecutorError
+
+
 class SubmitExecution:
     def prepare(self, session, run, task):
         if run.status != RunStatus.QUEUED or run.execution_id is not None:
@@ -93,12 +110,30 @@ class SubmitExecution:
             finish(run, RunStatus.CANCELLED, database_now(session))
             promote_waiting(session, run.batch_id)
             return None
-        return submission_request(session, run)
+        return Submission(
+            submission_request(session, run),
+            bool(task.payload.get(UNCERTAIN)),
+        )
 
     def call(self, clients, context):
-        return clients.executor.submit(context)
+        try:
+            return clients.executor.submit(context.request)
+        except ExecutorError as exc:
+            if exc.submit_rejected and not context.uncertain:
+                return Rejected(exc)
+            raise
 
     def apply(self, session, task, run, context, response, now, clients):
+        if isinstance(response, Rejected):
+            complete(task)
+            if run.status != RunStatus.QUEUED:
+                return
+            # Retrying the same body can never succeed; free the slot.
+            finish(run, RunStatus.FAILED, now)
+            run.failure_type = "SUBMIT_REJECTED"
+            run.last_error = str(response.error)
+            promote_waiting(session, run.batch_id)
+            return
         assert isinstance(response, Receipt)
         complete(task)
         if run.status != RunStatus.QUEUED:

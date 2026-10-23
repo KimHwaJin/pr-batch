@@ -32,7 +32,10 @@ ACTIVE = frozenset(RunStatus) - FINAL
 
 TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.WAITING: frozenset({RunStatus.QUEUED, RunStatus.CANCELLED}),
-    RunStatus.QUEUED: frozenset({RunStatus.RUNNING, RunStatus.CANCELLED}),
+    # FAILED: the Executor rejected the submission (nothing ran).
+    RunStatus.QUEUED: frozenset(
+        {RunStatus.RUNNING, RunStatus.CANCELLED, RunStatus.FAILED}
+    ),
     RunStatus.RUNNING: frozenset({RunStatus.COLLECTING}),
     RunStatus.COLLECTING: frozenset(
         {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}

@@ -10,9 +10,10 @@ from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.integrations.executor import ExecutorError
 from app.models import Batch, BatchRun
-from app.tasks.handlers import HANDLERS, Clients
+from app.tasks.handlers import HANDLERS, UNCERTAIN, Clients
 from app.tasks.queue import (
     ClaimedTask,
+    TaskKind,
     backoff,
     claim,
     complete,
@@ -82,7 +83,7 @@ class Dispatcher:
         try:
             response = handler.call(self.clients, context)
         except RemoteError as exc:
-            self.fail(claimed, str(exc))
+            self.fail(claimed, exc)
             return True
         try:
             with self.sessions.begin() as session:
@@ -93,14 +94,14 @@ class Dispatcher:
                 assert run is not None
                 now = database_now(session)
                 before = progress(run)
+                run.last_error = None  # apply may record a new one
                 handler.apply(
                     session, task, run, context, response, now, self.clients
                 )
-                run.last_error = None
                 if progress(run) != before:
                     run.stamp_updated(DISPATCHER, now)
         except RemoteError as exc:  # contract violations found while applying
-            self.fail(claimed, str(exc))
+            self.fail(claimed, exc)
         return True
 
     def prepare(self, session: Session, claimed: ClaimedTask):
@@ -118,13 +119,19 @@ class Dispatcher:
             complete(task)  # stale or no longer needed
         return context
 
-    def fail(self, claimed: ClaimedTask, code: str) -> None:
+    def fail(self, claimed: ClaimedTask, error: RemoteError) -> None:
+        code = str(error)
         logger.warning("Task %s %s failed: %s", claimed.kind, claimed.id, code)
         with self.sessions.begin() as session:
             task = locked_lease(session, claimed)
             if task is None:
                 return
             now = database_now(session)
+            if (
+                claimed.kind == TaskKind.SUBMIT_EXECUTION
+                and not error.submit_rejected
+            ):
+                task.payload = {**task.payload, UNCERTAIN: True}
             backoff(task, now, code)
             if claimed.run_id is not None:
                 run = session.get(BatchRun, claimed.run_id)

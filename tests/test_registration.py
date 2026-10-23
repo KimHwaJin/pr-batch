@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from conftest import (
     ALICE,
     API,
@@ -525,3 +526,38 @@ def test_runtime_choices_and_unreachable_catalog(client):
         {"runtime": {"type": "JUPYTER", "profile": "analytics"}},
     )
     assert moved.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "tenant",
+    ["dlq", "work", "Team-a", "ab", "a-", "-ab", "1ab", "a_b", "a" * 65],
+)
+def test_tenant_id_follows_executor_rule(client, tenant):
+    response = create_batch(client, config=metadata(tenant_id=tenant))
+    assert response.status_code == 422, tenant
+
+
+def test_tenant_id_is_optional_and_set_once(client):
+    plain = create_batch(client).json()
+    assert plain["tenant_id"] is None
+    batch = create_batch(
+        client, key="tenant", config=metadata(tenant_id="pr-agentic")
+    ).json()
+    assert batch["tenant_id"] == "pr-agentic"
+    fetched = client.get(f"{API}/{batch['id']}", headers=token()).json()
+    assert fetched["tenant_id"] == "pr-agentic"
+    same = patch_batch(client, batch, "same", {"tenant_id": "pr-agentic"})
+    assert same.status_code == 200
+    changed = patch_batch(
+        client, same.json(), "change", {"tenant_id": "other-service"}
+    )
+    assert changed.status_code == 409
+    assert changed.json()["code"] == "TENANT_IMMUTABLE"
+    cleared = patch_batch(client, same.json(), "clear", {"tenant_id": None})
+    assert cleared.status_code == 422
+    backfilled = patch_batch(client, plain, "fill", {"tenant_id": "team-a"})
+    assert backfilled.status_code == 200, backfilled.text
+    assert backfilled.json()["tenant_id"] == "team-a"
+    assert backfilled.json()["config_number"] == plain["config_number"] + 1
+    renamed = patch_batch(client, backfilled.json(), "rename", {"name": "x"})
+    assert renamed.json()["tenant_id"] == "team-a"

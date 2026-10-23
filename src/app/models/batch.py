@@ -71,6 +71,8 @@ class BatchConfig(AuditMixin, Base):
     runtime: Mapped[dict[str, Any]] = mapped_column(JSONB)
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    # Executor tenant (event Stream) for runs of this config; null: shared.
+    tenant_id: Mapped[str | None] = mapped_column(String(64))
 
 
 class SkippedWindow(AuditMixin, Base):
