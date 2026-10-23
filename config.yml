@@ -1,0 +1,22 @@
+# Shared by every environment and read even without APP_ENV (local runs
+# too); config.{APP_ENV}.yml overrides a key, BATCH_* variables and .env
+# override both. Keys are Settings field names without the BATCH_ prefix.
+HOST: 0.0.0.0
+# Listen port; keep deploy/k8s containerPort in step.
+PORT: 8000
+AUTH_ISSUER: batch-client
+AUTH_AUDIENCE: batch-service
+AUTH_MAX_LIFETIME_SECONDS: 300
+UPLOAD_MAX_BYTES: 10485760
+MAX_CODE_CELLS: 100
+CELL_MAX_BYTES: 1048576
+DB_AUTO_MIGRATE: true
+# Connection budget: (3 + 3) per pod x maxReplicas 4 = 24.
+DB_POOL_SIZE: 3
+DB_MAX_OVERFLOW: 3
+RUNTIME_CATALOG_TTL_SECONDS: 30
+TASK_CONCURRENCY: 4
+TASK_LEASE_SECONDS: 90
+SYNC_INITIAL_SECONDS: 5
+SYNC_MAX_SECONDS: 60
+SHUTDOWN_GRACE_SECONDS: 40
