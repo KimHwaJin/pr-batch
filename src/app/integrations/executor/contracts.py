@@ -46,7 +46,6 @@ class Lifecycle(BaseModel):
 
 class Context(BaseModel):
     user_id: str
-    task_id: str
 
 
 class Failure(BaseModel):

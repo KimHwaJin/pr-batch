@@ -82,7 +82,7 @@ Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자
 조회해 소유권을 확인한 뒤 그 artifact만 내려받는다.
 
 **리포트는 pr-batch가 만들지 않는다.** pr-agentic-service가 Executor `execution.completed` 이벤트(성공
-회차만)를 받아 직접 작성한다. 이벤트의 `context.task_id`가 pr-batch `run_id`다.
+회차만)를 받아 직접 작성한다. 이벤트의 `execution.metadata.run_id`가 pr-batch `run_id`다.
 
 취소: WAITING은 즉시 CANCELLED. QUEUED는 제출 전에 멈추고 CANCELLED. RUNNING은 Executor에 취소를
 요청하고 실제 종료를 확인한 뒤 CANCELLED. COLLECTING 이후는 409 `NOT_CANCELLABLE`.
@@ -97,7 +97,7 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 | 방향 | 방법 |
 | --- | --- |
 | pr-batch → Executor | 실행 응답의 `execution_id`(제출 후 채워짐, QUEUED 동안은 null), `operation_id`, 상세의 셀별 `steps[].step_id` |
-| Executor → pr-batch | Execution의 `context.task_id` = pr-batch `run_id`, `context.user_id` = 사용자 UUID, `metadata`에 `batch_id`, `script_id`, `script_version_id`, `run_id` |
+| Executor → pr-batch | Execution의 `context.user_id` = 사용자 UUID, `metadata`에 `batch_id`, `script_id`, `script_version_id`, `run_id`(= pr-batch `run_id`). `execution.completed` 이벤트의 `execution.metadata`에도 같은 값이 실린다 |
 
 제출 trigger는 `{type: BATCH, actor: {type: USER, id: owner_id}}`다. actor가 소유자이므로 배치는
 `metadata.batch_id`로 식별한다. Executor가 BATCH trigger에 USER actor를 허용한 뒤에 배포해야 한다.
@@ -106,10 +106,10 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 `snapshot.tenant_id`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 그대로 간다. Executor
 멱등성 비교에 `tenant_id`와 `metadata`가 들어가므로, 이 필드가 생기기 전에 만든 실행(snapshot에 키가
 없음)은 `tenant_id`와 `metadata.run_id` 없이 원래 본문으로 재제출한다. 회차 식별자는 명세 권장대로
-`metadata.run_id`에도 둔다. `context.task_id`는 기존 소비자(pr-agentic-service) 때문에 당분간 유지한다.
+`metadata.run_id`에 둔다. `context`도 실행을 만들 때 `snapshot.context`(`user_id`만)로 고정한다.
+이 키가 없는 이전 실행은 `context.task_id`가 든 원래 본문으로 재제출한다.
 
-예: Executor에서 `GET /api/v1/executions?task_id=<run_id>`로 해당 실행을 찾거나, pr-batch 실행 응답의
-`execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
+예: pr-batch 실행 응답의 `execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
 자세히 볼 수 있다. Executor는 인증이 없는 내부 서비스이므로 사용자에게는 prj_re가 소유권 확인 후 중계한다.
 
 ## 내부 Task 파이프라인

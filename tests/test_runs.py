@@ -337,7 +337,8 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     tick(worker, run)
     payload = fake.payloads[0]
     assert payload["runtime"] == {"type": "JUPYTER", "profile": "python3"}
-    assert payload["context"] == {"user_id": ALICE, "task_id": run["id"]}
+    assert payload["context"] == {"user_id": ALICE}
+    assert payload["metadata"]["run_id"] == run["id"]
     assert payload["metadata"]["script_version_id"] == run["script_version_id"]
     assert payload["metadata"]["script_id"] == batch["script_id"]
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
@@ -862,7 +863,7 @@ def test_submission_carries_tenant_and_run_id(client, execution):
     tick(worker, run)
     body = fake.payloads[0]
     assert body["tenant_id"] == "pr-agentic"
-    assert "tenant_id" not in body["context"]
+    assert body["context"] == run["snapshot"]["context"] == {"user_id": ALICE}
     assert body["metadata"]["run_id"] == run["id"]
     other = create_batch(client, key="no-tenant").json()
     run = run_request(client, other["id"], key="run-2").json()

@@ -17,8 +17,8 @@
 Jupyter driver는 `execute_request`를 사용하고 `allow_stdin=false`이므로 사용자
 입력을 기다리는 셀은 지원하지 않는다. magic 등의 호환성은 실제 커널 검증이 필요하다.
 
-프로젝트와 세션은 선택 필드이고 user_id와 task_id는 필수다.
-`task_id`에 Batch의 run_id를 사용하고 존재하지 않는 프로젝트·세션을 만들지 않는다.
+`context`에는 `user_id`만 보낸다. 프로젝트와 세션은 선택 필드이고 존재하지 않는 프로젝트·세션을
+만들지 않는다. 회차와 배치는 최상위 `metadata.run_id`, `metadata.batch_id`로 식별한다.
 `runtime.profile`에 사용자가 선택한 kernelspec 이름을 전달한다.
 
 다음은 형식을 보여주는 예시다. 경로와 SHA-256은 실제 생성 파일로 치환한다.
@@ -32,7 +32,7 @@ Jupyter driver는 `execute_request`를 사용하고 `allow_stdin=false`이므로
     "actor": {"type": "BATCH", "id": "<batch-id>"}
   },
   "runtime": {"type": "JUPYTER", "profile": "<kernel-profile>"},
-  "context": {"user_id": "<owner-id>", "task_id": "<run-id>"},
+  "context": {"user_id": "<owner-id>"},
   "operation": {
     "spec": {
       "schema_version": "1.0",

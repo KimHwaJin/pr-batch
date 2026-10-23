@@ -179,7 +179,6 @@ class SyncExecution:
             return
         require(response.execution_id == run.execution_id)
         require(response.context.user_id == run.owner_id)
-        require(response.context.task_id == str(run.id))
         require(response.state.version >= (run.observed_version or 0))
         if response.state.version == run.observed_version:
             require(response.state.status == run.execution_status)
