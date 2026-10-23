@@ -459,7 +459,7 @@ def test_scheduler_to_executor_worker_contract(client, scheduling):
         history = runs(client, batch)
         assert history[0]["status"] == "RUNNING"
         assert fake.payloads[0]["trigger"]["type"] == "BATCH"
-        assert fake.payloads[0]["context"]["task_id"] == history[0]["id"]
+        assert fake.payloads[0]["metadata"]["run_id"] == history[0]["id"]
         assert fake.payloads[0]["runtime"]["profile"] == "python3"
     finally:
         executor.close()

@@ -141,6 +141,8 @@ def admit_run(
             # Fixed per run: the Executor idempotency fingerprint includes
             # it, so a resubmission must send the same value.
             "tenant_id": config.tenant_id,
+            # Same reason; metadata.run_id names the run, not context.
+            "context": {"user_id": batch.owner_id},
         },
         status=target,
         skip_reason=reason,
@@ -206,7 +208,9 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "actor": {"type": "USER", "id": run.owner_id},
         },
         "runtime": dict(run.runtime),
-        "context": {"user_id": run.owner_id, "task_id": str(run.id)},
+        "context": run.snapshot.get(
+            "context", {"user_id": run.owner_id, "task_id": str(run.id)}
+        ),
         "operation": {
             "spec": {
                 "schema_version": "1.0",
