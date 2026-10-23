@@ -15,7 +15,7 @@
   `storage_root`는 프로젝트 루트(`/mnt/data/dtest`)이고 파일은 `batch/inputs/` 아래 저장한다.
   Executor는 `INPUT_STORAGE_ROOT=/mnt/data/dtest`, `SHARED_STORAGE_ROOT=/mnt/data/dtest/executor`.
 - 설정은 ConfigMap·Secret 없이 이미지에 들어간 `config.{APP_ENV}.yml`로 준다. 저장소 루트의
-  `config.example.yml`을 `config.prd.yml` 등으로 복사해 값을 채우고, Deployment는 `APP_ENV`만 지정한다.
+  `config.prd.yml` 등에 계별 값을, `config.yml`에 공통값을 채우고, Deployment는 `APP_ENV`만 지정한다.
 - 컨테이너는 설정의 `PORT`(기본 8000)로 뜬다. `config.yml`에서 바꾸면 `deployment.yaml`의
   `containerPort`도 같이 바꾼다(Service는 이름 `http`로 가리키므로 그대로 둔다).
 - 배포 순서: Deployment·Service → HPA. 첫 Pod가 advisory lock을 잡고 migration을

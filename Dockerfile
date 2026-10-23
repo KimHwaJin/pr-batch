@@ -14,7 +14,7 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY alembic.ini ./
 # config.yml (shared) and config.{APP_ENV}.yml (per environment); no
-# ConfigMaps or Secrets. config.example.yml keeps the glob non-empty.
+# ConfigMaps or Secrets.
 COPY logger.yml config*.yml ./
 # Token verification public key(s) named by AUTH_PUBLIC_KEY_FILE.
 COPY keys ./keys

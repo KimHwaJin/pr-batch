@@ -87,7 +87,7 @@ PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 �
 커널 목록, 토큰 검증 공개키 경로를 설정합니다(`make auth-keys`가 로컬 키 쌍을 `.local-keys/`에 만듭니다). 공유 PV 경로는 미리 생성·마운트해야 합니다.
 
 배포 환경(dev, stg, prd)은 ConfigMap·Secret 대신 계별 YAML 파일로 설정합니다.
-`config.example.yml`을 `config.dev.yml`, `config.stg.yml`, `config.prd.yml`로 복사해
+루트의 `config.dev.yml`, `config.stg.yml`, `config.prd.yml`에 계마다 다른
 값을 채우고 `APP_ENV=dev|stg|prd`를 지정하면 해당 파일을 읽습니다. 모든 계에 공통인
 고정값은 루트의 `config.yml`에 두면 `APP_ENV`와 관계없이 항상 읽고, 같은 키는 계별 파일이
 덮어씁니다. 키는 `Settings`
