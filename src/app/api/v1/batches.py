@@ -1,20 +1,18 @@
 """Batch registration, update, activation, delete and skip history."""
 
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.api.deps import (
     Batches,
+    Cursor,
     Key,
     Limit,
     Owner,
     Revision,
-    SettingsDep,
     mutation_response,
-    require_executor,
 )
 from app.schemas.batch import (
     BatchPage,
@@ -32,7 +30,6 @@ def create_batch(
     request: Request,
     owner: Owner,
     key: Key,
-    settings: SettingsDep,
     service: Batches,
     data: CreateBatch,
 ) -> JSONResponse:
@@ -46,7 +43,7 @@ def list_batches(
     owner: Owner,
     service: Batches,
     limit: Limit = 50,
-    cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    cursor: Cursor = None,
     script_id: UUID | None = None,
 ) -> BatchPage:
     return service.list_batches(owner, limit, cursor, script_id)
@@ -64,7 +61,6 @@ def get_batch(
 @router.patch("/{batch_id}", response_model=BatchView)
 def update_batch(
     owner: Owner,
-    settings: SettingsDep,
     service: Batches,
     batch_id: UUID,
     key: Key,
@@ -91,41 +87,27 @@ def delete_batch(
 @router.post("/{batch_id}/enable", response_model=BatchView)
 def enable_batch(
     owner: Owner,
-    settings: SettingsDep,
     service: Batches,
     batch_id: UUID,
     key: Key,
     expected: Revision,
 ) -> JSONResponse:
-    require_executor(settings)
+    # Without an Executor the runtime catalog answers 503 itself.
     return mutation_response(
-        service.set_enabled(
-            owner,
-            batch_id,
-            key,
-            expected,
-            True,
-        )
+        service.set_enabled(owner, batch_id, key, expected, True)
     )
 
 
 @router.post("/{batch_id}/disable", response_model=BatchView)
 def disable_batch(
     owner: Owner,
-    settings: SettingsDep,
     service: Batches,
     batch_id: UUID,
     key: Key,
     expected: Revision,
 ) -> JSONResponse:
     return mutation_response(
-        service.set_enabled(
-            owner,
-            batch_id,
-            key,
-            expected,
-            False,
-        )
+        service.set_enabled(owner, batch_id, key, expected, False)
     )
 
 
@@ -135,6 +117,6 @@ def list_skipped_windows(
     service: Batches,
     batch_id: UUID,
     limit: Limit = 50,
-    cursor: UUID | None = None,
+    cursor: Cursor = None,
 ) -> SkippedPage:
     return service.skipped(owner, batch_id, limit, cursor)

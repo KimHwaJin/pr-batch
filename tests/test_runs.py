@@ -22,8 +22,9 @@ from sqlalchemy import event, func, select, update
 
 from app.db.base import utcnow
 from app.integrations.executor import ExecutorClient, ExecutorError
-from app.models import BatchRun, RunStepBinding, Task
+from app.models import BatchRun, IdempotencyRecord, RunStepBinding, Task
 from app.runtime.dispatcher import Dispatcher
+from app.runtime.retention import Retention
 from app.runtime.runtime import BackgroundRuntime
 from app.services.run_service import promote_waiting
 from app.tasks.handlers import Clients
@@ -72,7 +73,9 @@ class FakeExecutor:
             execution_id = request.url.path.split("/")[4]
             self.cancels.append(json.loads(request.content))
             if self.state in {"SUCCEEDED", "FAILED", "CANCELLED"}:
-                return httpx2.Response(409, json={"detail": "terminal"})
+                return httpx2.Response(
+                    409, json={"error": {"code": "INVALID_STATE_TRANSITION"}}
+                )
             self.state, self.version = "CANCELLED", self.version + 1
             return httpx2.Response(
                 202,
@@ -592,27 +595,21 @@ def test_failed_execution_never_retries(client, execution):
     assert all(not path.endswith("/retry") for _, path in fake.requests)
 
 
-@pytest.mark.parametrize("projection", ["PENDING", "FAILED"])
-def test_success_without_ready_notebook(client, execution, projection):
+def test_success_collects_without_waiting_for_notebook(client, execution):
+    # The Executor only reports SUCCEEDED with the notebook projected, so
+    # one collect finishes the run; a missing notebook is not waited for.
     fake, worker = execution
     run = run_request(client, create_batch(client).json()["id"]).json()
     tick(worker, run)
     fake.state, fake.version = "SUCCEEDED", 3
-    fake.projection, fake.artifact_ready = projection, False
+    fake.projection, fake.artifact_ready = "FAILED", False
     tick(worker, run)
     tick(worker, run)
     detail = run_get(client, run).json()
-    if projection == "FAILED":
-        # The code succeeded; only the result notebook is missing.
-        assert detail["status"] == "COMPLETED"
-        assert detail["notebook_status"] == "FAILED"
-        assert detail["result"] == {"notebook_artifact_id": None}
-        assert pending_tasks(worker, run) == []
-        return
-    assert detail["status"] == "COLLECTING"
-    fake.projection, fake.artifact_ready = "SUCCEEDED", True
-    tick(worker, run)
-    assert run_get(client, run).json()["status"] == "COMPLETED"
+    assert detail["status"] == "COMPLETED"
+    assert detail["notebook_status"] == "FAILED"
+    assert detail["result"] == {"notebook_artifact_id": None}
+    assert pending_tasks(worker, run) == []
 
 
 def test_mismatched_receipt_and_result_roll_back(client, execution):
@@ -959,3 +956,70 @@ def test_rejection_after_an_uncertain_attempt_is_not_final(client, execution):
     tick(worker, run)
     assert run_get(client, run).json()["status"] == "RUNNING"
     assert len(fake.receipts) == 1
+
+
+def test_cancel_after_uncertain_submit_cancels_the_execution(
+    client, execution
+):
+    """The lost submission may exist, so it is resubmitted and cancelled."""
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    fake.lose_response = True
+    tick(worker, run)
+    flagged = command(client, run, "cancel", "c1").json()
+    assert flagged["status"] == "QUEUED" and flagged["cancel_requested"]
+    drain(worker, run)
+    assert run_get(client, run).json()["status"] == "CANCELLED"
+    assert len(fake.receipts) == 1
+    assert len(fake.cancels) == 1
+
+
+def test_task_failing_past_the_limit_abandons_the_run(client, execution):
+    fake, worker = execution
+    batch = create_batch(
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
+    ).json()
+    first = run_request(client, batch["id"]).json()
+    second = run_request(client, batch["id"], "second").json()
+    fake.http_error = 503
+    tick(worker, first)
+    assert run_get(client, first).json()["status"] == "QUEUED"
+    with worker.sessions.begin() as session:
+        session.execute(
+            update(Task)
+            .where(Task.run_id == UUID(first["id"]))
+            .values(failing_since=Task.failing_since - timedelta(days=2))
+        )
+    tick(worker, first)
+    detail = run_get(client, first).json()
+    assert (detail["status"], detail["failure_type"]) == (
+        "FAILED",
+        "ABANDONED",
+    )
+    assert detail["last_error"] == "EXECUTOR_HTTP_503"
+    assert pending_tasks(worker, first) == []
+    assert run_get(client, second).json()["status"] == "QUEUED"
+
+
+def test_retention_purges_old_records_only(client, execution):
+    fake, worker = execution
+    batch = create_batch(client).json()
+    run = run_request(client, batch["id"]).json()
+    fake.state, fake.version = "SUCCEEDED", 3
+    drain(worker, run)
+    with worker.sessions.begin() as session:
+        session.execute(
+            update(Task).values(created_at=Task.created_at - timedelta(31))
+        )
+        session.execute(
+            update(IdempotencyRecord).values(
+                created_at=IdempotencyRecord.created_at - timedelta(8)
+            )
+        )
+    fresh = run_request(client, batch["id"], "fresh").json()
+    Retention(worker.sessions, idempotency_days=7, task_days=30).tick()
+    with worker.sessions() as session:
+        tasks = session.scalars(select(Task.run_id)).all()
+        keys = session.scalars(select(IdempotencyRecord.key)).all()
+    assert set(tasks) == {UUID(fresh["id"])}
+    assert keys == ["fresh"]

@@ -25,7 +25,7 @@ from app.services.runtime_catalog import (
 )
 from app.storage.script_storage import ScriptStorage
 
-MIGRATION_HEAD = "0004_executor_tenant"
+MIGRATION_HEAD = "0001_initial"
 logger = logging.getLogger(__name__)
 
 

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
@@ -28,7 +28,12 @@ from app.schemas.run import (
     StepView,
 )
 from app.schemas.schedule import concurrency
-from app.services.common import current_config, owned_batch
+from app.services.common import (
+    before_cursor,
+    current_config,
+    encode_cursor,
+    owned_batch,
+)
 from app.services.idempotency import Idempotency, MutationResult
 from app.tasks.queue import TaskKind, enqueue
 
@@ -64,11 +69,11 @@ def queue_submission(session: Session, run: BatchRun) -> None:
     enqueue(session, TaskKind.SUBMIT_EXECUTION, run.id)
 
 
-def replace_running(session: Session, batch_id: UUID, actor: Actor) -> int:
+def replace_running(session: Session, batch_id: UUID, actor: Actor) -> None:
     """REPLACE overlap: cancel waiting runs and ask running ones to stop.
 
-    Returns how many occupying runs stopped immediately (none today: a
-    running run frees its slot only when the Executor confirms the end).
+    Occupying runs keep their slot until the Executor confirms the end,
+    so the new run waits for them.
     """
     now = database_now(session)
     runs = session.scalars(
@@ -92,7 +97,6 @@ def replace_running(session: Session, batch_id: UUID, actor: Actor) -> int:
             if run.status == RunStatus.RUNNING:
                 enqueue(session, TaskKind.CANCEL_EXECUTION, run.id)
         run.stamp_updated(actor, now)
-    return 0
 
 
 def admit_run(
@@ -111,7 +115,7 @@ def admit_run(
     target, reason, http_status = RunStatus.QUEUED, None, 202
     mode, max_concurrent, max_queued = concurrency(policy)
     if mode == "REPLACE":
-        active -= replace_running(session, batch.id, actor)
+        replace_running(session, batch.id, actor)
         pending = 0
     if mode == "SKIP" and active:
         target, reason = RunStatus.SKIPPED, "OVERLAP"
@@ -239,7 +243,7 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
     return request
 
 
-def run_view(session: Session, run: BatchRun) -> RunView:
+def run_view(run: BatchRun) -> RunView:
     view = RunView.model_validate(run)
     view.result = ResultRefs(notebook_artifact_id=result_notebook(run))
     return view
@@ -276,7 +280,7 @@ class RunService:
             batch = owned_batch(session, owner, batch_id, lock=True)
             config = current_config(session, batch)
             status, run = admit_run(session, batch, config, Actor.user(owner))
-            return status, run_view(session, run).model_dump(mode="json")
+            return status, run_view(run).model_dump(mode="json")
 
         return self.idempotency.run(owner, f"run:{batch_id}", key, {}, action)
 
@@ -291,17 +295,18 @@ class RunService:
                 raise ServiceError(
                     409, "NOT_CANCELLABLE", "Run can no longer be cancelled."
                 )
-            run.stamp_updated(Actor.user(owner), database_now(session))
+            now = database_now(session)
+            run.stamp_updated(Actor.user(owner), now)
             request_cancel(run, "USER", USER_CANCEL_REASON)
             if run.status == RunStatus.WAITING:
                 run.status = RunStatus.CANCELLED
-                run.completed_at = database_now(session)
+                run.completed_at = now
             elif not run.cancel_requested:
                 # QUEUED: the submit task skips or follows up with a cancel.
                 run.cancel_requested = True
                 if run.status == RunStatus.RUNNING:
                     enqueue(session, TaskKind.CANCEL_EXECUTION, run.id)
-            return 202, run_view(session, run).model_dump(mode="json")
+            return 202, run_view(run).model_dump(mode="json")
 
         return self.idempotency.run(
             owner, f"run:cancel:{run_id}", key, {}, action
@@ -317,12 +322,12 @@ class RunService:
                 .order_by(RunStepBinding.sequence)
             )
             return RunDetail(
-                **run_view(session, run).model_dump(),
+                **run_view(run).model_dump(),
                 steps=[StepView.model_validate(step) for step in steps],
             )
 
     def list(
-        self, owner: str, batch_id: UUID, limit: int, cursor: UUID | None
+        self, owner: str, batch_id: UUID, limit: int, cursor: str | None
     ) -> RunPage:
         with self.sessions() as session:
             owned_batch(session, owner, batch_id)
@@ -330,14 +335,8 @@ class RunService:
                 BatchRun.batch_id == batch_id, BatchRun.owner_id == owner
             )
             if cursor:
-                last = session.scalar(query.where(BatchRun.id == cursor))
-                if last is None:
-                    raise ServiceError(
-                        422, "INVALID_CURSOR", "Invalid cursor."
-                    )
                 query = query.where(
-                    tuple_(BatchRun.created_at, BatchRun.id)
-                    < tuple_(last.created_at, last.id)
+                    before_cursor(BatchRun.created_at, BatchRun.id, cursor)
                 )
             rows = list(
                 session.scalars(
@@ -346,10 +345,14 @@ class RunService:
                     ).limit(limit + 1)
                 )
             )
-            items = [run_view(session, row) for row in rows[:limit]]
+            items = [run_view(row) for row in rows[:limit]]
             return RunPage(
                 items=items,
-                next_cursor=(items[-1].id if len(rows) > limit else None),
+                next_cursor=(
+                    encode_cursor(items[-1].created_at, items[-1].id)
+                    if len(rows) > limit
+                    else None
+                ),
             )
 
 

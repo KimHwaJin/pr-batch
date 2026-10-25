@@ -3,10 +3,11 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, Request, Response, UploadFile
+from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.api.deps import (
+    Cursor,
     Key,
     Limit,
     Owner,
@@ -52,7 +53,7 @@ def list_scripts(
     owner: Owner,
     service: Scripts,
     limit: Limit = 50,
-    cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    cursor: Cursor = None,
 ) -> ScriptPage:
     return service.list_scripts(owner, limit, cursor)
 
@@ -119,7 +120,7 @@ def list_versions(
     service: Scripts,
     script_id: UUID,
     limit: Limit = 50,
-    cursor: Annotated[int | None, Query(ge=1)] = None,
+    cursor: Cursor = None,
 ) -> VersionPage:
     return service.versions(owner, script_id, limit, cursor)
 

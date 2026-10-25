@@ -100,4 +100,4 @@ class SkippedView(Audited, BaseModel):
 
 class SkippedPage(BaseModel):
     items: list[SkippedView]
-    next_cursor: UUID | None
+    next_cursor: str | None

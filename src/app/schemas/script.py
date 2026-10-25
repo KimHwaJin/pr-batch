@@ -53,4 +53,4 @@ class ScriptPage(Contract):
 
 class VersionPage(Contract):
     items: list[VersionView]
-    next_cursor: int | None
+    next_cursor: str | None

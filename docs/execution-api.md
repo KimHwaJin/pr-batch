@@ -17,7 +17,7 @@ make serve   # http://127.0.0.1:8100
 
 | 설정 | 기본 | 의미 |
 | --- | --- | --- |
-| `EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수·활성화는 503 `EXECUTOR_NOT_CONFIGURED`, 백그라운드 런타임도 시작하지 않음 |
+| `EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수·배치 등록·수정·활성화는 503 `EXECUTOR_NOT_CONFIGURED`(런타임 목록을 확인할 수 없음), 백그라운드 런타임도 시작하지 않음 |
 | `BACKGROUND_ENABLED` | true | 이 프로세스에서 백그라운드 런타임 실행 |
 | `DB_AUTO_MIGRATE` | true | 시작 시 advisory lock 아래 `alembic upgrade head` |
 | `TASK_CONCURRENCY` | 4 | Pod당 동시에 처리하는 Task 수 (= Executor 동시 요청 상한) |
@@ -25,13 +25,15 @@ make serve   # http://127.0.0.1:8100
 | `TASK_LEASE_SECONDS` | 90 | Task lease. 만료되면 다른 Pod가 이어받음 |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 3 / 3 | Pod당 최대 DB 커넥션 6 |
 | `SHUTDOWN_GRACE_SECONDS` | 40 | SIGTERM 후 진행 중인 원격 호출을 끝내는 최대 시간 |
+| `TASK_GIVE_UP_SECONDS` | 86400 | 원격 호출이 이만큼 계속 실패하면 Run을 FAILED(`ABANDONED`)로 끝냄 |
+| `IDEMPOTENCY_RETENTION_DAYS` | 7 | 멱등성 기록 보존 기간. 지나면 같은 키도 새 요청으로 처리 |
+| `TASK_RETENTION_DAYS` | 30 | 끝난 내부 Task 보존 기간. 실행 이력은 지우지 않음 |
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 `batch/inputs/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
 PV는 프로젝트 루트(예: `/mnt/data/dtest`) 아래 서비스별 폴더(`batch/`, `executor/`)로 나눈다.
 `STORAGE_ROOT`와 Executor `INPUT_STORAGE_ROOT`는 프로젝트 루트,
 Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
-`batch-input/`으로 시작하는 기존 경로는 DB에 저장된 그대로 계속 읽는다.
 런타임 선택지는 Executor BATCH 풀에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목). Executor 호출에는 인증이 없으며(내부 서비스)
 pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 
@@ -44,7 +46,7 @@ pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 | Method | 경로 | 동작 |
 | --- | --- | --- |
 | POST | / | 현재 설정으로 수동 실행 접수. 202 (대기열 초과 409) |
-| GET | / | 접수 역순 이력, limit 1~100·cursor |
+| GET | / | 접수 역순 이력, limit 1~100·cursor(이전 응답의 `next_cursor`를 그대로 보냄) |
 | GET | /{run_id} | 상태·스냅샷·셀별 Step |
 | POST | /{run_id}/cancel | 취소 요청. 202 |
 
@@ -56,7 +58,7 @@ pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 | 자리 확보, 제출 대기 | 202 | QUEUED | |
 | QUEUE/PARALLEL 한도 초과 | 202 | WAITING | |
 | SKIP 정책, 이미 실행 중 | 202 | SKIPPED | OVERLAP |
-| 대기열 `max_pending` 초과 | 409 | SKIPPED | SKIPPED_CAPACITY |
+| 대기열 `max_queued` 초과 | 409 | SKIPPED | SKIPPED_CAPACITY |
 
 ## Run 상태
 
@@ -66,8 +68,8 @@ pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 | QUEUED | 자리 확보, Executor 제출 대기·진행 | 예 |
 | RUNNING | Executor에서 코드 실행 중 | 예 |
 | COLLECTING | 코드 종료, 셀 결과·결과 노트북 수집 | 아니오 |
-| COMPLETED | 코드 성공, 결과 노트북 projection 종료 (`notebook_status`가 FAILED면 결과 노트북 없음) | — |
-| FAILED | 코드 실행 실패, 또는 Executor가 제출을 거절(`failure_type=SUBMIT_REJECTED`) | — |
+| COMPLETED | 코드 성공, 결과 수집 완료 | — |
+| FAILED | 코드 실행 실패, Executor가 제출을 거절(`failure_type=SUBMIT_REJECTED`), 또는 원격 호출이 계속 실패해 포기(`failure_type=ABANDONED`) | — |
 | CANCELLED | 사용자 취소 또는 REPLACE 정책 취소 (`cancel_source`) | — |
 | SKIPPED | 겹침·대기열 초과로 실행 안 함 | — |
 
@@ -84,7 +86,9 @@ Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자
 **리포트는 pr-batch가 만들지 않는다.** pr-agentic-service가 Executor `execution.completed` 이벤트(성공
 회차만)를 받아 직접 작성한다. 이벤트의 `execution.metadata.run_id`가 pr-batch `run_id`다.
 
-취소: WAITING은 즉시 CANCELLED. QUEUED는 제출 전에 멈추고 CANCELLED. RUNNING은 Executor에 취소를
+취소: WAITING은 즉시 CANCELLED. QUEUED는 응답이 QUEUED + `cancel_requested=true`이고, 제출 Task가
+Executor에 닿기 전이면 CANCELLED로 끝난다. 앞선 제출 시도의 결과가 불확실하면 같은 키로 재제출해 실행을
+확인한 뒤 취소한다. RUNNING은 Executor에 취소를
 요청하고 실제 종료를 확인한 뒤 CANCELLED. COLLECTING 이후는 409 `NOT_CANCELLABLE`.
 처음 들어온 취소 요청의 출처와 사유를 `cancel_source`·`cancel_reason`에 남기고, Executor 취소에는 항상
 actor를 보낸다. 사용자 취소는 `{type: USER, id: owner_id}`, REPLACE 정책 취소는 수동 실행이 계기여도
@@ -120,7 +124,7 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 | --- | --- | --- |
 | SUBMIT_EXECUTION | Executor 제출 (멱등성 키 `batch-run:<run_id>:submit`) | RUNNING + SYNC 예약 |
 | SYNC_EXECUTION | Executor 상태 조회 | 진행 중이면 간격을 늘려 재조회, 종료면 COLLECTING + 대기 실행 승격 |
-| COLLECT_RESULT | Executor 상태·결과 조회 | 성공: projection이 끝나면 COMPLETED / 실패: FAILED / 취소: CANCELLED |
+| COLLECT_RESULT | Executor 결과 조회 | 성공: COMPLETED / 취소: CANCELLED / 그 외: FAILED |
 | CANCEL_EXECUTION | Executor 취소 요청 | SYNC가 실제 종료를 관측 |
 
 - 처리 순서: 짧은 claim 트랜잭션 → 커넥션 반납 → 원격 호출 1회 → 짧은 반영 트랜잭션. 원격 호출 중에는
@@ -134,14 +138,17 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
   있음)·`PERSISTENCE_CONFLICT`도 재시도한다. 취소의 409는 `INVALID_STATE_TRANSITION`일 때만 "이미 종료"다.
 - 통신·계약 오류는 실행 실패가 아니다. `last_error`에 남기고 2초부터 최대 300초까지 지수 backoff +
   jitter로 다시 시도한다. 제출 응답이 유실돼도 같은 멱등성 키로 재확인하므로 새 Execution이 생기지 않는다.
+- 첫 실패부터 `TASK_GIVE_UP_SECONDS`(기본 24시간) 동안 한 번도 성공하지 못하면 Task를 끝내고 Run을
+  FAILED(`failure_type=ABANDONED`)로 바꿔 자리를 푼다. Executor 쪽 실행은 남아 있을 수 있으므로
+  `execution_id`로 확인한다. 취소 Task가 포기되면 Run은 그대로 두고 상태 조회가 계속된다.
 - Executor의 `SUCCEEDED`, `FAILED`, `CANCELLED`는 코드 실행 종료이며, 이때 다음 실행 자리가 풀린다.
-  결과 노트북 projection이 늦으면 COLLECTING에서 계속 확인한다. projection이 실패해도 코드는 성공했으므로
-  COMPLETED로 끝내고 `notebook_status=FAILED`로 구분한다.
+  Executor는 결과 노트북 projection과 Artifact 등록이 끝난 뒤에만 `SUCCEEDED`를 보고하므로 결과는 한 번만
+  조회한다.
 - Executor 응답은 요청 10초, 처리 30초, 4 MiB로 제한한다. 낮은 상태 버전, 다른 실행·소유자·셀의 응답은
   반영하지 않는다. Batch는 Executor `/retry`를 호출하지 않는다(자동 재시도 정책 보류).
 
 ## 검증 범위
 
 실제 PostgreSQL에서 접수·동시성·대기열 승격·lease 회수·오래된 응답 거절·취소 actor를 검증한다.
-Executor는 계약에 맞춘 테스트 서버로 응답 유실, 통신 장애, projection 지연·실패를 재현한다. 백그라운드 런타임은 실제 스레드로 시작·처리·정지를 검증한다. Docker에서는 로컬 Executor와
+Executor는 계약에 맞춘 테스트 서버로 응답 유실, 통신 장애, 불확실한 제출 뒤 취소, 장기 장애 포기를 재현한다. 백그라운드 런타임은 실제 스레드로 시작·처리·정지를 검증한다. Docker에서는 로컬 Executor와
 연결해 수동·예약 실행 완료와 결과 다운로드를 확인한다.

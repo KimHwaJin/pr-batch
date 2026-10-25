@@ -100,10 +100,28 @@ def check_revision(revision: int, expected: int) -> None:
         raise ServiceError(409, "REVISION_CONFLICT", "Reload the resource.")
 
 
+# Every list returns an opaque `next_cursor` (AIP-158 page tokens): the
+# client sends it back verbatim and never builds or parses one.
+CURSOR_ERRORS = (ValueError, TypeError, IndexError, KeyError, binascii.Error)
+
+
+def opaque(parts: list[object]) -> str:
+    return base64.urlsafe_b64encode(json.dumps(parts).encode()).decode()
+
+
+def unwrap(cursor: str) -> list:
+    decoded = json.loads(base64.urlsafe_b64decode(cursor))
+    if not isinstance(decoded, list):
+        raise ValueError("Not a cursor.")
+    return decoded
+
+
+def invalid_cursor() -> ServiceError:
+    return ServiceError(422, "INVALID_CURSOR", "Invalid cursor.")
+
+
 def encode_cursor(created_at: datetime, identifier: UUID) -> str:
-    return base64.urlsafe_b64encode(
-        json.dumps([created_at.isoformat(), str(identifier)]).encode()
-    ).decode()
+    return opaque([created_at.isoformat(), str(identifier)])
 
 
 def before_cursor(
@@ -113,17 +131,25 @@ def before_cursor(
 ) -> ColumnElement[bool]:
     """Keyset condition for rows older than the opaque cursor."""
     try:
-        decoded = json.loads(base64.urlsafe_b64decode(cursor))
+        decoded = unwrap(cursor)
         timestamp = datetime.fromisoformat(decoded[0])
         last = UUID(decoded[1])
         if timestamp.tzinfo is None:
             raise ValueError("Timezone required.")
-    except (
-        ValueError,
-        TypeError,
-        IndexError,
-        KeyError,
-        binascii.Error,
-    ) as exc:
-        raise ServiceError(422, "INVALID_CURSOR", "Invalid cursor.") from exc
+    except CURSOR_ERRORS as exc:
+        raise invalid_cursor() from exc
     return tuple_(created_at, identifier) < tuple_(timestamp, last)
+
+
+def encode_number_cursor(number: int) -> str:
+    return opaque([number])
+
+
+def decode_number_cursor(cursor: str) -> int:
+    try:
+        (number,) = unwrap(cursor)
+        if type(number) is not int or number < 1:
+            raise ValueError("Positive integer required.")
+    except CURSOR_ERRORS as exc:
+        raise invalid_cursor() from exc
+    return number

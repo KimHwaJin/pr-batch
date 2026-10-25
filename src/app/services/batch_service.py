@@ -5,11 +5,11 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import and_, exists, select, tuple_
+from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
-from app.db.base import Actor, utcnow
+from app.db.base import Actor
 from app.db.session import database_now
 from app.domain.run_state import ACTIVE
 from app.domain.schedule_clock import EPSILON, ScheduleClock
@@ -51,8 +51,12 @@ from app.services.schedule_history import record_skipped
 
 
 def batch_view(
-    batch: Batch, config: BatchConfig, version: ScriptVersion
+    batch: Batch,
+    config: BatchConfig,
+    version: ScriptVersion,
+    now: datetime,
 ) -> BatchView:
+    """`now` is the database clock, like every other schedule decision."""
     schedule = schedule_of(config)
     return BatchView(
         id=batch.id,
@@ -67,7 +71,7 @@ def batch_view(
         enabled=batch.enabled,
         next_run_at=batch.next_run_at,
         preview_runs=(
-            ScheduleClock(schedule).preview(utcnow()) if schedule else []
+            ScheduleClock(schedule).preview(now) if schedule else []
         ),
         config_number=batch.config_number,
         revision=batch.revision,
@@ -183,6 +187,11 @@ class BatchService:
     def create_batch(
         self, owner: str, key: str, data: CreateBatch
     ) -> MutationResult:
+        payload = data.model_dump(mode="json")
+        if replayed := self.idempotency.replay(
+            owner, "batch:create", key, payload
+        ):
+            return replayed
         available = self.catalog.available()
 
         def action(session: Session) -> MutationResult:
@@ -193,8 +202,9 @@ class BatchService:
                 data.runtime, script_type_of(session, version), available
             )
             actor = Actor.user(owner)
+            now = database_now(session)
             batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
-            batch.stamp_created(actor)
+            batch.stamp_created(actor, now)
             session.add(batch)
             session.flush()
             config = BatchConfig(
@@ -210,16 +220,12 @@ class BatchService:
             config.stamp_created(actor, batch.created_at)
             session.add(config)
             session.flush()
-            return 201, batch_view(batch, config, version).model_dump(
+            return 201, batch_view(batch, config, version, now).model_dump(
                 mode="json"
             )
 
         return self.idempotency.run(
-            owner,
-            "batch:create",
-            key,
-            data.model_dump(mode="json"),
-            action,
+            owner, "batch:create", key, payload, action
         )
 
     def update_batch(
@@ -231,6 +237,13 @@ class BatchService:
         data: UpdateBatch,
     ) -> MutationResult:
         fields = data.model_fields_set
+        operation = f"batch:update:{batch_id}"
+        payload = {
+            "expected_revision": expected,
+            "data": data.model_dump(mode="json", exclude_unset=True),
+        }
+        if replayed := self.idempotency.replay(owner, operation, key, payload):
+            return replayed
         runtime_fields = {"runtime", "script_id", "script_version_number"}
         available = (
             self.catalog.available() if fields & runtime_fields else None
@@ -246,7 +259,7 @@ class BatchService:
                 changed.discard("tenant_id")  # resending it changes nothing
             if not changed:
                 return 200, batch_view(
-                    batch, config, config_version(session, config)
+                    batch, config, config_version(session, config), now
                 ).model_dump(mode="json")
             if "name" in changed and data.name is not None:
                 batch.name = data.name
@@ -257,19 +270,10 @@ class BatchService:
             batch.revision += 1
             batch.stamp_updated(Actor.user(owner), now)
             return 200, batch_view(
-                batch, config, config_version(session, config)
+                batch, config, config_version(session, config), now
             ).model_dump(mode="json")
 
-        return self.idempotency.run(
-            owner,
-            f"batch:update:{batch_id}",
-            key,
-            {
-                "expected_revision": expected,
-                "data": data.model_dump(mode="json", exclude_unset=True),
-            },
-            action,
-        )
+        return self.idempotency.run(owner, operation, key, payload, action)
 
     def next_config(
         self,
@@ -358,7 +362,12 @@ class BatchService:
         with self.sessions() as session:
             batch = owned_batch(session, owner, batch_id)
             config = current_config(session, batch)
-            return batch_view(batch, config, config_version(session, config))
+            return batch_view(
+                batch,
+                config,
+                config_version(session, config),
+                database_now(session),
+            )
 
     def list_batches(
         self,
@@ -391,7 +400,8 @@ class BatchService:
         query = query.order_by(Batch.created_at.desc(), Batch.id.desc())
         with self.sessions() as session:
             rows = session.execute(query.limit(limit + 1)).all()
-            items = [batch_view(b, c, v) for b, c, v in rows[:limit]]
+            now = database_now(session)
+            items = [batch_view(b, c, v, now) for b, c, v in rows[:limit]]
         next_cursor = None
         if len(rows) > limit:
             next_cursor = encode_cursor(items[-1].created_at, items[-1].id)
@@ -405,14 +415,18 @@ class BatchService:
         expected: int,
         enabled: bool,
     ) -> MutationResult:
+        operation = f"activation:{batch_id}"
+        payload = {"enabled": enabled, "expected_revision": expected}
+        if replayed := self.idempotency.replay(owner, operation, key, payload):
+            return replayed
         available = self.catalog.available() if enabled else None
 
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
             check_revision(batch.revision, expected)
             config = current_config(session, batch)
+            now = database_now(session)
             if batch.enabled != enabled:
-                now = database_now(session)
                 if enabled:
                     schedule = schedule_of(config)
                     if schedule is None:
@@ -437,16 +451,10 @@ class BatchService:
                 batch.revision += 1
                 batch.stamp_updated(Actor.user(owner), now)
             return 200, batch_view(
-                batch, config, config_version(session, config)
+                batch, config, config_version(session, config), now
             ).model_dump(mode="json")
 
-        return self.idempotency.run(
-            owner,
-            f"activation:{batch_id}",
-            key,
-            {"enabled": enabled, "expected_revision": expected},
-            action,
-        )
+        return self.idempotency.run(owner, operation, key, payload, action)
 
     def delete_batch(
         self, owner: str, batch_id: UUID, key: str, expected: int
@@ -487,7 +495,7 @@ class BatchService:
         owner: str,
         batch_id: UUID,
         limit: int,
-        cursor: UUID | None,
+        cursor: str | None,
     ) -> SkippedPage:
         with self.sessions() as session:
             owned_batch(session, owner, batch_id)
@@ -495,14 +503,10 @@ class BatchService:
                 SkippedWindow.batch_id == batch_id
             )
             if cursor:
-                last = session.scalar(query.where(SkippedWindow.id == cursor))
-                if last is None:
-                    raise ServiceError(
-                        422, "INVALID_CURSOR", "Invalid cursor."
-                    )
                 query = query.where(
-                    tuple_(SkippedWindow.created_at, SkippedWindow.id)
-                    < tuple_(last.created_at, last.id)
+                    before_cursor(
+                        SkippedWindow.created_at, SkippedWindow.id, cursor
+                    )
                 )
             rows = list(
                 session.scalars(
@@ -515,5 +519,9 @@ class BatchService:
             items = [SkippedView.model_validate(row) for row in rows[:limit]]
             return SkippedPage(
                 items=items,
-                next_cursor=(items[-1].id if len(rows) > limit else None),
+                next_cursor=(
+                    encode_cursor(items[-1].created_at, items[-1].id)
+                    if len(rows) > limit
+                    else None
+                ),
             )

@@ -1,7 +1,7 @@
 # 스크립트·배치 등록 API
 
 스크립트 업로드·버전 관리와, 업로드한 스크립트 중 어떤 것을 언제·어떻게 돌릴지 정하는
-배치 등록을 분리해 제공한다. 설계 근거는 [스크립트·배치 분리 설계](notebook-batch-design.md)와 [서비스 체계](domain-model.md)다.
+배치 등록을 분리해 제공한다. 설계 근거는 [서비스 체계](domain-model.md)와 [목표 아키텍처](architecture.md)다.
 새 배치는 비활성 상태로 생성한다.
 수동 실행·Executor 제출·상태 확인은 [실행 API 안내](execution-api.md)를 따른다.
 활성화·스케줄러는 [예약 실행 안내](scheduling-api.md)를 따른다.
@@ -83,7 +83,8 @@ pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다
 
 경로의 UUID는 해당 사용자에게 속해야 하며 다른 사용자 자원은 존재 여부를 드러내지
 않는 404를 반환한다. 목록은 최신순, limit 기본 50·최대 100이며 응답은 `items`와
-`next_cursor`를 갖는다. 생성(201) 응답은 `Location` 헤더를 준다.
+`next_cursor`를 갖는다. 다음 페이지는 `next_cursor`를 그대로 `cursor`로 보낸다(불투명 문자열,
+잘못된 값은 422 `INVALID_CURSOR`). 생성(201) 응답은 `Location` 헤더를 준다.
 
 ### 스크립트 `/api/v1/scripts`
 
@@ -95,7 +96,7 @@ pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다
 | PATCH | /{script_id} | `{"name"}` 변경. If-Match |
 | DELETE | /{script_id} | 삭제. If-Match, 204 ([삭제](#삭제)) |
 | POST | /{script_id}/versions | 수정본 업로드. 새 버전 201, 같은 원본 200 |
-| GET | /{script_id}/versions | 버전 목록 (번호 역순, 번호 cursor) |
+| GET | /{script_id}/versions | 버전 목록 (번호 역순) |
 | GET | /{script_id}/versions/{version_id} | 버전 상세 + 셀 목록 |
 | GET | /{script_id}/versions/{version_id}/content | 해시를 검증한 원본 다운로드 |
 
@@ -309,6 +310,5 @@ make check
 테스트는 batch 스키마에 migration을 적용하고 테스트마다 테이블을 비운다.
 변수를 생략하면 PostgreSQL 테스트는 skip하고 입력·인증·저장소 단위 검증만 실행한다.
 
-DB migration은 `0001_baseline`(출시 전 정리), `0002_drop_reports`, `0003_soft_delete` 순서다.
-정리 이전의 0001~0003을 적용한 로컬 DB는 `batch` 스키마를 지운 뒤 다시 migration한다.
-`0003_soft_delete`는 삭제된 행이 있으면 되돌리기(downgrade)를 거절한다.
+DB migration은 운영 전이라 `0001_initial` 하나로 합쳐 두었다. 이전 migration(0001~0004)을 적용한
+로컬·개발 DB는 `batch` 스키마를 지운 뒤 다시 migration한다.

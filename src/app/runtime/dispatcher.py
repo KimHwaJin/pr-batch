@@ -1,7 +1,7 @@
 """Claims due tasks and drives them: prepare → remote call → apply."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -10,19 +10,19 @@ from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.integrations.executor import ExecutorError
 from app.models import Batch, BatchRun
-from app.tasks.handlers import HANDLERS, UNCERTAIN, Clients
+from app.tasks.handlers import HANDLERS, UNCERTAIN, Clients, abandon
 from app.tasks.queue import (
     ClaimedTask,
     TaskKind,
     backoff,
     claim,
     complete,
+    failing_for,
     locked_lease,
     next_due,
 )
 
 logger = logging.getLogger(__name__)
-RemoteError = ExecutorError
 
 
 def progress(run: BatchRun) -> tuple[object, ...]:
@@ -65,10 +65,12 @@ class Dispatcher:
         clients: Clients,
         *,
         lease_seconds: int = 90,
+        give_up_seconds: int = 86400,
     ) -> None:
         self.sessions = sessions
         self.clients = clients
         self.lease_seconds = lease_seconds
+        self.give_up = timedelta(seconds=give_up_seconds)
 
     def tick(self) -> bool:
         """Process at most one task; False when nothing was due."""
@@ -82,7 +84,7 @@ class Dispatcher:
         handler = HANDLERS[claimed.kind]
         try:
             response = handler.call(self.clients, context)
-        except RemoteError as exc:
+        except ExecutorError as exc:
             self.fail(claimed, exc)
             return True
         try:
@@ -100,7 +102,7 @@ class Dispatcher:
                 )
                 if progress(run) != before:
                     run.stamp_updated(DISPATCHER, now)
-        except RemoteError as exc:  # contract violations found while applying
+        except ExecutorError as exc:  # contract violations found in apply
             self.fail(claimed, exc)
         return True
 
@@ -119,25 +121,39 @@ class Dispatcher:
             complete(task)  # stale or no longer needed
         return context
 
-    def fail(self, claimed: ClaimedTask, error: RemoteError) -> None:
+    def fail(self, claimed: ClaimedTask, error: ExecutorError) -> None:
         code = str(error)
         logger.warning("Task %s %s failed: %s", claimed.kind, claimed.id, code)
         with self.sessions.begin() as session:
             task = locked_lease(session, claimed)
             if task is None:
                 return
+            run = lock_run(session, claimed.run_id)
             now = database_now(session)
-            if (
-                claimed.kind == TaskKind.SUBMIT_EXECUTION
-                and not error.submit_rejected
-            ):
-                task.payload = {**task.payload, UNCERTAIN: True}
-            backoff(task, now, code)
-            if claimed.run_id is not None:
-                run = session.get(BatchRun, claimed.run_id)
-                if run is not None and run.last_error != code:
+            before = progress(run) if run is not None else None
+            if failing_for(task, now) >= self.give_up:
+                # Retrying the same call has not worked for this long:
+                # stop tracking the run so it frees its slot.
+                logger.error(
+                    "Task %s %s abandoned: %s", claimed.kind, claimed.id, code
+                )
+                complete(task)
+                if (
+                    run is not None
+                    and claimed.kind != TaskKind.CANCEL_EXECUTION
+                ):
+                    abandon(session, run, code, now)
+            else:
+                if (
+                    claimed.kind == TaskKind.SUBMIT_EXECUTION
+                    and not error.submit_rejected
+                ):
+                    task.payload = {**task.payload, UNCERTAIN: True}
+                backoff(task, now, code)
+                if run is not None:
                     run.last_error = code
-                    run.stamp_updated(DISPATCHER, now)
+            if run is not None and progress(run) != before:
+                run.stamp_updated(DISPATCHER, now)
 
     def next_due(self) -> datetime | None:
         with self.sessions() as session:

@@ -99,26 +99,26 @@ def locked_lease(session: Session, claimed: ClaimedTask) -> Task | None:
     return task
 
 
-def complete(task: Task) -> None:
-    task.status = "DONE"
+def release(task: Task) -> None:
     task.lease_token = None
     task.lease_until = None
+
+
+def complete(task: Task) -> None:
+    release(task)
+    task.status = "DONE"
     task.last_error = None
 
 
 def reschedule(
-    task: Task,
-    at: datetime,
-    payload: dict[str, Any] | None = None,
-    *,
-    reset_attempts: bool = True,
+    task: Task, at: datetime, payload: dict[str, Any] | None = None
 ) -> None:
+    """Run again later after a successful call (e.g. the next poll)."""
+    release(task)
     task.run_at = at
-    task.lease_token = None
-    task.lease_until = None
+    task.attempts = 0
     task.last_error = None
-    if reset_attempts:
-        task.attempts = 0
+    task.failing_since = None
     if payload is not None:
         task.payload = payload
 
@@ -126,12 +126,16 @@ def reschedule(
 def backoff(task: Task, now: datetime, error: str) -> None:
     """Retry transport/contract failures with capped exponential backoff."""
     delay = min(300, 2 ** min(task.attempts, 9))
-    reschedule(
-        task,
-        now + timedelta(seconds=delay + random.uniform(0, delay / 4)),
-        reset_attempts=False,
-    )
+    release(task)
+    task.run_at = now + timedelta(seconds=delay + random.uniform(0, delay / 4))
     task.last_error = error
+    if task.failing_since is None:
+        task.failing_since = now
+
+
+def failing_for(task: Task, now: datetime) -> timedelta:
+    """How long this task has failed without a successful call."""
+    return now - (task.failing_since or now)
 
 
 def next_due(session: Session) -> datetime | None:

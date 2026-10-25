@@ -1,4 +1,4 @@
-"""Run lifecycle: the single user-visible status and its transitions."""
+"""Run lifecycle: the single user-visible status and its groupings."""
 
 from enum import StrEnum
 
@@ -30,26 +30,5 @@ FINAL = frozenset(
 # Still progressing; their batch and script cannot be deleted yet.
 ACTIVE = frozenset(RunStatus) - FINAL
 
-TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
-    RunStatus.WAITING: frozenset({RunStatus.QUEUED, RunStatus.CANCELLED}),
-    # FAILED: the Executor rejected the submission (nothing ran).
-    RunStatus.QUEUED: frozenset(
-        {RunStatus.RUNNING, RunStatus.CANCELLED, RunStatus.FAILED}
-    ),
-    RunStatus.RUNNING: frozenset({RunStatus.COLLECTING}),
-    RunStatus.COLLECTING: frozenset(
-        {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
-    ),
-}
-
 # Executor terminal states that end code execution.
 EXECUTOR_TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED"})
-
-
-class InvalidTransition(Exception):
-    pass
-
-
-def check_transition(current: str, target: RunStatus) -> None:
-    if target not in TRANSITIONS.get(RunStatus(current), frozenset()):
-        raise InvalidTransition(f"{current} -> {target}")

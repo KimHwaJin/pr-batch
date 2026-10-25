@@ -28,6 +28,8 @@ Key = Annotated[
     ),
 ]
 Limit = Annotated[int, Query(ge=1, le=100)]
+# The previous page's `next_cursor`, sent back verbatim.
+Cursor = Annotated[str | None, Query(max_length=1024)]
 
 
 def get_settings(request: Request) -> Settings:

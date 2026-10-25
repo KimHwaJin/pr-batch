@@ -39,7 +39,7 @@ def scheduling(client):
 POLICY_KEYS = {
     "overlap_policy": ("overlap", "mode"),
     "max_concurrent": ("overlap", "max_concurrent"),
-    "max_pending": ("overlap", "max_queued"),
+    "max_queued": ("overlap", "max_queued"),
     "misfire_policy": ("misfire", "mode"),
     "misfire_grace_seconds": ("misfire", "grace_seconds"),
     "catch_up_max_runs": ("misfire", "max_runs"),
@@ -259,7 +259,7 @@ def test_many_missed_occurrences_are_one_window(client, scheduling):
 
 
 def test_timely_admission_is_bounded_and_resumes(client, scheduling):
-    batch = enabled_batch(client, misfire_grace_seconds=86400, max_pending=300)
+    batch = enabled_batch(client, misfire_grace_seconds=86400, max_queued=300)
     first = first_at(batch)
     now = first + timedelta(minutes=249)
     assert scheduling.tick(now=now)
@@ -294,7 +294,7 @@ def test_scheduled_admission_uses_existing_overlap_policy(
         client,
         overlap_policy=policy,
         max_concurrent=maximum,
-        max_pending=1,
+        max_queued=1,
         misfire_grace_seconds=600,
     )
     assert scheduling.tick(now=first_at(batch) + timedelta(minutes=3))
