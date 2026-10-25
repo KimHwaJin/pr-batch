@@ -76,7 +76,8 @@ def call(
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
+            content = response.read()
+            return json.loads(content) if content else {}
     except HTTPError as exc:
         sys.exit(f"{method} {url} -> {exc.code}: {exc.read()[:500]!r}")
 
@@ -176,6 +177,19 @@ def main() -> None:
         )
     }
     print(json.dumps(summary, indent=2))
+    # The run is final: remove what this check registered so repeated
+    # smoke runs leave no batches (or scripts) behind.
+    for kind, resource in (("batches", batch), ("scripts", script)):
+        call(
+            "DELETE",
+            f"{api}/api/v1/{kind}/{resource['id']}",
+            auth
+            | {
+                "Idempotency-Key": f"del-{kind}-{nonce}",
+                "If-Match": f'"{resource["revision"]}"',
+            },
+        )
+    print(f"deleted batch {batch['id']} and script {script['id']}")
     notebooks = [a for a in run["artifacts"] if a["type"] == "NOTEBOOK"]
     steps_ok = all(step["status"] == "SUCCEEDED" for step in run["steps"])
     if status != "COMPLETED" or not steps_ok or not notebooks:
