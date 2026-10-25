@@ -105,7 +105,6 @@ pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다
 | type | 파일 | 실행 단위 | 상태 |
 | --- | --- | --- | --- |
 | NOTEBOOK | `.ipynb` | 비어 있지 않은 코드 셀 하나 = Step 하나 | 지원 |
-| PYTHON | `.py` | 파일 전체 = Step 하나 | 예약. 422 `UNSUPPORTED_SCRIPT_TYPE` |
 
 `name`을 생략하면 파일명에서 확장자를 뗀 값을 쓴다. 파일명은 표시용으로만
 저장하고 저장 경로에는 쓰지 않는다. 응답(ScriptView)에는 `type`이 포함된다.

@@ -1,8 +1,9 @@
 """Script types and the parsed form every type is reduced to.
 
 A script is reduced to ordered code units that become Executor steps.
-NOTEBOOK maps each non-empty code cell to one unit. New types (PYTHON)
-only need a parser registered in `app.domain.script_parser`.
+NOTEBOOK maps each non-empty code cell to one unit. A new type needs a
+member here, its file name and media type, a parser registered in
+`app.domain.script_parser`, its runtimes and a migration for the CHECK.
 """
 
 from dataclasses import dataclass
@@ -12,17 +13,14 @@ from typing import Any
 
 class ScriptType(StrEnum):
     NOTEBOOK = "NOTEBOOK"
-    PYTHON = "PYTHON"  # reserved; no parser yet
 
 
 # Stored original file name per type (never the user's file name).
 ORIGINAL_NAMES = {
     ScriptType.NOTEBOOK: "original.ipynb",
-    ScriptType.PYTHON: "original.py",
 }
 MEDIA_TYPES = {
     ScriptType.NOTEBOOK: "application/x-ipynb+json",
-    ScriptType.PYTHON: "text/x-python",
 }
 
 

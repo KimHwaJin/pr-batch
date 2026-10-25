@@ -520,3 +520,22 @@ def test_scheduled_runs_are_created_by_the_system(client, scheduling):
         "USER",
         ALICE,
     )
+
+
+def test_replace_admits_only_the_latest_due_occurrence(client, scheduling):
+    """Recovered runs would cancel each other; only the newest runs."""
+    batch = enabled_batch(
+        client,
+        overlap_policy="REPLACE",
+        misfire_policy="CATCH_UP",
+        catch_up_max_runs=3,
+    )
+    first = first_at(batch)
+    assert scheduling.tick(now=first + timedelta(minutes=10, seconds=30))
+    history = runs(client, batch)
+    assert [
+        (datetime.fromisoformat(run["scheduled_for"]), run["status"])
+        for run in history
+    ] == [(first + timedelta(minutes=10), "QUEUED")]
+    windows = {w["reason"]: w["occurrences"] for w in skipped(client, batch)}
+    assert windows == {"MISFIRE_CATCH_UP": 7, "REPLACED_BY_LATEST": 3}

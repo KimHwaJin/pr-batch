@@ -7,7 +7,7 @@
 ```text
 사용자 (owner, 호출 서비스가 JWT sub로 보낸 ID)
 │
-├── Script                         업로드한 스크립트 (여러 개, type: NOTEBOOK / 추후 PYTHON)
+├── Script                         업로드한 스크립트 (여러 개, type: NOTEBOOK)
 │   └── ScriptVersion              업로드 원본 1개 = 불변 버전 (v1, v2, …)
 │       └── Cell                   실행 단위 목록. NOTEBOOK은 코드 셀만 실행 대상
 │
@@ -48,7 +48,6 @@ erDiagram
 | 타입 | 실행 단위 | 상태 |
 | --- | --- | --- |
 | NOTEBOOK | `.ipynb`의 비어 있지 않은 코드 셀 하나 = Executor Step 하나 | 지원 |
-| PYTHON | `.py` 파일 전체 = Step 하나 (예정) | 예약. 등록 시 422 `UNSUPPORTED_SCRIPT_TYPE` |
 
 타입은 등록 시 `type`으로 받아 고정한다. 새 버전은 스크립트의 타입으로 파싱하고,
 타입별 파서가 파일을 실행 단위로 바꾼다. 새 타입은 파서만 추가하면 된다.
@@ -188,6 +187,7 @@ Run을 진행시키는 **외부 호출 1건**. 사용자 API에는 나오지 않
 | --- | --- |
 | MISFIRE_SKIP / MISFIRE_LATEST / MISFIRE_CATCH_UP | 서비스 장애 등으로 놓친 일정을 정책에 따라 생략 |
 | DISABLED | 비활성화 시점에 아직 접수 못 한 과거 예약 |
+| REPLACED_BY_LATEST | REPLACE 정책에서 한 번에 여러 일정이 도래했을 때 마지막 하나를 뺀 나머지 |
 | SCHEDULE_REPLACED | 활성 중 일정을 바꿀 때 옛 일정의 미접수분 |
 | DELETED | 활성 배치를 삭제할 때 아직 접수 못 한 과거 예약 |
 
