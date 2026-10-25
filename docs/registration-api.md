@@ -168,7 +168,7 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
   현재 스크립트의 최신 버전으로 다시 고정한다.
 - `schedule: null`은 일정 제거다. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - `policy`는 보낸 하위 필드만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
-- `tenant_id`는 한 번만 정할 수 있다(null → 값, 기존 배치 백필용). 같은 값은 그대로 두고,
+- `tenant_id`는 한 번만 정할 수 있다(null → 값, 기존 배치 백필용). 같은 값은 변경으로 치지 않아 `config_number`·`revision`이 그대로이고,
   다른 값은 409 `TENANT_IMMUTABLE`, null은 422다. 실행 도중 이벤트 수신자가 바뀌어 결과가
   유실되는 것을 막는다. 새 실행 설정(`config_number`)으로 기록되어 다음 실행부터 적용된다.
 - 새 스크립트 버전을 올려도 기존 배치는 바뀌지 않는다. 이미 접수된 실행은 접수 당시

@@ -241,9 +241,16 @@ class BatchService:
             check_revision(batch.revision, expected)
             config = current_config(session, batch)
             now = database_now(session)
-            if "name" in fields and data.name is not None:
+            changed = set(fields)
+            if data.tenant_id == config.tenant_id:
+                changed.discard("tenant_id")  # resending it changes nothing
+            if not changed:
+                return 200, batch_view(
+                    batch, config, config_version(session, config)
+                ).model_dump(mode="json")
+            if "name" in changed and data.name is not None:
                 batch.name = data.name
-            if fields - {"name"}:
+            if changed - {"name"}:
                 config = self.next_config(session, owner, batch, config, data)
                 if available is not None:
                     check_config_runtime(session, config, available)

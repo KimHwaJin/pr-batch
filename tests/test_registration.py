@@ -548,6 +548,10 @@ def test_tenant_id_is_optional_and_set_once(client):
     assert fetched["tenant_id"] == "pr-agentic"
     same = patch_batch(client, batch, "same", {"tenant_id": "pr-agentic"})
     assert same.status_code == 200
+    # Resending the current value is not a change: no new config/revision.
+    assert same.json()["config_number"] == batch["config_number"]
+    assert same.json()["revision"] == batch["revision"]
+    assert same.json()["updated_at"] == batch["updated_at"]
     changed = patch_batch(
         client, same.json(), "change", {"tenant_id": "other-service"}
     )
