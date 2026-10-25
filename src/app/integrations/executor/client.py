@@ -89,10 +89,13 @@ class ExecutorClient:
         path: str,
         model: type[T],
         payload: dict[str, Any] | None = None,
+        params: dict[str, str | int] | None = None,
     ) -> T:
         try:
             started = time.monotonic()
-            with self.client.stream(method, path, json=payload) as response:
+            with self.client.stream(
+                method, path, json=payload, params=params
+            ) as response:
                 if not 200 <= response.status_code < 300:
                     status = response.status_code
                     code = error_code(self.read_error(response, started))
@@ -160,10 +163,7 @@ class ExecutorClient:
             )
         except ExecutorError as exc:
             # Only a terminal execution; an idempotency conflict is a bug.
-            if exc.status == 409 and exc.code in {
-                None,
-                "INVALID_STATE_TRANSITION",
-            }:
+            if exc.status == 409 and exc.code == "INVALID_STATE_TRANSITION":
                 return False
             raise
         return True
@@ -173,11 +173,19 @@ class ExecutorClient:
         targets: list[RuntimeTarget] = []
         cursor: str | None = None
         for _ in range(50):  # hard stop against a misbehaving cursor
-            query = f"pool={pool}&enabled=true&limit=100"
+            params: dict[str, str | int] = {
+                "pool": pool,
+                "enabled": "true",
+                "limit": 100,
+            }
             if cursor:
-                query += f"&cursor={cursor}"
+                params["cursor"] = cursor
             page = self.request(
-                "GET", f"api/v1/runtime-targets?{query}", RuntimeTargetPage
+                "GET",
+                "api/v1/runtime-targets",
+                RuntimeTargetPage,
+                None,
+                params,
             )
             targets.extend(page.items)
             cursor = page.next_cursor

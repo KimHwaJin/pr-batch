@@ -69,4 +69,4 @@ class RunDetail(RunView):
 
 class RunPage(BaseModel):
     items: list[RunView]
-    next_cursor: UUID | None
+    next_cursor: str | None

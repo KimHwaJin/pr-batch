@@ -35,6 +35,7 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 `limit`(1~100, 기본 50)과 `cursor`를 쿼리로 받는다. 응답은 `{"items": [...], "next_cursor": ...}`이며
 `next_cursor`가 `null`이면 마지막 페이지다. 다음 페이지는 받은 `next_cursor`를 그대로 `cursor`에 넣는다.
+`cursor`는 불투명 문자열이다. 내용을 해석하거나 만들어 보내지 않는다(잘못된 값은 422 `INVALID_CURSOR`).
 목록은 최신순(버전은 번호 역순)이다.
 
 ### 소유권
@@ -236,7 +237,7 @@ curl "$BATCH_URL/api/v1/scripts/$SCRIPT_ID/versions" \
 
 ### GET /api/v1/scripts/{script_id}/versions — 버전 목록
 
-쿼리: `limit`, `cursor`(정수, 응답의 `next_cursor`). 버전 번호 역순.
+쿼리: `limit`, `cursor`. 버전 번호 역순.
 
 ### GET /api/v1/scripts/{script_id}/versions/{version_id} — 버전 상세
 
@@ -247,8 +248,8 @@ VersionView에 원본 셀별 `cell_list`가 추가된다.
   "id": "0b9a7e52-…", "version_number": 1, "cells": {"total": 3, "executable": 2, "skipped": 1},
   "cell_list": [
     {"index": 0, "type": "markdown", "executed": false, "sequence": null},
-    {"index": 1, "type": "code", "executed": true, "sequence": 1},
-    {"index": 2, "type": "code", "executed": true, "sequence": 2}
+    {"index": 1, "type": "code", "executed": true, "sequence": 0},
+    {"index": 2, "type": "code", "executed": true, "sequence": 1}
   ]
 }
 ```
@@ -435,7 +436,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 
 ### GET /api/v1/batches/{batch_id}/skipped-windows — 생략된 예약 구간
 
-실행 행을 만들지 않고 건너뛴 일정 구간이다. 쿼리: `limit`, `cursor`(UUID).
+실행 행을 만들지 않고 건너뛴 일정 구간이다. 쿼리: `limit`, `cursor`.
 
 ```json
 {
@@ -480,7 +481,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs" \
 
 ### GET /api/v1/batches/{batch_id}/runs — 실행 이력
 
-접수 역순. 쿼리: `limit`, `cursor`(UUID). 예약 실행은 `trigger: "SCHEDULED"`와 `scheduled_for`가 채워진다.
+접수 역순. 쿼리: `limit`, `cursor`. 예약 실행은 `trigger: "SCHEDULED"`와 `scheduled_for`가 채워진다.
 
 ### GET /api/v1/batches/{batch_id}/runs/{run_id} — 실행 상세
 
@@ -513,7 +514,7 @@ RunView에 셀별 `steps`가 추가된다. 실행이 끝날 때까지 이 API를
   "finished_at": "2026-10-21T05:12:40Z",
   "completed_at": "2026-10-21T05:12:45Z",
   "steps": [
-    {"sequence": 1, "original_index": 1, "source_sha256": "…", "step_id": "…", "status": "SUCCEEDED", "result_ref": {…}}
+    {"sequence": 0, "original_index": 1, "source_sha256": "…", "step_id": "…", "status": "SUCCEEDED", "result_ref": {…}}
   ]
 }
 ```
@@ -526,8 +527,8 @@ RunView에 셀별 `steps`가 추가된다. 실행이 끝날 때까지 이 API를
 | `QUEUED` | Executor 제출 대기·진행 | |
 | `RUNNING` | 코드 실행 중 | |
 | `COLLECTING` | 코드 종료, 결과 수집 중 | |
-| `COMPLETED` | 성공 (`notebook_status`가 `FAILED`면 결과 노트북 없음) | O |
-| `FAILED` | 코드 실행 실패 (`failure_type` 참고) | O |
+| `COMPLETED` | 성공 | O |
+| `FAILED` | 실패. `failure_type`: Executor 실패 유형(코드 오류 등), `SUBMIT_REJECTED`(Executor가 제출 거절), `ABANDONED`(Executor와 24시간 통신 실패로 포기) | O |
 | `CANCELLED` | 사용자 취소 또는 REPLACE 정책 취소 (`cancel_source`: `USER`·`POLICY`) | O |
 | `SKIPPED` | 실행하지 않음 (`skip_reason`) | O |
 
@@ -547,8 +548,8 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs/$RUN_ID/cancel" \
   -H "Idempotency-Key: $(uuidgen)"
 ```
 
-`WAITING`·`QUEUED`는 바로 `CANCELLED`가 되고, `RUNNING`은 `cancel_requested: true`로 응답한 뒤 Executor
-종료가 확인되면 `CANCELLED`가 된다. 최종 상태는 상세 GET으로 확인한다.
+`WAITING`은 바로 `CANCELLED`가 된다. `QUEUED`·`RUNNING`은 상태가 그대로이고 `cancel_requested: true`로
+응답한 뒤, 제출 전이면 곧바로, 제출됐으면 Executor 종료가 확인되면 `CANCELLED`가 된다. 최종 상태는 상세 GET으로 확인한다.
 
 | 오류 | 의미 |
 | --- | --- |

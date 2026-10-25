@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from app.api.deps import (
+    Cursor,
     Key,
     Limit,
     Owner,
@@ -26,6 +27,7 @@ def create_run(
     service: Runs,
     batch_id: UUID,
     key: Key,
+    # Only `{}` or no body: overrides of the stored configuration are 422.
     data: ManualRun | None = None,
 ) -> JSONResponse:
     require_executor(settings)
@@ -38,7 +40,7 @@ def list_runs(
     service: Runs,
     batch_id: UUID,
     limit: Limit = 50,
-    cursor: UUID | None = None,
+    cursor: Cursor = None,
 ) -> RunPage:
     return service.list(owner, batch_id, limit, cursor)
 

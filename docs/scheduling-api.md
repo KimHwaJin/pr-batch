@@ -41,8 +41,9 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 첫 활성화와 재활성화는 DB의 현재 시각보다 **뒤인** 첫 유효 일정을 선택한다.
 사용자가 중지한 동안의 일정은 소급 실행하지 않는다. 이미 지난 ONCE, 종료 기간이
 지난 일정처럼 앞으로 실행할 시각이 없으면 422 `NO_FUTURE_OCCURRENCE`다.
-일정이 없는 배치는 409 `SCHEDULE_REQUIRED`, Executor 주소가 없으면 503,
-선택 커널이 허용 목록에 없으면 422로 거절한다.
+일정이 없는 배치는 409 `SCHEDULE_REQUIRED`, Executor 주소가 없으면 503 `EXECUTOR_NOT_CONFIGURED`,
+Executor 런타임 목록을 읽지 못하면 503 `RUNTIME_CATALOG_UNAVAILABLE`, 선택한 런타임이 지금 Executor BATCH 풀에
+없으면 422 `UNKNOWN_RUNTIME`으로 거절한다. 같은 `Idempotency-Key`의 재전송은 Executor 상태와 관계없이 최초 응답을 돌려준다.
 
 중지는 이미 접수·대기·실행 중인 작업을 취소하지 않는다. 중지할 때 아직 접수하지
 못한 과거 예약은 `DISABLED` 생략 구간으로 보존한다. 중지 이후의 예약은 생성하지
@@ -50,7 +51,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 
 활성화 상태에서 배치 PATCH로 일정을 바꾸면 새 실행 설정(`config_number`)은 변경
 시각 이후의 첫 일정부터 적용한다. 옛 설정의 아직 접수되지 않은 과거 일정은
-`SCHEDULE_REPLACED` 구간으로 기록한다. 버전·커널·정책만 바꾸면 예약 포인터는
+`SCHEDULE_REPLACED` 구간으로 기록한다. 버전·런타임·정책만 바꾸면 예약 포인터는
 그대로이고 다음 접수부터 새 설정을 쓴다. 접수된 실행은 원래 snapshot을 유지한다.
 새 일정에 미래 발생 시각이 없으면 변경 전체를 거절하고 기존 예약을 유지한다.
 활성 상태에서는 일정을 제거(`schedule: null`)할 수 없다.
@@ -70,6 +71,18 @@ enabled만 보고 앞으로 실행이 남아 있다고 판단하지 않는다.
 예약 포인터 이동은 설정 revision을 증가시키지 않는다. ETag는 설정 변경 충돌을
 막는 용도이며 예약 진행 상황을 새로 읽으려면 GET을 사용한다.
 
+## 겹침 정책
+
+`policy.overlap.mode`로 이 배치의 코드가 아직 실행 중일 때 새 실행을 어떻게 할지 정한다.
+"실행 중"은 QUEUED·RUNNING이다(결과 수집 중인 COLLECTING은 막지 않는다).
+
+| mode | 동작 | 추가 값 |
+| --- | --- | --- |
+| SKIP (기본) | 새 실행을 SKIPPED(`OVERLAP`)로 기록 | |
+| QUEUE | 순서대로 WAITING. 대기열을 넘으면 SKIPPED(`SKIPPED_CAPACITY`) | `max_queued`(기본 100) |
+| PARALLEL | `max_concurrent`개까지 동시 실행, 나머지는 WAITING | `max_concurrent`, `max_queued` |
+| REPLACE | 실행 중·대기 중인 실행을 취소(`cancel_source=POLICY`)하고 새 실행은 그들이 멈춘 뒤 시작 | |
+
 ## 일정 계산
 
 시간대는 Asia/Seoul이다. 응답과 DB 시각은 UTC로 정규화하며 화면에서는 Seoul로
@@ -80,7 +93,7 @@ enabled만 보고 앞으로 실행이 남아 있다고 판단하지 않는다.
 | ONCE | 지정 시각 1회 |
 | INTERVAL | anchor + N × seconds. N은 0 이상의 정수이며 최소 간격 60초 |
 | CALENDAR DAILY | 매일 지정 시·분·초 |
-| CALENDAR WEEKLY | 선택 요일의 지정 시각. 월요일=0, 일요일=6 |
+| CALENDAR WEEKLY | 선택 요일(`MON`~`SUN`)의 지정 시각 |
 | CALENDAR MONTHLY | 선택 날짜 또는 월말. 없는 날짜는 건너뜀 |
 | CRON | 분·시·일·월·요일의 숫자 기반 5필드 |
 
@@ -91,19 +104,20 @@ Cron의 일과 요일을 모두 제한하면 OR다. 일요일은 0 또는 7이�
 
 ## 누락 일정 복구
 
-예약 시각이 `현재 시각 - policy.misfire_grace_seconds`보다 **앞이면** 누락 일정이다.
+예약 시각이 `현재 시각 - policy.misfire.grace_seconds`(기본 300초)보다 **앞이면** 누락 일정이다.
 경계와 같으면 정상 접수 대상이다. 누락 일정 복구를 먼저 처리한 뒤 정상 구간을
 예약 시각 순서로 접수한다.
 
-| policy.misfire | 복구 동작 |
+| policy.misfire.mode | 복구 동작 |
 | --- | --- |
 | SKIP | 늦은 일정 전체 생략 |
 | LATEST | 늦은 일정 중 가장 최근 1개 접수 |
 | CATCH_UP | 나이 제한 안의 최근 N개를 선택해 오래된 순서로 접수 |
 
-CATCH_UP은 `catch_up_max_age_seconds`와 `catch_up_max_runs`를 모두 적용한다.
+CATCH_UP은 `policy.misfire.max_age_seconds`(기본 86400)와 `max_runs`(기본 10)를 모두 적용한다.
 LATEST는 나이 제한을 적용하지 않는다. 정상 유예 구간의 일정은 복구 개수 N에
-포함하지 않는다. 선택된 복구 실행에도 SKIP·QUEUE·PARALLEL 겹침 정책을 적용한다.
+포함하지 않는다. 선택된 복구 실행에도 `policy.overlap` 겹침 정책(SKIP·QUEUE·PARALLEL·REPLACE)을 적용한다.
+REPLACE는 새 실행이 접수될 때마다 앞선 실행을 취소하므로, 여러 건을 복구해도 마지막 실행만 남는다.
 따라서 CATCH_UP으로 여러 실행을 모두 대기시키려면 QUEUE 또는 적절한 PARALLEL
 설정을 사용한다. SKIP에서는 이미 점유한 실행 때문에 뒤의 복구 실행이 생략될 수 있다.
 대기열 한도 초과 예약도 `SKIPPED_CAPACITY` 실행 이력으로 남긴다.
@@ -127,7 +141,7 @@ LATEST는 나이 제한을 적용하지 않는다. 정상 유예 구간의 일�
 장기간 생략된 예약을 실행 행으로 모두 만들지 않는다. skipped-windows 응답은
 `from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, `config_number`,
 reason을 반환한다. 사유는 MISFIRE_SKIP, MISFIRE_LATEST, MISFIRE_CATCH_UP,
-DISABLED, SCHEDULE_REPLACED, DELETED다. limit 1~100, UUID cursor로 페이지를 넘긴다.
+DISABLED, SCHEDULE_REPLACED, DELETED다. limit 1~100, 불투명 문자열 cursor(이전 응답의 `next_cursor`)로 페이지를 넘긴다.
 소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은
 별도 API다.
 
@@ -136,7 +150,7 @@ CATCH_UP 복구는 설정상 최대 1,000개, 기본 10개이며 여기에 정�
 더해진다. 생략 건수는 고정 간격의 경우 산술식, 달력/Cron은 날짜 단위로 계산한다.
 분 단위 예약을 수년간 놓쳐도 생략된 모든 실행을 메모리나 DB에 펼치지 않는다.
 
-`/readyz`는 migration과 PV 상태만 검사한다. 스케줄러·워커 프로세스 감독,
-과거 next_run_at의 체류 시간, 실행의 last_error 관찰은 운영 배포에서 연결해야
-한다. 이 단계에서 운영 환경 부하나 실제 Executor/Jupyter까지의 종단간 실행을
+`/readyz`는 DB 연결, migration head, PV 마운트를 검사하고, `/healthz`는 백그라운드
+루프(스케줄러·dispatcher·retention)의 heartbeat가 멈추면 503을 돌려 Pod를 재시작시킨다.
+과거 next_run_at의 체류 시간, 실행의 last_error 관찰은 운영 모니터링에서 연결해야 한다. 이 단계에서 운영 환경 부하나 실제 Executor/Jupyter까지의 종단간 실행을
 검증한 것은 아니다. PostgreSQL 동시성·롤백·복구와 테스트 Executor 연결을 검증했다.

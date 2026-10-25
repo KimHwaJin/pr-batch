@@ -33,7 +33,8 @@ class ScriptStorage:
 
     def save(
         self, owner: str, script_id: UUID, version: UUID, parsed: ParsedScript
-    ) -> tuple[str, list[dict[str, Any]]]:
+    ) -> tuple[str, str, list[dict[str, Any]]]:
+        """Write the version; returns (directory, original path, cells)."""
         if not self.root.is_dir():
             raise ServiceError(
                 503, "STORAGE_UNAVAILABLE", "Mount storage before registering."
@@ -70,7 +71,11 @@ class ScriptStorage:
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
-        return f"{directory}/{original}", cells
+        return directory, f"{directory}/{original}", cells
+
+    def discard(self, directory: str) -> None:
+        """Remove a version saved by a write that did not commit."""
+        shutil.rmtree(self.safe_path(directory), ignore_errors=True)
 
     @staticmethod
     def write_file(path: Path, data: bytes) -> None:

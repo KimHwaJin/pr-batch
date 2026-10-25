@@ -13,7 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import database_now
-from app.domain.run_state import EXECUTOR_TERMINAL, RunStatus
+from app.domain.run_state import (
+    ACTIVE,
+    EXECUTOR_TERMINAL,
+    OCCUPYING,
+    RunStatus,
+)
 from app.integrations.executor import (
     Detail,
     ExecutorClient,
@@ -77,6 +82,24 @@ def finish(run: BatchRun, status: RunStatus, now: datetime) -> None:
     run.completed_at = now
 
 
+def abandon(
+    session: Session, run: BatchRun, error: str, now: datetime
+) -> None:
+    """Give up on a run whose remote calls kept failing.
+
+    The Executor may still hold the execution; the run is FAILED here so
+    its slot frees and its batch and script can be deleted again.
+    """
+    if run.status not in ACTIVE or run.status == RunStatus.WAITING:
+        return
+    occupying = run.status in OCCUPYING
+    finish(run, RunStatus.FAILED, now)
+    run.failure_type = "ABANDONED"
+    run.last_error = error
+    if occupying:
+        promote_waiting(session, run.batch_id)
+
+
 def next_interval(task: Task, clients: Clients) -> tuple[int, dict[str, Any]]:
     current = int(task.payload.get("interval", clients.sync_initial_seconds))
     following = min(current * 2, clients.sync_max_seconds)
@@ -105,15 +128,15 @@ class SubmitExecution:
     def prepare(self, session, run, task):
         if run.status != RunStatus.QUEUED or run.execution_id is not None:
             return None
-        if run.cancel_requested:
+        uncertain = bool(task.payload.get(UNCERTAIN))
+        if run.cancel_requested and not uncertain:
             # Cancelled before anything reached the Executor.
             finish(run, RunStatus.CANCELLED, database_now(session))
             promote_waiting(session, run.batch_id)
             return None
-        return Submission(
-            submission_request(session, run),
-            bool(task.payload.get(UNCERTAIN)),
-        )
+        # An uncertain earlier attempt may have created the execution:
+        # resubmit (same key, so never a second one) and cancel it after.
+        return Submission(submission_request(session, run), uncertain)
 
     def call(self, clients, context):
         try:
@@ -207,20 +230,13 @@ class CollectResult:
         return run.execution_id
 
     def call(self, clients, context):
-        # The notebook projection is only reported by the detail endpoint.
-        return clients.executor.detail(context), clients.executor.result(
-            context
-        )
+        return clients.executor.result(context)
 
     def apply(self, session, task, run, context, response, now, clients):
-        detail, response = response
-        assert isinstance(detail, Detail) and isinstance(response, Result)
+        assert isinstance(response, Result)
+        complete(task)
         if run.status != RunStatus.COLLECTING:
-            complete(task)
             return
-        require(detail.execution_id == run.execution_id)
-        require(detail.state.status == run.execution_status)
-        run.notebook_status = detail.workspace.notebook_projection.status
         rows = bindings(session, run)
         require(response.execution.execution_id == run.execution_id)
         require(
@@ -248,29 +264,13 @@ class CollectResult:
             require(attempt.execution_id == run.execution_id)
         run.artifacts = [a.model_dump(mode="json") for a in response.artifacts]
         run.attempts = [a.model_dump(mode="json") for a in response.attempts]
-        outcome = run.execution_status
-        if outcome == "CANCELLED":
-            complete(task)
-            finish(run, RunStatus.CANCELLED, now)
-            return
-        if outcome != "SUCCEEDED":
-            complete(task)
-            finish(run, RunStatus.FAILED, now)
-            return
-        notebook_ready = any(
-            a.type == "NOTEBOOK" and a.status == "AVAILABLE"
-            for a in response.artifacts
-        )
-        # The code succeeded either way; a FAILED projection only means no
-        # result notebook, which notebook_status keeps visible.
-        if (
-            run.notebook_status == "SUCCEEDED" and notebook_ready
-        ) or run.notebook_status == "FAILED":
-            complete(task)
-            finish(run, RunStatus.COMPLETED, now)
-            return
-        # The notebook projection can finish after the execution.
-        poll_again(task, now, clients)
+        # The Executor reports SUCCEEDED only once the result notebook is
+        # projected and registered, so there is nothing left to wait for.
+        outcome = {
+            "SUCCEEDED": RunStatus.COMPLETED,
+            "CANCELLED": RunStatus.CANCELLED,
+        }.get(run.execution_status or "", RunStatus.FAILED)
+        finish(run, outcome, now)
 
 
 class CancelExecution:
@@ -285,12 +285,12 @@ class CancelExecution:
             actor = {"type": "USER", "id": run.owner_id}
         else:
             actor = {"type": "BATCH", "id": str(run.batch_id)}
+        assert run.cancel_reason is not None  # set with every request
         return (
             run.execution_id,
             f"batch-run:{run.id}:cancel",
             actor,
-            # Requests stored before cancel_source existed carry no reason.
-            run.cancel_reason or "Cancelled by pr-batch.",
+            run.cancel_reason,
         )
 
     def call(self, clients, context):

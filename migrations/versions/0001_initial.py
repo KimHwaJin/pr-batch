@@ -1,10 +1,10 @@
-"""Baseline: scripts, batches, configs, runs, reports and tasks."""
+"""Initial schema: scripts, batches, configs, runs and tasks."""
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0001_baseline"
+revision = "0001_initial"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -20,12 +20,18 @@ def upgrade() -> None:
         sa.Column("next_run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("config_number", sa.Integer(), nullable=False),
+        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("deleted_by_type", sa.String(length=16), nullable=True),
+        sa.Column("deleted_by", sa.String(length=255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by_type", sa.String(length=16), nullable=False),
         sa.Column("created_by", sa.String(length=255), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_by_type", sa.String(length=16), nullable=False),
         sa.Column("updated_by", sa.String(length=255), nullable=False),
+        sa.CheckConstraint(
+            "deleted_at IS NULL OR NOT enabled", name="deleted_is_disabled"
+        ),
         sa.CheckConstraint(
             "enabled OR next_run_at IS NULL", name="disabled_has_no_next_run"
         ),
@@ -61,6 +67,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("owner_id", "operation", "key"),
         schema="batch",
     )
+    op.create_index(
+        "ix_idempotency_created",
+        "idempotency_records",
+        ["created_at"],
+        unique=False,
+        schema="batch",
+    )
     op.create_table(
         "scripts",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -69,6 +82,9 @@ def upgrade() -> None:
         sa.Column("type", sa.String(length=16), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("latest_version_number", sa.Integer(), nullable=False),
+        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("deleted_by_type", sa.String(length=16), nullable=True),
+        sa.Column("deleted_by", sa.String(length=255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by_type", sa.String(length=16), nullable=False),
         sa.Column("created_by", sa.String(length=255), nullable=False),
@@ -143,6 +159,7 @@ def upgrade() -> None:
         sa.Column(
             "policy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),
+        sa.Column("tenant_id", sa.String(length=64), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by_type", sa.String(length=16), nullable=False),
         sa.Column("created_by", sa.String(length=255), nullable=False),
@@ -188,6 +205,8 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("skip_reason", sa.String(length=64), nullable=True),
         sa.Column("cancel_requested", sa.Boolean(), nullable=False),
+        sa.Column("cancel_source", sa.String(length=16), nullable=True),
+        sa.Column("cancel_reason", sa.String(length=255), nullable=True),
         sa.Column("execution_id", sa.Uuid(), nullable=True),
         sa.Column("operation_id", sa.Uuid(), nullable=True),
         sa.Column("execution_status", sa.String(length=32), nullable=True),
@@ -208,7 +227,6 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("last_error", sa.String(length=64), nullable=True),
-        sa.Column("report_generation", sa.Integer(), nullable=False),
         sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
@@ -221,9 +239,12 @@ def upgrade() -> None:
         sa.Column("updated_by_type", sa.String(length=16), nullable=False),
         sa.Column("updated_by", sa.String(length=255), nullable=False),
         sa.CheckConstraint(
+            "cancel_source IS NULL OR cancel_source IN ('USER', 'POLICY')",
+            name="run_cancel_source",
+        ),
+        sa.CheckConstraint(
             "status IN ('WAITING', 'QUEUED', 'RUNNING', 'COLLECTING', "
-            "'REPORTING', 'COMPLETED', 'FAILED', 'REPORT_FAILED', "
-            "'CANCELLED', 'SKIPPED')",
+            "'COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED')",
             name="run_status",
         ),
         sa.ForeignKeyConstraint(
@@ -298,36 +319,6 @@ def upgrade() -> None:
         schema="batch",
     )
     op.create_table(
-        "run_reports",
-        sa.Column("run_id", sa.Uuid(), nullable=False),
-        sa.Column("generation", sa.Integer(), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("job_id", sa.String(length=128), nullable=True),
-        sa.Column(
-            "artifacts",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-        ),
-        sa.Column("error_code", sa.String(length=64), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("created_by_type", sa.String(length=16), nullable=False),
-        sa.Column("created_by", sa.String(length=255), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_by_type", sa.String(length=16), nullable=False),
-        sa.Column("updated_by", sa.String(length=255), nullable=False),
-        sa.CheckConstraint(
-            "status IN ('REQUESTED', 'RUNNING', 'SUCCEEDED', 'FAILED')",
-            name="report_status",
-        ),
-        sa.CheckConstraint("generation >= 1", name="report_generation"),
-        sa.ForeignKeyConstraint(
-            ["run_id"],
-            ["batch.batch_runs.id"],
-        ),
-        sa.PrimaryKeyConstraint("run_id", "generation"),
-        schema="batch",
-    )
-    op.create_table(
         "run_step_bindings",
         sa.Column("run_id", sa.Uuid(), nullable=False),
         sa.Column("sequence", sa.Integer(), nullable=False),
@@ -362,6 +353,7 @@ def upgrade() -> None:
         sa.Column("lease_token", sa.Uuid(), nullable=True),
         sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_error", sa.String(length=64), nullable=True),
+        sa.Column("failing_since", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "status IN ('PENDING', 'DONE')", name="task_status"
@@ -372,6 +364,14 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         schema="batch",
+    )
+    op.create_index(
+        "ix_tasks_done_created",
+        "tasks",
+        ["created_at"],
+        unique=False,
+        schema="batch",
+        postgresql_where=sa.text("status = 'DONE'"),
     )
     op.create_index(
         "ix_tasks_due",
@@ -394,9 +394,14 @@ def downgrade() -> None:
         schema="batch",
         postgresql_where=sa.text("status = 'PENDING'"),
     )
+    op.drop_index(
+        "ix_tasks_done_created",
+        table_name="tasks",
+        schema="batch",
+        postgresql_where=sa.text("status = 'DONE'"),
+    )
     op.drop_table("tasks", schema="batch")
     op.drop_table("run_step_bindings", schema="batch")
-    op.drop_table("run_reports", schema="batch")
     op.drop_index(
         "ix_skipped_batch_created",
         table_name="skipped_windows",
@@ -419,6 +424,11 @@ def downgrade() -> None:
         "ix_scripts_owner_created", table_name="scripts", schema="batch"
     )
     op.drop_table("scripts", schema="batch")
+    op.drop_index(
+        "ix_idempotency_created",
+        table_name="idempotency_records",
+        schema="batch",
+    )
     op.drop_table("idempotency_records", schema="batch")
     op.drop_index(
         "ix_batches_owner_created", table_name="batches", schema="batch"

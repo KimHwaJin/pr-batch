@@ -100,6 +100,12 @@ class Settings(BaseSettings):
     sync_initial_seconds: int = Field(default=5, ge=1, le=300)
     sync_max_seconds: int = Field(default=60, ge=1, le=3600)
     shutdown_grace_seconds: float = Field(default=40, ge=1, le=600)
+    # A run whose Executor calls keep failing this long becomes FAILED
+    # (failure_type ABANDONED) instead of holding its slot forever.
+    task_give_up_seconds: int = Field(default=86400, ge=600, le=2592000)
+    # Purge expired idempotency keys and settled tasks (history is kept).
+    idempotency_retention_days: int = Field(default=7, ge=1, le=365)
+    task_retention_days: int = Field(default=30, ge=1, le=365)
 
     _auth_public_key: RSAPublicKey = PrivateAttr()
 

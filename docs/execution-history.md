@@ -1,83 +1,70 @@
 # 배치 실행 이력 저장 계약
 
-배치 실행 이력은 `pr-batch`의 PostgreSQL에 저장하고, 실행 결과 파일은 Executor가
-관리한다. 배치 ID 아래에 실행별 기록을 쌓고 각 기록에서 결과 노트북과 리포트를
-찾을 수 있도록 한다. 사용자와 합의한 저장 원칙이다. 현재 수동 실행·제출·상태와
-결과 참조 수집과 예약 실행·누락 구간 이력까지 구현했다. 보고서 생성 연결은 후속 범위다.
-구현된 상태와 API는 [실행 API 안내](execution-api.md)를 따른다.
+배치 실행 이력은 `pr-batch`의 PostgreSQL(`batch` 스키마)에 저장하고, 실행 결과 파일은
+Executor가 관리한다. 배치 ID 아래에 실행별 기록을 쌓고 각 기록에서 결과 노트북
+Artifact를 찾을 수 있도록 한다. 결과 리포트는 pr-agentic-service가 Executor 이벤트로
+만들며 pr-batch는 리포트 상태를 저장하지 않는다. API는 [실행 API 안내](execution-api.md)를 따른다.
 
 ## 식별자와 소속
 
 | 식별자 | 의미 |
 | --- | --- |
 | batch_id | 등록 작업의 고정 ID. 버전·일정을 변경해도 유지 |
-| notebook_id / notebook_version_id | 실행한 노트북과 불변 원본 버전의 ID |
-| run_id | 예약·수동 실행 한 번마다 Batch가 발급하는 ID |
+| script_id / script_version_id | 실행한 스크립트와 불변 원본 버전의 ID |
+| config_number | 접수 당시의 배치 설정 이력 번호 |
+| run_id | 예약·수동 실행 한 번마다 pr-batch가 발급하는 ID |
 | execution_id | 실제 코드 실행을 맡긴 Executor의 ID |
 | operation_id | 제출한 Executor Operation의 ID |
 | step_id | 원본 코드 셀과 대응하는 Executor Step의 ID |
-| report_job_id | prj_re에서 접수한 리포트 생성 작업의 ID |
-| artifact_id | Executor가 관리하는 결과 노트북·리포트의 ID |
+| artifact_id | Executor가 관리하는 결과 노트북의 ID |
 
 배치는 사용자 단위로 소유하며 프로젝트에 속하지 않는다. 실행 이력 조회에도 같은
-소유권을 적용한다. 결과 파일 조회·다운로드는 실행 이력의 소유자를 확인한 후 연결한다.
+소유권을 적용한다. Executor 제출 시 `metadata`에 batch_id, script_id, script_version_id,
+run_id를 넣어 Executor 쪽 이벤트에서도 실행을 찾을 수 있게 한다.
 
-## 실행별 저장 정보
+## 실행별 저장 정보 (`batch_runs`)
 
 | 구분 | 보존 내용 |
 | --- | --- |
 | 소유·소속 | run_id, batch_id, owner_id |
-| 원본 | notebook_version_id, 원본·코드 해시, 선택한 커널 |
-| 접수 맥락 | 예약 또는 수동 실행, 예약 시각, 일정 revision |
-| 실행 설정 | 접수 당시의 일정·겹침·누락 일정 정책과 제한값 |
-| 상태 | 제출 상태, Executor 실행 상태, 리포트 상태 |
-| 시간 | 접수, 실행 시작·종료, 리포트 완료, 마지막 상태 확인 시각 |
-| 실행 연결 | execution_id, operation_id, 원본 셀과 Step의 연결 |
-| 근거 연결 | Step별 결과 manifest와 Attempt/fence 참조 |
-| 결과 연결 | NOTEBOOK·REPORT Artifact ID, 리포트 작업 ID |
-| 오류 | 실패 단계, 오류 코드, 사용자에게 제공할 요약 |
-| 생략 | 실행하지 않은 예약의 시각과 건너뛴 사유 |
+| 원본 | script_id, script_version_id, 선택한 런타임 |
+| 접수 맥락 | trigger(SCHEDULED/MANUAL), 예약 시각, config_number |
+| 실행 설정 | 접수 당시의 일정·정책·tenant_id 사본(`snapshot`) |
+| 상태 | Run 상태, Executor 실행 상태와 version, 노트북 projection 상태 |
+| 취소 | cancel_requested, 취소 출처(USER/POLICY)와 사유 |
+| 시간 | 접수, 제출, 실행 시작·종료, 마지막 상태 확인, 종료 시각 |
+| 실행 연결 | execution_id, operation_id, 원본 셀과 Step의 연결(`run_step_bindings`) |
+| 근거 연결 | Step별 결과 manifest 참조(`result_ref`), Attempt 목록 |
+| 결과 연결 | Executor Artifact 목록, 결과 노트북 Artifact ID |
+| 오류 | failure_type(Executor 실패 유형, SUBMIT_REJECTED, ABANDONED), last_error 코드 |
+| 생략 | SKIPPED 실행의 사유, 압축된 생략 구간(`skipped_windows`) |
 
-실행 접수 시 선택한 버전·커널·설정을 고정한다. 현재 배치 설정을 다시 조회해서
-과거 실행 내용을 재구성하지 않는다. 이미 접수되어 대기 중인 실행에도 이 원칙을
-적용한다. 불변 버전·일정 revision을 참조하거나 그 값을 실행 snapshot으로 저장한다.
-
-원본 코드 셀과 Executor Step의 연결은 `run_step_bindings`에 보존한다.
-세부 컬럼 구성은 [데이터 모델](design.md)의 구현 과정에서 정하되 위 보존 정보를
-누락하지 않는다. 다른 서비스 테이블을 직접 수정하거나 DB 외래키로 연결하지 않는다.
+실행 접수 시 선택한 버전·런타임·설정을 고정한다. 현재 배치 설정을 다시 조회해서
+과거 실행 내용을 재구성하지 않는다. 이미 접수되어 대기 중인 실행에도 이 원칙을 적용한다.
+다른 서비스 테이블을 직접 수정하거나 DB 외래키로 연결하지 않는다.
 
 ## 저장과 상태 갱신 순서
 
-1. 실행 ID를 발급하고 실행 기록과 Executor 제출 명령을 같은 DB 트랜잭션에 저장한다.
+1. 실행 ID를 발급하고 실행 기록과 제출 Task를 같은 DB 트랜잭션에 저장한다.
 2. Executor에 제출한 뒤 반환받은 실행·Operation·Step ID를 해당 기록에 연결한다.
 3. 상태 조회 결과로 실행 상태와 시각을 갱신한다. 마지막 관측 시각도 기록한다.
-4. Executor 성공을 확인하면 리포트 요청을 기록하고 `prj_re`의 작업 ID를 연결한다.
-5. 리포트 저장·노트북 추가까지 확인되면 결과 참조와 리포트 완료 상태를 저장한다.
+4. Executor 종료를 확인하면 결과를 한 번 조회해 Step별 결과 참조와 Artifact를 저장하고 Run을 끝낸다.
 
-Executor 제출 응답을 잃어도 새 실행 ID를 만들지 않고 같은 명령·멱등성 키로
-접수 여부를 복구한다. 서비스 재시작 후에는 DB의 미완료 기록을 찾아 이어서 확인한다.
-상태 조회의 통신 오류는 코드 실행 실패와 구분하며, 오래된 응답으로 상태를 되돌리지
-않는다. 구체적인 lease·fence 및 중복 방지 구현은 서비스 설계를 따른다.
+Executor 제출 응답을 잃어도 새 실행 ID를 만들지 않고 같은 요청·멱등성 키로
+접수 여부를 복구한다. 서비스 재시작 후에는 DB의 미완료 Task를 이어서 처리한다.
+상태 조회의 통신 오류는 코드 실행 실패와 구분하며, 오래된 응답(낮은 version)으로 상태를
+되돌리지 않는다. 원격 호출이 24시간 계속 실패하면 Run을 FAILED(`ABANDONED`)로 남긴다.
 
-## 실행과 리포트 상태 분리
+자동 코드 재시도는 하지 않는다. 사용자가 수동 실행을 요청하면 새 run_id로 구분하며,
+실패한 과거 기록을 덮어쓰지 않는다.
 
-- 코드 실행과 리포트가 모두 성공해야 전체 완료로 표시한다.
-- 코드 실행 성공 후 리포트가 실패하면 두 상태를 각각 표시하고 결과 노트북을 보존한다.
-- 리포트만 재시도할 때 같은 run_id와 execution_id를 유지한다.
-- 리포트 작성 중에는 다음 노트북 실행을 막지 않는다.
-- 실행 겹침 때문에 건너뛴 예약도 이력과 사유를 남긴다.
-- 장기간 놓친 일정의 생략 구간은 범위·개수·사유를 보존할 수 있다.
+## 보관
 
-자동 코드 재시도 정책은 보류한다. 초기에는 Executor 상태를 기록하며 Batch가
-자동 재실행을 시작하지 않는다. 사용자가 별도로 수동 실행을 요청하면 새 run_id로
-구분하며, 실패한 과거 기록을 덮어쓰지 않는다.
+실행 이력(`batch_runs`, `run_step_bindings`, `skipped_windows`)은 자동 삭제하지 않는다.
+내부 처리 기록은 보존 기간 뒤 지운다: 끝난 Task는 30일, 멱등성 기록은 7일
+([아키텍처](architecture.md#41-보존-정리)).
 
-## 파일 보관과 결과 제공
-
-원본 `.ipynb`와 셀별 실행용 `.py`는 공유 PV의 사용자·배치·버전 경로 아래에 보관한다.
-실행 출력, 결과 노트북, 보고서 파일은 Executor의 저장 책임으로 유지한다.
-Batch DB에 코드·표·이미지·전체 파일을 복사하지 않고 식별자·상태·설정·참조를 저장한다.
-
-다운로드 URL은 보존한 Artifact ID를 바탕으로 인증된 사용자 진입 경로에서 제공한다.
-임시 URL을 유일한 파일 식별자로 저장하지 않으며 내부 PV 경로를 브라우저 URL로
-간주하지 않는다. 자동 삭제는 적용하지 않는다.
+원본 `.ipynb`와 셀별 실행용 `.py`는 공유 PV의 사용자·스크립트·버전 경로 아래에 보관한다.
+실행 출력과 결과 노트북은 Executor의 저장 책임이다. pr-batch DB에는 코드·표·이미지·전체
+파일을 복사하지 않고 식별자·상태·설정·참조만 저장한다. 내부 PV 경로를 브라우저 URL로
+간주하지 않는다.

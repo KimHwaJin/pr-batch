@@ -19,8 +19,12 @@ from conftest import (
 )
 from sqlalchemy import create_engine, select, text
 
+from app.domain.script_parser import parse_script
+from app.domain.scripts import ScriptType
 from app.models import ScriptVersion
+from app.services import script_service
 from app.services.runtime_catalog import UnconfiguredRuntimeCatalog
+from app.services.script_service import ScriptService
 
 
 def mixed_notebook() -> bytes:
@@ -415,6 +419,8 @@ def test_original_integrity_and_activation_requires_configuration(
     )
     assert response.status_code == 503
     assert response.json()["code"] == "STORAGE_INTEGRITY_ERROR"
+    # Production wires this catalog when no Executor is configured.
+    client.app.state.runtime_catalog = UnconfiguredRuntimeCatalog()
     assert (
         client.post(
             f"{API}/{batch['id']}/enable",
@@ -565,3 +571,30 @@ def test_tenant_id_is_optional_and_set_once(client):
     assert backfilled.json()["config_number"] == plain["config_number"] + 1
     renamed = patch_batch(client, backfilled.json(), "rename", {"name": "x"})
     assert renamed.json()["tenant_id"] == "team-a"
+
+
+def test_replay_is_answered_while_executor_is_down(client):
+    created = create_batch(client)
+    client.app.state.runtime_catalog = UnconfiguredRuntimeCatalog()
+    replay = create_batch(client)
+    assert replay.status_code == 201
+    assert replay.json() == created.json()
+    assert create_batch(client, key="new").status_code == 503
+
+
+def test_upload_files_are_removed_when_the_write_rolls_back(
+    client, settings, monkeypatch
+):
+    state = client.app.state
+    service = ScriptService(state.sessions, state.storage)
+    parsed = parse_script(
+        ScriptType.NOTEBOOK, notebook_bytes(), "a.ipynb", settings
+    )
+
+    def broken(*args):
+        raise RuntimeError("after the files were written")
+
+    monkeypatch.setattr(script_service, "script_view", broken)
+    with pytest.raises(RuntimeError):
+        service.create_script(ALICE, "k", None, parsed)
+    assert not any(settings.storage_root.rglob("original.ipynb"))

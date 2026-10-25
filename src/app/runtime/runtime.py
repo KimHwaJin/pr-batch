@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import Settings
 from app.integrations.executor import ExecutorClient
 from app.runtime.dispatcher import Dispatcher
+from app.runtime.retention import Retention
 from app.runtime.scheduler import Scheduler
 from app.tasks.handlers import Clients
 
@@ -45,7 +46,15 @@ class BackgroundRuntime:
         self.clients = clients
         self.scheduler = Scheduler(sessions)
         self.dispatcher = Dispatcher(
-            sessions, clients, lease_seconds=settings.task_lease_seconds
+            sessions,
+            clients,
+            lease_seconds=settings.task_lease_seconds,
+            give_up_seconds=settings.task_give_up_seconds,
+        )
+        self.retention = Retention(
+            sessions,
+            idempotency_days=settings.idempotency_retention_days,
+            task_days=settings.task_retention_days,
         )
         self.stopping = threading.Event()
         self.threads: list[threading.Thread] = []
@@ -55,7 +64,10 @@ class BackgroundRuntime:
         loops: list[
             tuple[str, Callable[[], bool], Callable[[], datetime | None]]
         ]
-        loops = [("scheduler", self.scheduler.tick, self.scheduler.next_due)]
+        loops = [
+            ("scheduler", self.scheduler.tick, self.scheduler.next_due),
+            ("retention", self.retention.tick, self.retention.next_due),
+        ]
         loops += [
             (f"tasks-{n}", self.dispatcher.tick, self.dispatcher.next_due)
             for n in range(self.settings.task_concurrency)

@@ -135,6 +135,11 @@ class Task(Base):
             postgresql_where=text("status = 'PENDING'"),
         ),
         Index("ix_tasks_run", "run_id"),
+        Index(
+            "ix_tasks_done_created",
+            "created_at",
+            postgresql_where=text("status = 'DONE'"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -151,6 +156,11 @@ class Task(Base):
         DateTime(timezone=True)
     )
     last_error: Mapped[str | None] = mapped_column(String(64))
+    # First failure since the last successful call; the dispatcher gives
+    # up on the run once failures have lasted task_give_up_seconds.
+    failing_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

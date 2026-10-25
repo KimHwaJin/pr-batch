@@ -3,8 +3,8 @@
 Python 3.12 기반 배치 서비스 프로젝트입니다.
 사용자별 스크립트(노트북) 업로드·버전 관리와, 업로드한 스크립트를 언제·어떻게 돌릴지 정하는
 배치 등록(일정·정책), 수동 실행·실행 이력을 제공합니다.
-별도 워커가 Executor 제출과 상태·결과 참조 수집을 담당합니다.
-예약 활성화·스케줄러·누락 일정 복구를 지원합니다. 실행 결과 리포트는 pr-agentic-service가 Executor 이벤트로 작성합니다.
+같은 프로세스의 백그라운드 런타임이 Executor 제출과 상태·결과 참조 수집, 예약 실행,
+누락 일정 복구를 담당합니다. 실행 결과 리포트는 pr-agentic-service가 Executor 이벤트로 작성합니다.
 
 [스크립트·배치 등록 API 안내](docs/registration-api.md)와
 [실행 API·처리 파이프라인 안내](docs/execution-api.md),
@@ -14,17 +14,12 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 
 ## 서비스 설계
 
-인터뷰에서 합의한 범위와 구현 전 검토할 설계를 관리합니다.
+인터뷰에서 합의한 범위와 현재 구현 구조를 정리합니다.
 
 - [확정 요구사항](docs/requirements.md)
-- [확정 실행 이력 저장 계약](docs/execution-history.md)
-- [목표 아키텍처 (배포 제약 반영)](docs/architecture.md)
+- [실행 이력 저장 계약](docs/execution-history.md)
+- [아키텍처 (배포 제약 반영)](docs/architecture.md)
 - [서비스 체계 (도메인 모델)](docs/domain-model.md)
-- [스크립트·배치 분리 설계](docs/notebook-batch-design.md)
-- [API·데이터 모델·상태 흐름 설계 초안](docs/design.md)
-- [Executor·prj_re 연동 계약과 확인 사항](docs/integrations.md)
-
-설계 초안은 전체 목표이며 실제 구현 범위는 각 API 안내에서 구분합니다.
 
 ## 디렉토리 구조
 
@@ -42,11 +37,11 @@ src/app/
     deps.py               인증·Idempotency-Key·If-Match·서비스 주입
     router.py             /api/v1 라우터 묶음
     v1/                   scripts, batches, runs 엔드포인트
-  services/               script, batch, run, idempotency, 공용 조회
-  domain/                 순수 로직: run_state(상태 머신), schedule_clock, scripts(타입)·script_parser·notebook_parser
+  services/               script, batch, run, idempotency, runtime_catalog(Executor 런타임 목록), 공용 조회
+  domain/                 순수 로직: run_state(상태), schedule_clock, scripts(타입)·runtimes·script_parser·notebook_parser
   storage/                공유 PV 스크립트 원본 저장소
   integrations/           executor(실행) HTTP 클라이언트
-  runtime/                백그라운드 런타임: 스케줄러 루프, Task dispatcher
+  runtime/                백그라운드 런타임: 스케줄러 루프, Task dispatcher, 보존 정리
   tasks/                  Task 큐(트랜잭션 outbox)와 handler(제출·조회·수집·취소)
 migrations/               Alembic (batch 스키마)
 scripts/                  Docker smoke 테스트
@@ -84,7 +79,7 @@ uv sync --locked
 활성화하지 않아도 됩니다.
 
 PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 뒤 연결값,
-커널 목록, 토큰 검증 공개키 경로를 설정합니다(`make auth-keys`가 로컬 키 쌍을 `.local-keys/`에 만듭니다). 공유 PV 경로는 미리 생성·마운트해야 합니다.
+Executor 주소, 토큰 검증 공개키 경로를 설정합니다(`make auth-keys`가 로컬 키 쌍을 `.local-keys/`에 만듭니다). 공유 PV 경로는 미리 생성·마운트해야 합니다.
 
 배포 환경(dev, stg, prd)은 ConfigMap·Secret 대신 계별 YAML 파일로 설정합니다.
 루트의 `config.dev.yml`, `config.stg.yml`, `config.prd.yml`에 계마다 다른
@@ -134,7 +129,7 @@ make docker-down
 - 공유 PV는 Executor가 `INPUT_STORAGE_ROOT`로 마운트하는
   `../executor/shared_dir`을 같은 경로로 마운트합니다(`EXECUTOR_SHARED_DIR`).
   두 이미지 모두 UID 1000으로 실행합니다.
-- 커널 기본값은 로컬 BATCH 런타임의 `default`입니다(`PR_BATCH_KERNEL_PROFILES`).
+- 런타임 선택지는 로컬 Executor BATCH 풀에서 읽습니다(`GET /api/v1/runtimes`).
 - 토큰 검증 키는 `make auth-keys`가 만든 로컬 키 쌍(`.local-keys/`, git 제외)을 마운트해 씁니다.
   배포 환경은 `keys/`에 커밋한 공개키를 `AUTH_PUBLIC_KEY_FILE`로 가리킵니다([keys/README.md](keys/README.md)).
 

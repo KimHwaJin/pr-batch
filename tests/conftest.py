@@ -21,7 +21,7 @@ from sqlalchemy.engine import make_url
 from app.core.config import Settings
 from app.main import create_app
 from app.schemas.batch import RuntimeSpec
-from app.services.runtime_catalog import StaticRuntimeCatalog
+from app.services.runtime_catalog import RuntimeCatalog
 
 # Callers sign with the private half; Settings reads the public PEM file.
 CALLER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -31,6 +31,16 @@ PUBLIC_PEM = CALLER_KEY.public_key().public_bytes(
 )
 API = "/api/v1/batches"
 SCRIPTS = "/api/v1/scripts"
+
+
+class StaticRuntimeCatalog(RuntimeCatalog):
+    """Fixed catalog standing in for the Executor BATCH pool."""
+
+    def __init__(self, specs: list[RuntimeSpec]) -> None:
+        self.specs = specs
+
+    def available(self) -> list[RuntimeSpec]:
+        return list(self.specs)
 
 
 def user_id(name: str) -> str:
@@ -144,7 +154,7 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
         connection.execute(
             text(
                 "TRUNCATE batch.skipped_windows, batch.tasks, "
-                "batch.run_reports_archive, batch.run_step_bindings, "
+                "batch.run_step_bindings, "
                 "batch.batch_runs, batch.batch_configs, "
                 "batch.batches, batch.script_versions, batch.scripts, "
                 "batch.idempotency_records"

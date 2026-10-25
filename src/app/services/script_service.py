@@ -1,5 +1,6 @@
 """Script uploads, immutable versions and owner-scoped reads."""
 
+from collections.abc import Callable
 from pathlib import PurePath
 from uuid import UUID, uuid4
 
@@ -25,7 +26,9 @@ from app.schemas.script import (
 from app.services.common import (
     before_cursor,
     check_revision,
+    decode_number_cursor,
     encode_cursor,
+    encode_number_cursor,
     owned_script,
     script_version,
 )
@@ -84,16 +87,18 @@ class ScriptService:
         script: Script,
         parsed: ParsedScript,
         number: int,
+        written: list[str],
     ) -> ScriptVersion:
         version_id = uuid4()
         try:
-            path, cell_map = self.storage.save(
+            directory, path, cell_map = self.storage.save(
                 script.owner_id, script.id, version_id, parsed
             )
         except OSError as exc:
             raise ServiceError(
                 503, "STORAGE_UNAVAILABLE", "Script storage unavailable."
             ) from exc
+        written.append(directory)
         version = ScriptVersion(
             id=version_id,
             script_id=script.id,
@@ -106,27 +111,48 @@ class ScriptService:
             cell_map=cell_map,
             cell_list=list(parsed.cell_list),
         )
-        version.stamp_created(Actor.user(script.owner_id))
+        version.stamp_created(
+            Actor.user(script.owner_id), database_now(session)
+        )
         session.add(version)
         session.flush()
         return version
+
+    def run_upload(
+        self,
+        owner: str,
+        operation: str,
+        key: str,
+        payload: object,
+        action: Callable[[Session, list[str]], MutationResult],
+    ) -> MutationResult:
+        """Idempotent write whose files are removed if it does not commit."""
+        written: list[str] = []
+        try:
+            return self.idempotency.run(
+                owner, operation, key, payload, lambda s: action(s, written)
+            )
+        except BaseException:
+            for directory in written:
+                self.storage.discard(directory)
+            raise
 
     def create_script(
         self, owner: str, key: str, name: str | None, parsed: ParsedScript
     ) -> MutationResult:
         display = name or PurePath(parsed.filename).stem or "script"
 
-        def action(session: Session) -> MutationResult:
+        def action(session: Session, written: list[str]) -> MutationResult:
             script = Script(
                 id=uuid4(), owner_id=owner, name=display, type=parsed.type
             )
-            script.stamp_created(Actor.user(owner))
+            script.stamp_created(Actor.user(owner), database_now(session))
             session.add(script)
             session.flush()
-            version = self.save_version(session, script, parsed, 1)
+            version = self.save_version(session, script, parsed, 1, written)
             return 201, script_view(script, version).model_dump(mode="json")
 
-        return self.idempotency.run(
+        return self.run_upload(
             owner,
             "script:create",
             key,
@@ -137,14 +163,10 @@ class ScriptService:
     def add_version(
         self, owner: str, script_id: UUID, key: str, parsed: ParsedScript
     ) -> MutationResult:
-        def action(session: Session) -> MutationResult:
+        """`parsed` was parsed as this script's own type (see the API)."""
+
+        def action(session: Session, written: list[str]) -> MutationResult:
             script = owned_script(session, owner, script_id, lock=True)
-            if parsed.type != script.type:
-                raise ServiceError(
-                    422,
-                    "SCRIPT_TYPE_MISMATCH",
-                    f"This script only accepts {script.type} files.",
-                )
             existing = session.scalar(
                 select(ScriptVersion).where(
                     ScriptVersion.script_id == script_id,
@@ -154,13 +176,15 @@ class ScriptService:
             if existing:
                 return 200, version_view(existing).model_dump(mode="json")
             number = script.latest_version_number + 1
-            version = self.save_version(session, script, parsed, number)
+            version = self.save_version(
+                session, script, parsed, number, written
+            )
             script.latest_version_number = number
             script.revision += 1
-            script.stamp_updated(Actor.user(owner))
+            script.stamp_updated(Actor.user(owner), version.created_at)
             return 201, version_view(version).model_dump(mode="json")
 
-        return self.idempotency.run(
+        return self.run_upload(
             owner,
             f"script:version:{script_id}",
             key,
@@ -181,7 +205,7 @@ class ScriptService:
             check_revision(script.revision, expected)
             script.name = name
             script.revision += 1
-            script.stamp_updated(Actor.user(owner))
+            script.stamp_updated(Actor.user(owner), database_now(session))
             latest = script_version(
                 session, script.id, script.latest_version_number
             )
@@ -272,15 +296,17 @@ class ScriptService:
         return ScriptPage(items=items, next_cursor=next_cursor)
 
     def versions(
-        self, owner: str, script_id: UUID, limit: int, cursor: int | None
+        self, owner: str, script_id: UUID, limit: int, cursor: str | None
     ) -> VersionPage:
         with self.sessions() as session:
             owned_script(session, owner, script_id)
             query = select(ScriptVersion).where(
                 ScriptVersion.script_id == script_id
             )
-            if cursor is not None:
-                query = query.where(ScriptVersion.version_number < cursor)
+            if cursor:
+                query = query.where(
+                    ScriptVersion.version_number < decode_number_cursor(cursor)
+                )
             rows = list(
                 session.scalars(
                     query.order_by(ScriptVersion.version_number.desc()).limit(
@@ -291,9 +317,11 @@ class ScriptService:
             items = [version_view(v) for v in rows[:limit]]
             return VersionPage(
                 items=items,
-                next_cursor=items[-1].version_number
-                if len(rows) > limit
-                else None,
+                next_cursor=(
+                    encode_number_cursor(items[-1].version_number)
+                    if len(rows) > limit
+                    else None
+                ),
             )
 
     def version(

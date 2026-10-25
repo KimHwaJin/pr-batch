@@ -1,15 +1,13 @@
 """Startup schema upgrade (the env script serializes replicas)."""
 
 import logging
-from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 
-from app.core.config import Settings
+from app.core.config import PROJECT_ROOT, Settings
 
 logger = logging.getLogger(__name__)
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def upgrade_to_head(settings: Settings) -> None:
