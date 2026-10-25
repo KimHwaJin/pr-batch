@@ -117,7 +117,8 @@ Cron의 일과 요일을 모두 제한하면 OR다. 일요일은 0 또는 7이�
 CATCH_UP은 `policy.misfire.max_age_seconds`(기본 86400)와 `max_runs`(기본 10)를 모두 적용한다.
 LATEST는 나이 제한을 적용하지 않는다. 정상 유예 구간의 일정은 복구 개수 N에
 포함하지 않는다. 선택된 복구 실행에도 `policy.overlap` 겹침 정책(SKIP·QUEUE·PARALLEL·REPLACE)을 적용한다.
-REPLACE는 새 실행이 접수될 때마다 앞선 실행을 취소하므로, 여러 건을 복구해도 마지막 실행만 남는다.
+REPLACE에서는 한 번에 여러 일정이 도래해도(누락 복구, 짧은 주기) 가장 최근 일정 하나만 접수하고
+나머지는 `REPLACED_BY_LATEST` 생략 구간으로 남긴다. 서로를 연달아 취소하는 실행을 만들지 않기 위해서다.
 따라서 CATCH_UP으로 여러 실행을 모두 대기시키려면 QUEUE 또는 적절한 PARALLEL
 설정을 사용한다. SKIP에서는 이미 점유한 실행 때문에 뒤의 복구 실행이 생략될 수 있다.
 대기열 한도 초과 예약도 `SKIPPED_CAPACITY` 실행 이력으로 남긴다.
@@ -141,7 +142,7 @@ REPLACE는 새 실행이 접수될 때마다 앞선 실행을 취소하므로, �
 장기간 생략된 예약을 실행 행으로 모두 만들지 않는다. skipped-windows 응답은
 `from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, `config_number`,
 reason을 반환한다. 사유는 MISFIRE_SKIP, MISFIRE_LATEST, MISFIRE_CATCH_UP,
-DISABLED, SCHEDULE_REPLACED, DELETED다. limit 1~100, 불투명 문자열 cursor(이전 응답의 `next_cursor`)로 페이지를 넘긴다.
+REPLACED_BY_LATEST, DISABLED, SCHEDULE_REPLACED, DELETED다. limit 1~100, 불투명 문자열 cursor(이전 응답의 `next_cursor`)로 페이지를 넘긴다.
 소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은
 별도 API다.
 

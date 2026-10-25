@@ -138,7 +138,7 @@ curl "$BATCH_URL/api/v1/runtimes" -H "Authorization: Bearer $TOKEN"
 | 필드 | 필수 | 값 |
 | --- | --- | --- |
 | `file` | O | `.ipynb` 파일 |
-| `type` | O | `NOTEBOOK` (`PYTHON`은 예약값, 현재 422) |
+| `type` | O | `NOTEBOOK` |
 | `name` | X | 1~255자. 생략하면 파일명에서 확장자를 뺀 값 |
 
 ```sh
@@ -176,7 +176,6 @@ curl "$BATCH_URL/api/v1/scripts" \
 | 422 `EMPTY_NOTEBOOK` | 실행할 코드 셀이 없음 |
 | 422 `TOO_MANY_CELLS`, `CELL_TOO_LARGE` | 코드 셀 100개, 셀당 1 MiB 초과(기본) |
 | 422 `UNSUPPORTED_LANGUAGE` | Python이 아닌 노트북 |
-| 422 `UNSUPPORTED_SCRIPT_TYPE` | `type=PYTHON` |
 | 503 `STORAGE_UNAVAILABLE` | 저장소 장애 |
 
 ### GET /api/v1/scripts — 목록
@@ -449,7 +448,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 }
 ```
 
-`reason`: `MISFIRE_SKIP`, `MISFIRE_LATEST`, `MISFIRE_CATCH_UP`, `DISABLED`, `SCHEDULE_REPLACED`, `DELETED`.
+`reason`: `MISFIRE_SKIP`, `MISFIRE_LATEST`, `MISFIRE_CATCH_UP`, `REPLACED_BY_LATEST`, `DISABLED`, `SCHEDULE_REPLACED`, `DELETED`.
 
 ---
 

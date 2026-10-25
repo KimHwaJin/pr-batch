@@ -1,5 +1,6 @@
 """Script upload, version, download and delete endpoints."""
 
+from pathlib import PurePath
 from typing import Annotated
 from uuid import UUID
 
@@ -17,7 +18,7 @@ from app.api.deps import (
     mutation_response,
     uploaded_script,
 )
-from app.domain.scripts import MEDIA_TYPES, ScriptType
+from app.domain.scripts import MEDIA_TYPES, ORIGINAL_NAMES, ScriptType
 from app.schemas.common import Name
 from app.schemas.script import (
     RenameScript,
@@ -137,7 +138,7 @@ def download_version(
     owner: Owner, service: Scripts, script_id: UUID, version_id: UUID
 ) -> Response:
     data, script_type = service.download(owner, script_id, version_id)
-    extension = ".ipynb" if script_type == ScriptType.NOTEBOOK else ".py"
+    extension = PurePath(ORIGINAL_NAMES[script_type]).suffix
     return Response(
         data,
         media_type=MEDIA_TYPES[script_type],

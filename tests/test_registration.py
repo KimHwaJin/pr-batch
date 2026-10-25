@@ -481,7 +481,7 @@ def test_script_type_is_required_and_fixed(client):
         script_type="PYTHON",
     )
     assert python.status_code == 422
-    assert python.json()["code"] == "UNSUPPORTED_SCRIPT_TYPE"
+    assert python.json()["code"] == "VALIDATION_ERROR"
     unknown = upload_script(client, key="sql", script_type="SQL")
     assert unknown.status_code == 422
     script = upload_script(client).json()

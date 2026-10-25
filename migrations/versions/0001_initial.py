@@ -91,9 +91,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_by_type", sa.String(length=16), nullable=False),
         sa.Column("updated_by", sa.String(length=255), nullable=False),
-        sa.CheckConstraint(
-            "type IN ('NOTEBOOK', 'PYTHON')", name="script_type"
-        ),
+        sa.CheckConstraint("type IN ('NOTEBOOK')", name="script_type"),
         sa.CheckConstraint("revision >= 1", name="script_revision_positive"),
         sa.PrimaryKeyConstraint("id"),
         schema="batch",

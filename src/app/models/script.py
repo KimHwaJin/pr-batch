@@ -20,7 +20,7 @@ class Script(SoftDeleteMixin, Base):
     __tablename__ = "scripts"
     __table_args__ = (
         CheckConstraint("revision >= 1", name="script_revision_positive"),
-        CheckConstraint("type IN ('NOTEBOOK', 'PYTHON')", name="script_type"),
+        CheckConstraint("type IN ('NOTEBOOK')", name="script_type"),
         Index("ix_scripts_owner_created", "owner_id", "created_at", "id"),
     )
 

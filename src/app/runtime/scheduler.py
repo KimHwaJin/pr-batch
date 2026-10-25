@@ -50,6 +50,7 @@ class Scheduler:
             cursor = batch.next_run_at
             assert cursor is not None
             cutoff = now - timedelta(seconds=policy.misfire.grace_seconds)
+            due: list[datetime] = []
             if cursor < cutoff:
                 recovered = []
                 count = 0
@@ -81,16 +82,31 @@ class Scheduler:
                     now,
                     SCHEDULER,
                 )
-                for scheduled_for in recovered:
-                    admit_run(session, batch, config, SCHEDULER, scheduled_for)
+                due.extend(recovered)
                 cursor = clock.find(cutoff, inclusive=True)
             # Bound timely admissions too: a long grace period is not an
             # excuse for unbounded row creation in a single transaction.
             for _ in range(100):
                 if cursor is None or cursor > now:
                     break
-                admit_run(session, batch, config, SCHEDULER, cursor)
+                due.append(cursor)
                 cursor = clock.find(cursor)
+            if policy.overlap.mode == "REPLACE" and len(due) > 1:
+                # Each admission would cancel the previous one: run only
+                # the latest and record the rest as skipped.
+                record_skipped(
+                    session,
+                    batch,
+                    config,
+                    due[0],
+                    due[-1],
+                    "REPLACED_BY_LATEST",
+                    now,
+                    SCHEDULER,
+                )
+                due = due[-1:]
+            for scheduled_for in due:
+                admit_run(session, batch, config, SCHEDULER, scheduled_for)
             batch.next_run_at = cursor
             return True
 

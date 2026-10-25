@@ -13,5 +13,4 @@ BATCH_POOL = "BATCH"
 
 SCRIPT_RUNTIMES: dict[ScriptType, frozenset[str]] = {
     ScriptType.NOTEBOOK: frozenset({"JUPYTER"}),
-    ScriptType.PYTHON: frozenset({"JUPYTER"}),
 }
