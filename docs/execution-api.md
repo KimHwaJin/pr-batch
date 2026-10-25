@@ -103,11 +103,10 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 `metadata.batch_id`로 식별한다. Executor가 BATCH trigger에 USER actor를 허용한 뒤에 배포해야 한다.
 
 배치에 `tenant_id`가 있으면 제출 본문 최상위에 싣는다(`context` 안이 아니다). 값은 실행을 만들 때
-`snapshot.tenant_id`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 그대로 간다. Executor
-멱등성 비교에 `tenant_id`와 `metadata`가 들어가므로, 이 필드가 생기기 전에 만든 실행(snapshot에 키가
-없음)은 `tenant_id`와 `metadata.run_id` 없이 원래 본문으로 재제출한다. 회차 식별자는 명세 권장대로
-`metadata.run_id`에 둔다. `context`도 실행을 만들 때 `snapshot.context`(`user_id`만)로 고정한다.
-이 키가 없는 이전 실행은 `context.task_id`가 든 원래 본문으로 재제출한다.
+`snapshot.tenant_id`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 그대로 간다(Executor
+멱등성 비교에 `tenant_id`가 들어가므로 재제출도 같은 값을 보낸다). `context`는 Executor 범위 정보인
+`{user_id}`만 보내고, 회차 식별자는 `metadata.run_id`에 둔다. Executor의 2026-10-25 변경 이후 형식만
+지원하며 `context.task_id`는 보내지 않는다.
 
 예: pr-batch 실행 응답의 `execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
 자세히 볼 수 있다. Executor는 인증이 없는 내부 서비스이므로 사용자에게는 prj_re가 소유권 확인 후 중계한다.

@@ -863,8 +863,13 @@ def test_submission_carries_tenant_and_run_id(client, execution):
     tick(worker, run)
     body = fake.payloads[0]
     assert body["tenant_id"] == "pr-agentic"
-    assert body["context"] == run["snapshot"]["context"] == {"user_id": ALICE}
-    assert body["metadata"]["run_id"] == run["id"]
+    assert body["context"] == {"user_id": ALICE}
+    assert body["metadata"] == {
+        "batch_id": run["batch_id"],
+        "script_id": run["script_id"],
+        "script_version_id": run["script_version_id"],
+        "run_id": run["id"],
+    }
     other = create_batch(client, key="no-tenant").json()
     run = run_request(client, other["id"], key="run-2").json()
     tick(worker, run)
@@ -888,27 +893,6 @@ def test_tenant_is_fixed_when_the_run_is_created(client, execution):
     assert response.status_code == 200, response.text
     tick(worker, run)
     assert "tenant_id" not in fake.payloads[0]
-
-
-def test_runs_created_before_tenants_resubmit_the_original_body(
-    client, execution
-):
-    fake, worker = execution
-    batch = create_batch(client, config=metadata(tenant_id="pr-agentic"))
-    run = run_request(client, batch.json()["id"]).json()
-    with worker.sessions.begin() as session:
-        stored = session.get(BatchRun, UUID(run["id"]))
-        stored.snapshot = {
-            k: v for k, v in stored.snapshot.items() if k != "tenant_id"
-        }
-    tick(worker, run)
-    body = fake.payloads[0]
-    assert "tenant_id" not in body
-    assert set(body["metadata"]) == {
-        "batch_id",
-        "script_id",
-        "script_version_id",
-    }
 
 
 @pytest.mark.parametrize(

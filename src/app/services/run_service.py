@@ -141,8 +141,6 @@ def admit_run(
             # Fixed per run: the Executor idempotency fingerprint includes
             # it, so a resubmission must send the same value.
             "tenant_id": config.tenant_id,
-            # Same reason; metadata.run_id names the run, not context.
-            "context": {"user_id": batch.owner_id},
         },
         status=target,
         skip_reason=reason,
@@ -208,9 +206,8 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "actor": {"type": "USER", "id": run.owner_id},
         },
         "runtime": dict(run.runtime),
-        "context": run.snapshot.get(
-            "context", {"user_id": run.owner_id, "task_id": str(run.id)}
-        ),
+        # Executor scope only; metadata.run_id names the run.
+        "context": {"user_id": run.owner_id},
         "operation": {
             "spec": {
                 "schema_version": "1.0",
@@ -234,15 +231,11 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "batch_id": str(run.batch_id),
             "script_id": str(run.script_id),
             "script_version_id": str(run.script_version_id),
+            "run_id": str(run.id),
         },
     }
-    # Runs created before this field have no snapshot key. They resubmit
-    # their original body unchanged: the Executor rejects a key reused with
-    # a different body (fingerprint includes metadata and tenant_id).
-    if "tenant_id" in run.snapshot:
-        request["metadata"]["run_id"] = str(run.id)
-        if run.snapshot["tenant_id"]:
-            request["tenant_id"] = run.snapshot["tenant_id"]
+    if tenant_id := run.snapshot.get("tenant_id"):
+        request["tenant_id"] = tenant_id
     return request
 
 
