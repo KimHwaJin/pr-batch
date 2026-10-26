@@ -10,7 +10,8 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 [실행 API·처리 파이프라인 안내](docs/execution-api.md),
 [예약 실행 안내](docs/scheduling-api.md)를 따릅니다.
 배치 API를 호출하는 서비스는 [호출 서비스 인증 가이드](docs/client-auth.md)와
-[API별 호출 가이드](docs/client-api.md)를 참고합니다.
+[API별 호출 가이드](docs/client-api.md)를 참고합니다. 처음 전달 이후 바뀐 점은
+[API 사용 변경 사항](docs/api-changes.md)에 있습니다.
 
 ## 서비스 설계
 

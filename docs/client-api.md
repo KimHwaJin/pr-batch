@@ -5,6 +5,8 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 [등록 API](registration-api.md), [실행 API](execution-api.md), [예약 실행](scheduling-api.md) 문서에 있다.
 실행 중인 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
 
+2026-10-21에 처음 전달한 이후 바뀐 점은 [API 사용 변경 사항](api-changes.md)에 정리했다.
+
 ## 공통 규칙
 
 ### 주소
@@ -25,7 +27,8 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 **Idempotency-Key**: 같은 사용자·같은 작업·같은 키로 같은 본문을 다시 보내면 처리하지 않고 최초 응답(상태
 코드 포함)을 그대로 돌려준다. 네트워크 오류·타임아웃 뒤에는 **같은 키와 같은 본문**으로 재시도한다. 같은
 키에 다른 본문을 보내면 409 `IDEMPOTENCY_CONFLICT`다. 재전송 응답은 최초 시점의 값이므로 최신 상태는 GET으로
-읽는다.
+읽는다. 키 기록은 7일 보관되며, 그 뒤 같은 키는 새 요청으로 처리된다. Executor 장애로 503이 나도 이미 처리된
+요청의 재전송은 최초 응답을 돌려준다.
 
 **If-Match**: 자원의 `revision`이 바뀌었으면 409 `REVISION_CONFLICT`다. 다시 GET해서 새 `ETag`로 요청한다.
 형식이 틀리면(따옴표 누락 등) 422 `INVALID_REVISION`, 헤더가 없으면 422 `VALIDATION_ERROR`다.
@@ -283,6 +286,7 @@ curl -o daily.ipynb "$BATCH_URL/api/v1/scripts/$SCRIPT_ID/versions/$VERSION_ID/c
 | `runtime` | O | `{"type": "JUPYTER", "profile": "..."}`. `GET /runtimes` 목록 중 하나 |
 | `schedule` | X | 일정. 없으면 수동 실행 전용(활성화 불가) |
 | `policy` | X | 겹침(`overlap`)·누락(`misfire`) 정책. 생략하면 둘 다 `SKIP` |
+| `tenant_id` | X | 이 배치 실행의 Executor 이벤트를 받을 시스템 ID(예: `pr-agentic`). `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가. 있으면 이벤트가 `executor.events.{tenant_id}`로만 가고, 없으면 공용 `executor.events` |
 
 ```sh
 curl "$BATCH_URL/api/v1/batches" \
@@ -294,7 +298,8 @@ curl "$BATCH_URL/api/v1/batches" \
     "script_id": "8d3c2f0e-6c1b-4a8e-9f6e-2d7b1c0a4e11",
     "runtime": {"type": "JUPYTER", "profile": "default"},
     "schedule": {"definition": {"kind": "CRON", "expression": "0 8 * * MON-FRI"}},
-    "policy": {"overlap": {"mode": "QUEUE"}, "misfire": {"mode": "LATEST"}}
+    "policy": {"overlap": {"mode": "QUEUE"}, "misfire": {"mode": "LATEST"}},
+    "tenant_id": "pr-agentic"
   }'
 ```
 
@@ -316,6 +321,7 @@ curl "$BATCH_URL/api/v1/batches" \
     "overlap": {"mode": "QUEUE", "max_queued": 100},
     "misfire": {"mode": "LATEST", "grace_seconds": 300}
   },
+  "tenant_id": "pr-agentic",
   "enabled": false,
   "next_run_at": null,
   "preview_runs": ["2026-10-21T23:00:00Z", "2026-10-22T23:00:00Z", "…"],
@@ -344,7 +350,7 @@ curl "$BATCH_URL/api/v1/batches" \
 | overlap (이전 실행이 아직 돌 때) | `SKIP` | 없음 |
 | | `QUEUE` | `max_queued` (100) |
 | | `PARALLEL` | `max_concurrent` (필수, 1~100), `max_queued` (100) |
-| | `REPLACE` | 없음. 실행 중인 것을 취소하고 새로 실행 |
+| | `REPLACE` | 없음. 실행 중인 것을 취소하고 새로 실행. 한 번에 여러 일정이 도래하면 마지막 하나만 실행 |
 | misfire (장애 등으로 놓친 일정) | `SKIP` | `grace_seconds` (300) |
 | | `LATEST` | `grace_seconds` (300) |
 | | `CATCH_UP` | `grace_seconds` (300), `max_runs` (10), `max_age_seconds` (86400) |
@@ -354,11 +360,11 @@ curl "$BATCH_URL/api/v1/batches" \
 | 오류 | 의미 |
 | --- | --- |
 | 404 `NOT_FOUND` | `script_id`가 없거나 내 것이 아님 |
-| 422 `VALIDATION_ERROR` | 필드 형식, 일정 정의, 모드에 없는 정책 값 |
+| 422 `VALIDATION_ERROR` | 필드 형식, 일정 정의, 모드에 없는 정책 값, `tenant_id` 형식·예약어 |
 | 422 `INVALID_POLICY` | 정책 조합 오류 |
 | 422 `UNKNOWN_RUNTIME` | 런타임 목록에 없는 조합 |
 | 422 `RUNTIME_NOT_SUPPORTED` | 스크립트 타입이 그 런타임에서 돌 수 없음 |
-| 503 `RUNTIME_CATALOG_UNAVAILABLE` | Executor 조회 실패 |
+| 503 `RUNTIME_CATALOG_UNAVAILABLE`, `EXECUTOR_NOT_CONFIGURED` | Executor 조회 실패·미설정 |
 
 ### GET /api/v1/batches — 목록
 
@@ -390,8 +396,11 @@ curl -X PATCH "$BATCH_URL/api/v1/batches/$BATCH_ID" \
 - `script_version_number: null` 또는 `script_id`만 보내면 최신 버전으로 다시 고정.
 - `schedule: null`은 일정 제거. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - 다른 `mode`를 보내면 그 구역은 새 모드의 기본값에서 다시 시작한다.
+- `tenant_id`는 한 번만 정할 수 있다(null → 값, 기존 배치 백필용). 같은 값은 변경으로 치지 않아
+  `config_number`·`revision`이 그대로이고, 다른 값은 409 `TENANT_IMMUTABLE`, `null`은 422다.
+  이미 접수된 실행은 접수 당시 값으로 Executor에 제출된다.
 
-200, 변경된 BatchView와 새 `ETag`. 오류는 등록과 같고 409 `REVISION_CONFLICT`, `SCHEDULE_REQUIRED`,
+200, 변경된 BatchView와 새 `ETag`. 오류는 등록과 같고 409 `REVISION_CONFLICT`, `SCHEDULE_REQUIRED`, `TENANT_IMMUTABLE`,
 422 `NO_FUTURE_OCCURRENCE`(활성 배치의 새 일정에 앞으로 실행할 시각이 없음)가 추가된다.
 
 ### DELETE /api/v1/batches/{batch_id} — 삭제
