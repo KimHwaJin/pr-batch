@@ -5,7 +5,8 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 [등록 API](registration-api.md), [실행 API](execution-api.md), [예약 실행](scheduling-api.md) 문서에 있다.
 실행 중인 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
 
-2026-10-21에 처음 전달한 이후 바뀐 점은 [API 사용 변경 사항](api-changes.md)에 정리했다.
+2026-10-21에 처음 전달한 이후 바뀐 점은 [API 사용 변경 사항](api-changes.md)에, 2026-10-29 인증·tenant
+변경은 [Batch API 변경 사항](batch-api-changes.md)에 정리했다.
 
 ## 공통 규칙
 
