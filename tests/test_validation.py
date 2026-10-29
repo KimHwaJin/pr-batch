@@ -176,6 +176,8 @@ def test_policy_defaults_and_parallel_rule():
         ({"X-Api-Key": CALLER_KEY, "X-User-Id": "a/b"}, 400, None),
         (token(project="unscoped"), 400, "INVALID_IDENTITY"),
         (token(project="a b"), 400, "INVALID_IDENTITY"),
+        (token(project=".p"), 400, "INVALID_IDENTITY"),
+        (token(project="-p"), 400, "INVALID_IDENTITY"),
         (token(tenant="Not_A_Tenant"), 400, "INVALID_IDENTITY"),
         # Relay key, tenant outside allowed_tenants.
         (token(tenant="someone-else"), 403, "FORBIDDEN"),
