@@ -21,7 +21,7 @@ from app.schemas.common import TenantId
 # Opaque user IDs (UUIDs, employee numbers, ...), lower-cased; the same
 # rule in pr-agentic-service and the Executor, whose paths they name.
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-PROJECT_ID = re.compile(r"^[A-Za-z0-9._-]{1,255}$")
+PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 API_KEY_MAX_LENGTH = 512
 # Tenant of batches registered in header mode without X-Tenant-Id.
 HEADER_MODE_TENANT = "dev"
@@ -151,7 +151,8 @@ def current_identity(
         not PROJECT_ID.fullmatch(project) or project == "unscoped"
     ):
         raise invalid_identity(
-            "X-Project-Id: 1-255 characters of [A-Za-z0-9._-]."
+            "X-Project-Id: 1-255 characters of [A-Za-z0-9._-], "
+            "starting with [A-Za-z0-9]."
         )
     # X-Session-Id is ignored: batches are not session-scoped.
     return Identity(

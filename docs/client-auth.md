@@ -18,7 +18,7 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 | --- | --- | --- | --- |
 | `X-Api-Key` | stg·prd 필수 | 512자 이하 | 호출 서비스 key. 모르는 key는 401 |
 | `X-User-Id` | 필수 (위 두 API 제외) | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자. UUID·사번 등 형식은 묻지 않는다. `ABC`와 `abc`는 같은 사용자다 |
-| `X-Project-Id` | 선택 | `^[A-Za-z0-9._-]{1,255}$`, `unscoped` 불가 | 배치 등록 때만 저장한다. 수정 요청에서는 무시한다 |
+| `X-Project-Id` | 선택 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 | 배치 등록 때만 저장한다. 수정 요청에서는 무시한다 |
 | `X-Tenant-Id` | 선택 | Executor tenant 규칙 | 중계자(`relay`) key만, `allowed_tenants` 안의 값만 쓸 수 있다 |
 | `X-Session-Id` | — | — | 보내도 무시한다 |
 
