@@ -20,6 +20,11 @@ def upgrade() -> None:
         sa.Column("next_run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("config_number", sa.Integer(), nullable=False),
+        sa.Column("project_id", sa.String(length=255), nullable=True),
+        sa.Column("client", sa.String(length=64), nullable=True),
+        sa.Column("disabled_reason", sa.String(length=32), nullable=True),
+        sa.Column("disabled_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("disabled_by", sa.String(length=64), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("deleted_by_type", sa.String(length=16), nullable=True),
         sa.Column("deleted_by", sa.String(length=255), nullable=True),
@@ -36,6 +41,15 @@ def upgrade() -> None:
             "enabled OR next_run_at IS NULL", name="disabled_has_no_next_run"
         ),
         sa.CheckConstraint("revision >= 1", name="batch_revision_positive"),
+        sa.CheckConstraint(
+            "disabled_reason IS NULL OR "
+            "disabled_reason IN ('OWNER', 'USER_DEACTIVATED')",
+            name="batch_disabled_reason",
+        ),
+        sa.CheckConstraint(
+            "disabled_reason IS NULL OR NOT enabled",
+            name="disabled_reason_is_disabled",
+        ),
         sa.PrimaryKeyConstraint("id"),
         schema="batch",
     )
@@ -157,7 +171,7 @@ def upgrade() -> None:
         sa.Column(
             "policy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),
-        sa.Column("tenant_id", sa.String(length=64), nullable=True),
+        sa.Column("tenant_id", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by_type", sa.String(length=16), nullable=False),
         sa.Column("created_by", sa.String(length=255), nullable=False),

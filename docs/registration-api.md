@@ -28,8 +28,8 @@ DB 초기화는 앱 기동과 분리한다. 되돌리기 명령은 등록 데이
 `alembic downgrade`는 보존할 데이터가 있는 환경에서 실행하지 않는다.
 
 `STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
-`batch/inputs/users/<사용자 UUID>/scripts/<id>/versions/<version>/` 아래 저장한다.
-사용자 UUID는 인증 토큰의 `sub`를 표준 형식(소문자, 하이픈)으로 바꾼 값이다.
+`batch/inputs/users/<사용자 ID>/scripts/<id>/versions/<version>/` 아래 저장한다.
+사용자 ID는 `X-User-Id`를 소문자로 바꾼 값이며 `^[a-z0-9][a-z0-9._-]{0,63}$`만 허용하므로 경로를 벗어날 수 없다.
 사용자 파일명은 경로로 사용하지 않는다. 버전 디렉터리는 0750, 파일은 0640이며
 Executor가 읽을 공유 그룹·UID/GID·마운트 권한을 운영 환경에서 맞춘다.
 서비스는 자기 저장 영역에 쓰기 권한이 필요하다. 다른 사용자 코드가 이 등록
@@ -45,28 +45,14 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 `/healthz`는 프로세스 생존, `/readyz`는 DB migration 버전과 저장 루트 존재를
 확인한다. `/docs`와 `/openapi.json`에서 현재 HTTP 명세를 볼 수 있다.
 
-## prj_re 인증 계약
+## 호출 서비스 인증 계약
 
-호출 서비스에 전달할 토큰 발급 방법·예제·오류 대응은 [호출 서비스 인증 가이드](client-auth.md),
+헤더·key 발급·오류 대응은 [호출 서비스 인증 가이드](client-auth.md),
 엔드포인트별 호출 예시는 [API별 호출 가이드](client-api.md)에 정리했다.
 
-이번 구현은 내부 호출용 RS256 JWT를 사용한다. 호출 서비스들은 같은 개인키로 서명하고,
-pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다. 기존 `prj_re`에 자동 연결된 것이
-아니며 gateway에서 아래 토큰을 발급·전달하는 연동이 필요하다.
-
-| JWT claim | 값 |
-| --- | --- |
-| sub | 로그인 검증이 끝난 사용자 UUID (prj_re 사용자 ID). UUID가 아니면 401 |
-| iss | 기본 `batch-client`, 설정 키 `AUTH_ISSUER`. 모든 호출 서비스가 같은 값을 쓴다 |
-| aud | 기본 `batch-service`, 설정 키 `AUTH_AUDIENCE` |
-| iat | 발급 UTC Unix 초, 정수 |
-| exp | 만료 UTC Unix 초, 정수. iat 이후 최대 300초(`AUTH_MAX_LIFETIME_SECONDS`) |
-| scope | `batch:manage` |
-
-`Authorization: Bearer <token>`으로 전달한다. 개인키는 호출 서비스에만 두고 사용자에게
-전달하지 않는다. 키 쌍 생성과 배치는 [keys/README.md](../keys/README.md)를 따른다. 요청 body의 사용자 ID나 `X-User-Id`는 인증 근거가 아니다.
-외부 클라이언트가 서비스 인증 헤더를 그대로 전달하게 하지 않고 `prj_re`가 검증한
-사용자로 새 토큰을 발급한다. 운영에서는 TLS와 내부 서비스 접근 제한을 적용한다.
+- 호출 서비스는 `X-Api-Key`와 `X-User-Id`를 보낸다. pr-batch는 key의 SHA-256만 설정 `AUTH_CLIENTS`에 둔다.
+- 사용자 ID는 형식(UUID·사번 등)을 묻지 않고 소문자로 바꿔 저장·비교한다.
+- 호출 서비스는 자기가 확인한 사용자로 헤더를 새로 만든다. 외부에서 받은 신원 헤더를 그대로 넘기지 않는다.
 회사 표준 서비스 인증이 정해지면 `src/app/core/security.py` 경계에서 교체할 수 있다.
 
 모든 쓰기는 `Idempotency-Key`를 요구한다. 동일 사용자·작업·키에 동일 내용이면
@@ -111,7 +97,7 @@ pr-batch는 `AUTH_PUBLIC_KEY_FILE`이 가리키는 공개키로 검증만 한다
 
 ```sh
 curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
-  -H "Authorization: Bearer $BATCH_SERVICE_TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H 'Idempotency-Key: upload-daily-1' \
   -F 'file=@daily.ipynb' -F 'type=NOTEBOOK' -F 'name=생산라인 일일 분석'
 ```
@@ -153,24 +139,30 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | runtime | O | Executor 실행 요청의 `runtime`과 같은 `{type, profile}`. `GET /api/v1/runtimes` 목록 중 하나 |
 | schedule | X | 없으면 수동 실행 전용. 활성화하려면 필요 |
 | policy | X | 보낸 값만 적용하고 나머지는 기본값 |
-| tenant_id | X | 이 배치 실행의 Executor 이벤트를 받을 시스템 ID. Executor 규칙과 같다: `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가(위반 422). 있으면 이벤트가 `executor.events.{tenant_id}`로만 가고, 없으면 공용 `executor.events` |
 
-응답(BatchView)은 등록 요청과 같은 모양에 `script_version_number`, `enabled`,
+tenant와 project는 본문이 아니라 헤더로 정한다(본문 `tenant_id`는 422).
+
+| 값 | 출처 | 규칙 |
+| --- | --- | --- |
+| `tenant_id` | 중계자 key의 `X-Tenant-Id`(허용 목록 안), 없으면 key의 기본 tenant | Executor 규칙 `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가(위반 400). 배치 실행 이벤트는 `executor.events.{tenant_id}`로 간다 |
+| `project_id` | `X-Project-Id` | 선택. `^[A-Za-z0-9._-]{1,255}$`, `unscoped` 불가 |
+
+응답(BatchView)은 등록 요청과 같은 모양에 `script_version_number`, `tenant_id`, `project_id`, `enabled`,
+`disabled_reason`, `disabled_at`,
 `next_run_at`, `preview_runs`, `config_number`, `revision`, 생성·수정 시각을 더한다.
 응답을 고쳐 그대로 PATCH 본문으로 쓸 수 있다.
 
 ### 배치 수정 규칙
 
-- 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`runtime`·`policy`·`tenant_id`의
+- 보낸 필드만 바뀐다. 빈 본문과 `name`·`script_id`·`runtime`·`policy`의
   null은 422다.
 - `name`만 바꾸면 실행 설정 이력(`config_number`)은 늘지 않는다.
 - `script_id`만 바꾸면 그 스크립트의 최신 버전으로, `script_version_number: null`이면
   현재 스크립트의 최신 버전으로 다시 고정한다.
 - `schedule: null`은 일정 제거다. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - `policy`는 보낸 하위 필드만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
-- `tenant_id`는 한 번만 정할 수 있다(null → 값, 기존 배치 백필용). 같은 값은 변경으로 치지 않아 `config_number`·`revision`이 그대로이고,
-  다른 값은 409 `TENANT_IMMUTABLE`, null은 422다. 실행 도중 이벤트 수신자가 바뀌어 결과가
-  유실되는 것을 막는다. 새 실행 설정(`config_number`)으로 기록되어 다음 실행부터 적용된다.
+- tenant와 project는 바꿀 수 없다. 수정 요청의 `X-Project-Id`는 무시하고, `X-Tenant-Id`를 빼면 저장된 값을 유지하며,
+  저장된 값과 다른 `X-Tenant-Id`는 403 `TENANT_MISMATCH`다. 실행 도중 이벤트 수신자가 바뀌어 결과가 유실되는 것을 막는다.
 - 새 스크립트 버전을 올려도 기존 배치는 바뀌지 않는다. 이미 접수된 실행은 접수 당시
   설정을 유지한다.
 
@@ -182,12 +174,12 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 "runtime": {"type": "JUPYTER", "profile": "default"}
 ```
 
-- 쓸 수 있는 조합은 `GET /api/v1/runtimes`가 돌려준다. Executor `GET /api/v1/runtime-targets`에서 BATCH 풀의
-  활성(enabled) 대상들이 지원하는 프로필을 모은 것이며 `RUNTIME_CATALOG_TTL_SECONDS`(기본 30초) 동안 캐시한다.
-  Executor에 커널이 추가되면 pr-batch 설정 변경 없이 바로 쓸 수 있다.
+- 쓸 수 있는 조합은 `GET /api/v1/runtimes`가 돌려준다. pr-batch 설정 `BATCH_RUNTIMES`의 목록이다.
+  Executor의 runtime 조회 API는 운영자(admin key) 전용이라 묻지 않는다. Executor BATCH 풀에 커널을 추가하면
+  이 설정도 같이 고친다.
 - 등록·런타임 변경·활성화 때 이 목록으로 검증한다. 없는 조합은 422 `UNKNOWN_RUNTIME`, 스크립트 타입이 돌 수 없는
-  런타임은 422 `RUNTIME_NOT_SUPPORTED`(NOTEBOOK은 JUPYTER만), Executor를 조회할 수 없으면 503
-  `RUNTIME_CATALOG_UNAVAILABLE`로 거절해 잘못된 런타임이 저장되지 않게 한다.
+  런타임은 422 `RUNTIME_NOT_SUPPORTED`(NOTEBOOK은 JUPYTER만), 목록이 비어 있으면 503
+  `RUNTIMES_NOT_CONFIGURED`로 거절해 잘못된 런타임이 저장되지 않게 한다.
 - 풀은 항상 BATCH라 지정하지 않는다. Executor에 런타임 종류나 옵션이 늘면 이 객체에 필드를 추가한다.
 
 노트북 메타데이터에 Python 외 언어가 명시되면 거절한다. 코드 문법은 서버에서 실행·변환하지 않으며
@@ -218,7 +210,7 @@ IPython 문법도 원문으로 보관한다.
 | --- | --- |
 | `created_at`, `updated_at` | 생성·마지막 수정 시각 (UTC) |
 | `created_by_type`, `updated_by_type` | `USER`(로그인 사용자) 또는 `SYSTEM`(서비스 자체) |
-| `created_by`, `updated_by` | USER면 JWT `sub`(prj_re가 SSO로 확인한 사용자 ID), SYSTEM이면 `scheduler` 또는 `dispatcher` |
+| `created_by`, `updated_by` | USER면 `X-User-Id`(호출 서비스가 확인한 사용자 ID, 소문자), SYSTEM이면 `scheduler` 또는 `dispatcher` |
 
 - Script·Batch처럼 사용자가 관리하는 자원은 항상 USER가 생성·수정한다. 스케줄러가 `next_run_at`을 옮기는 것은
   수정으로 보지 않아 `updated_*`가 바뀌지 않는다.

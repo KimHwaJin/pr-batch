@@ -1,29 +1,30 @@
 """Input, auth, and storage checks do not require a database."""
 
-import base64
-import hashlib
-import hmac
 import json
-import time
 from uuid import uuid4
 
-import httpx2
-import jwt
 import pytest
-from conftest import API, PUBLIC_PEM, SCRIPTS, notebook_bytes, token
-from cryptography.hazmat.primitives.asymmetric import rsa
+from conftest import (
+    API,
+    CALLER_KEY,
+    PLAIN_KEY,
+    SCRIPTS,
+    notebook_bytes,
+    token,
+)
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.core.exceptions import ServiceError
 from app.domain.notebook_parser import parse_notebook
 from app.domain.scripts import ScriptType
-from app.integrations.executor import ExecutorClient
 from app.main import create_app
 from app.schemas.batch import RuntimeSpec
 from app.schemas.schedule import ParallelOverlap, Policy, Schedule
 from app.services.runtime_catalog import RuntimeCatalog, check_runtime
 from app.storage.script_storage import ScriptStorage
+
+RUNTIMES = "/api/v1/runtimes"
 
 
 @pytest.mark.parametrize("raw", [b"no-json", b"[]", b"{}", b"\xff"])
@@ -163,68 +164,103 @@ def test_policy_defaults_and_parallel_rule():
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("headers", "status", "code"),
     [
-        {"exp": 1},
-        {"aud": "other"},
-        {"iss": "other"},
-        {"iat": int(time.time()) + 1000},
-        {"exp": int(time.time()) + 10000},
-        {"sub": ""},
-        {"sub": "alice"},
+        ({}, 401, "UNAUTHENTICATED"),
+        ({"X-User-Id": "alice"}, 401, "UNAUTHENTICATED"),
+        ({"X-Api-Key": "bat_unknown_key", "X-User-Id": "a"}, 401, None),
+        ({"X-Api-Key": "", "X-User-Id": "a"}, 401, None),
+        ({"X-Api-Key": CALLER_KEY}, 400, "INVALID_IDENTITY"),
+        ({"X-Api-Key": CALLER_KEY, "X-User-Id": ".abc"}, 400, None),
+        ({"X-Api-Key": CALLER_KEY, "X-User-Id": "a" * 65}, 400, None),
+        ({"X-Api-Key": CALLER_KEY, "X-User-Id": "a/b"}, 400, None),
+        (token(project="unscoped"), 400, "INVALID_IDENTITY"),
+        (token(project="a b"), 400, "INVALID_IDENTITY"),
+        (token(tenant="Not_A_Tenant"), 400, "INVALID_IDENTITY"),
+        # Relay key, tenant outside allowed_tenants.
+        (token(tenant="someone-else"), 403, "FORBIDDEN"),
+        # Non-relay key may not choose a tenant at all.
+        (token(key=PLAIN_KEY, tenant="plain-service"), 403, "FORBIDDEN"),
     ],
 )
-def test_invalid_gateway_identity(settings, overrides):
+def test_caller_and_identity_checks(settings, headers, status, code):
+    """All refused before any database access."""
     with TestClient(create_app(settings)) as client:
-        response = client.get(API, headers=token(**overrides))
-    assert response.status_code == 401
+        response = client.get(API, headers=headers)
+    assert response.status_code == status
+    if code:
+        assert response.json()["code"] == code
 
 
-def hs256(claims: dict, secret: bytes) -> str:
-    """HS256 token built by hand: PyJWT refuses a PEM as HMAC secret."""
-
-    def part(data: bytes) -> bytes:
-        return base64.urlsafe_b64encode(data).rstrip(b"=")
-
-    signing_input = b".".join(
-        part(json.dumps(value).encode())
-        for value in ({"alg": "HS256", "typ": "JWT"}, claims)
+def test_runtimes_need_a_key_but_no_user(settings):
+    configured = settings.model_copy(
+        update={
+            "batch_runtimes": [RuntimeSpec(type="JUPYTER", profile="python3")]
+        }
     )
-    signature = hmac.new(secret, signing_input, hashlib.sha256).digest()
-    return (signing_input + b"." + part(signature)).decode()
+    with TestClient(create_app(configured)) as client:
+        assert client.get(RUNTIMES).status_code == 401
+        response = client.get(RUNTIMES, headers={"X-Api-Key": PLAIN_KEY})
+        assert response.status_code == 200
+        assert response.json()["items"] == [
+            {"type": "JUPYTER", "profile": "python3"}
+        ]
+    empty = settings.model_copy(update={"batch_runtimes": []})
+    with TestClient(create_app(empty)) as client:
+        response = client.get(RUNTIMES, headers={"X-Api-Key": CALLER_KEY})
+        assert response.status_code == 503
+        assert response.json()["code"] == "RUNTIMES_NOT_CONFIGURED"
 
 
-def test_only_the_shared_private_key_signs(settings):
-    now = int(time.time())
-    claims = {
-        "sub": "00000000-0000-4000-8000-000000000001",
-        "iss": "batch-client",
-        "aud": "batch-service",
-        "iat": now,
-        "exp": now + 60,
-        "scope": "batch:manage",
-    }
-    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    forged = [
-        jwt.encode(claims, other, algorithm="RS256"),
-        # Algorithm confusion: the public key used as an HMAC secret.
-        hs256(claims, PUBLIC_PEM),
-    ]
+def test_disable_by_owner_needs_an_admin_key(settings):
+    body = {"owner_id": "alice", "reason": "USER_DEACTIVATED"}
     with TestClient(create_app(settings)) as client:
-        assert client.get(API, headers=token()).status_code != 401
-        for value in forged:
-            response = client.get(
-                API, headers={"Authorization": f"Bearer {value}"}
-            )
-            assert response.status_code == 401
-
-
-def test_owner_header_is_not_authentication(settings):
-    with TestClient(create_app(settings)) as client:
-        assert (
-            client.get(API, headers={"X-User-Id": "alice"}).status_code == 401
+        url = f"{API}:disable-by-owner"
+        assert client.post(url, json=body).status_code == 401
+        response = client.post(
+            url, json=body, headers={"X-Api-Key": PLAIN_KEY}
         )
-        assert client.get(API, headers=token(scope="other")).status_code == 403
+        assert response.status_code == 403
+
+
+def test_header_mode_trusts_identity_without_a_key(settings):
+    header = settings.model_copy(
+        update={
+            "auth_mode": "header",
+            "batch_runtimes": [RuntimeSpec(type="JUPYTER", profile="python3")],
+        }
+    )
+    with TestClient(create_app(header)) as client:
+        assert client.get(RUNTIMES).status_code == 200
+        # A key, when sent, must still be a known one.
+        assert (
+            client.get(RUNTIMES, headers={"X-Api-Key": "bat_x"}).status_code
+            == 401
+        )
+        assert client.get(API).json()["code"] == "INVALID_IDENTITY"
+
+
+def test_user_ids_are_lower_cased():
+    from app.core.security import normalize_user_id
+
+    assert normalize_user_id("ABC-1.x_y") == "abc-1.x_y"
+    assert normalize_user_id(str(uuid4()).upper()).islower()
+
+
+def test_api_keys_are_redacted_from_logs():
+    import logging
+
+    from app.core.logging_setup import RedactApiKeys
+
+    record = logging.LogRecord(
+        "x", logging.INFO, "", 0, "key=%s ok", ("bat_live_abcdefgh123",), None
+    )
+    assert RedactApiKeys().filter(record)
+    assert record.getMessage() == "key=[REDACTED] ok"
+
+
+def test_upload_size_limit(settings):
+    with TestClient(create_app(settings)) as client:
         assert (
             client.post(
                 SCRIPTS,
@@ -245,9 +281,10 @@ def test_storage_escape_and_symlink(settings, tmp_path):
     with pytest.raises(ServiceError):
         storage.safe_path("link/file")
     notebook = parse_notebook(notebook_bytes(), "x.ipynb", settings)
-    with pytest.raises(ValueError):
-        storage.save("../../alice", uuid4(), uuid4(), notebook)
-    owner = uuid4()
+    for owner in ("../../alice", ".alice", "Alice"):
+        with pytest.raises(ServiceError):
+            storage.save(owner, uuid4(), uuid4(), notebook)
+    owner = "e12345"
     directory, path, _ = storage.save(str(owner), uuid4(), uuid4(), notebook)
     assert path.startswith(f"{directory}/")
     assert path.startswith(f"batch/inputs/users/{owner}/scripts/")
@@ -275,34 +312,9 @@ def test_chunked_request_size_limit(settings):
     assert response.status_code == 413
 
 
-def test_runtime_catalog_reads_batch_targets_and_caches():
-    calls = []
-
-    def handle(request):
-        calls.append(str(request.url))
-        cursor = request.url.params.get("cursor")
-        profiles = ["default", "gpu"] if cursor else ["default"]
-        target = {
-            "runtime": {
-                "type": "JUPYTER",
-                "pool": "BATCH",
-                "supported_profiles": profiles,
-            },
-            "state": {"status": "ACTIVE", "enabled": True},
-        }
-        return httpx2.Response(
-            200,
-            json={"items": [target], "next_cursor": None if cursor else "p2"},
-        )
-
-    executor = ExecutorClient(
-        "http://executor.test", transport=httpx2.MockTransport(handle)
-    )
-    catalog = RuntimeCatalog(executor, ttl_seconds=60)
-    assert [r.profile for r in catalog.available()] == ["default", "gpu"]
-    assert catalog.available()
-    assert len(calls) == 2
-    assert "pool=BATCH" in calls[0] and "enabled=true" in calls[0]
+def test_runtime_catalog_is_the_configured_list():
+    catalog = RuntimeCatalog([RuntimeSpec(type="JUPYTER", profile="python3")])
+    assert [r.profile for r in catalog.available()] == ["python3"]
     with pytest.raises(ServiceError) as exc:
         check_runtime(
             RuntimeSpec(type="JUPYTER", profile="missing"),
@@ -310,19 +322,9 @@ def test_runtime_catalog_reads_batch_targets_and_caches():
             catalog.available(),
         )
     assert exc.value.code == "UNKNOWN_RUNTIME"
-    broken = RuntimeCatalog(
-        ExecutorClient(
-            "http://executor.test",
-            transport=httpx2.MockTransport(
-                lambda request: httpx2.Response(503)
-            ),
-        ),
-        ttl_seconds=60,
-    )
     with pytest.raises(ServiceError) as exc:
-        broken.available()
+        RuntimeCatalog([]).available()
     assert exc.value.status == 503
-    executor.close()
 
 
 @pytest.mark.parametrize(

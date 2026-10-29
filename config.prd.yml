@@ -3,6 +3,15 @@
 DATABASE_URL: "postgresql+psycopg://batch:REPLACE_PASSWORD@postgresql.infra.svc.cluster.local:5432/batch"
 # Project root on the shared PV; files go under batch/inputs/.
 STORAGE_ROOT: /mnt/data/dtest
-# This environment's public key; see keys/README.md.
-AUTH_PUBLIC_KEY_FILE: keys/auth_public.prd.pem
 EXECUTOR_BASE_URL: http://executor:8000
+# pr-batch's key for the Executor (issued by the Executor team).
+EXECUTOR_API_KEY: REPLACE_EXECUTOR_KEY
+# Calling services: SHA-256 of each key, never the key itself; see
+# docs/client-auth.md. Replace the zero hash with the issued key's hash.
+AUTH_CLIENTS:
+  - name: pr-agentic-service
+    key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]
+    tenant: pr-agentic-service
+    relay: true
+    allowed_tenants: [pr-agentic-service]
+    admin: true

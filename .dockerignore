@@ -4,7 +4,6 @@
 .env
 .env.*
 .local-data
-.local-keys
 .ruff_cache
 .ty_cache
 .pytest_cache

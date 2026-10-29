@@ -11,10 +11,6 @@ import urllib.request
 import uuid
 from urllib.error import HTTPError
 
-import jwt
-
-from app.core.config import Settings
-
 FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
 NOTEBOOK = {
     "nbformat": 4,
@@ -43,26 +39,8 @@ NOTEBOOK = {
 }
 
 
-def private_key() -> bytes:
-    """Calling-service signing key; the Compose stack mounts .local-keys."""
-    path = os.environ.get(
-        "PR_BATCH_AUTH_PRIVATE_KEY_FILE", ".local-keys/auth_private.pem"
-    )
-    with open(path, "rb") as file:
-        return file.read()
-
-
-def token(settings: Settings) -> str:
-    now = int(time.time())
-    claims = {
-        "sub": "00000000-0000-4000-8000-00000000050c",
-        "iss": settings.auth_issuer,
-        "aud": settings.auth_audience,
-        "iat": now,
-        "exp": now + 300,
-        "scope": "batch:manage",
-    }
-    return jwt.encode(claims, private_key(), algorithm="RS256")
+# The Compose stack runs in header mode: identity headers, no key.
+AUTH = {"X-User-Id": "smoke-user"}
 
 
 def call(
@@ -100,17 +78,16 @@ def multipart(fields: dict[str, tuple[str | None, str, bytes]]):
 
 
 def main() -> None:
-    settings = Settings()
     api = os.environ.get("SMOKE_API_URL", "http://127.0.0.1:8000")
     base = f"{api}/api/v1/batches"
     runtimes = call(
         "GET",
         f"{api}/api/v1/runtimes",
-        {"Authorization": f"Bearer {token(settings)}"},
+        AUTH,
     )["items"]
     kernel = runtimes[0]["profile"]
     nonce = uuid.uuid4().hex
-    auth = {"Authorization": f"Bearer {token(settings)}"}
+    auth = AUTH
     body, content_type = multipart(
         {
             "name": (None, "text/plain", f"smoke-{nonce[:8]}".encode()),

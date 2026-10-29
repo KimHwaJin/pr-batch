@@ -143,8 +143,9 @@ def admit_run(
             "schedule": config.schedule,
             "policy": policy,
             # Fixed per run: the Executor idempotency fingerprint includes
-            # it, so a resubmission must send the same value.
+            # them, so a resubmission must send the same values.
             "tenant_id": config.tenant_id,
+            "project_id": batch.project_id,
         },
         status=target,
         skip_reason=reason,
@@ -210,8 +211,6 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "actor": {"type": "USER", "id": run.owner_id},
         },
         "runtime": dict(run.runtime),
-        # Executor scope only; metadata.run_id names the run.
-        "context": {"user_id": run.owner_id},
         "operation": {
             "spec": {
                 "schema_version": "1.0",
@@ -238,9 +237,22 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
             "run_id": str(run.id),
         },
     }
-    if tenant_id := run.snapshot.get("tenant_id"):
-        request["tenant_id"] = tenant_id
     return request
+
+
+def identity_headers(run: BatchRun) -> dict[str, str]:
+    """Who the Executor runs this as: the owner, in the batch's tenant.
+
+    Sent on every call for the run; the Executor reads user, project and
+    tenant only from these headers (pr-batch is a relay for the tenant).
+    """
+    headers = {
+        "X-User-Id": run.owner_id,
+        "X-Tenant-Id": run.snapshot["tenant_id"],
+    }
+    if project_id := run.snapshot.get("project_id"):
+        headers["X-Project-Id"] = project_id
+    return headers
 
 
 def run_view(run: BatchRun) -> RunView:
@@ -278,6 +290,12 @@ class RunService:
     def create(self, owner: str, batch_id: UUID, key: str) -> MutationResult:
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
+            if batch.disabled_reason == "USER_DEACTIVATED":
+                raise ServiceError(
+                    409,
+                    "OWNER_DEACTIVATED",
+                    "The owner was deactivated; enable the batch first.",
+                )
             config = current_config(session, batch)
             status, run = admit_run(session, batch, config, Actor.user(owner))
             return status, run_view(run).model_dump(mode="json")

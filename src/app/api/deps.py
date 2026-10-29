@@ -8,7 +8,14 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
 from app.core.exceptions import ServiceError
-from app.core.security import current_owner
+from app.core.security import (
+    Caller,
+    Identity,
+    admin_caller,
+    current_caller,
+    current_identity,
+    current_owner,
+)
 from app.domain.script_parser import parse_script
 from app.domain.scripts import ParsedScript, ScriptType
 from app.services.batch_service import BatchService
@@ -18,6 +25,9 @@ from app.services.runtime_catalog import RuntimeCatalog
 from app.services.script_service import ScriptService
 
 Owner = Annotated[str, Depends(current_owner)]
+Ident = Annotated[Identity, Depends(current_identity)]
+KeyCaller = Annotated[Caller, Depends(current_caller)]
+AdminCaller = Annotated[Caller, Depends(admin_caller)]
 Key = Annotated[
     str,
     Header(

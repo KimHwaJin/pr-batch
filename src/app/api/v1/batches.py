@@ -6,8 +6,10 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.api.deps import (
+    AdminCaller,
     Batches,
     Cursor,
+    Ident,
     Key,
     Limit,
     Owner,
@@ -18,6 +20,8 @@ from app.schemas.batch import (
     BatchPage,
     BatchView,
     CreateBatch,
+    DisableByOwner,
+    DisabledCount,
     SkippedPage,
     UpdateBatch,
 )
@@ -28,14 +32,22 @@ router = APIRouter(prefix="/batches", tags=["batches"])
 @router.post("", response_model=BatchView, status_code=201)
 def create_batch(
     request: Request,
-    owner: Owner,
+    identity: Ident,
     key: Key,
     service: Batches,
     data: CreateBatch,
 ) -> JSONResponse:
     return mutation_response(
-        service.create_batch(owner, key, data), request.url.path
+        service.create_batch(identity, key, data), request.url.path
     )
+
+
+@router.post(":disable-by-owner", response_model=DisabledCount)
+def disable_by_owner(
+    caller: AdminCaller, service: Batches, data: DisableByOwner
+) -> DisabledCount:
+    """Called when the owner is deactivated; repeating it is harmless."""
+    return service.disable_by_owner(data.owner_id, caller.client)
 
 
 @router.get("", response_model=BatchPage)
@@ -60,7 +72,7 @@ def get_batch(
 
 @router.patch("/{batch_id}", response_model=BatchView)
 def update_batch(
-    owner: Owner,
+    identity: Ident,
     service: Batches,
     batch_id: UUID,
     key: Key,
@@ -68,7 +80,7 @@ def update_batch(
     data: UpdateBatch,
 ) -> JSONResponse:
     return mutation_response(
-        service.update_batch(owner, batch_id, key, expected, data)
+        service.update_batch(identity, batch_id, key, expected, data)
     )
 
 
@@ -86,7 +98,7 @@ def delete_batch(
 
 @router.post("/{batch_id}/enable", response_model=BatchView)
 def enable_batch(
-    owner: Owner,
+    identity: Ident,
     service: Batches,
     batch_id: UUID,
     key: Key,
@@ -94,20 +106,20 @@ def enable_batch(
 ) -> JSONResponse:
     # Without an Executor the runtime catalog answers 503 itself.
     return mutation_response(
-        service.set_enabled(owner, batch_id, key, expected, True)
+        service.set_enabled(identity, batch_id, key, expected, True)
     )
 
 
 @router.post("/{batch_id}/disable", response_model=BatchView)
 def disable_batch(
-    owner: Owner,
+    identity: Ident,
     service: Batches,
     batch_id: UUID,
     key: Key,
     expected: Revision,
 ) -> JSONResponse:
     return mutation_response(
-        service.set_enabled(owner, batch_id, key, expected, False)
+        service.set_enabled(identity, batch_id, key, expected, False)
     )
 
 

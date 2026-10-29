@@ -14,28 +14,15 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
-import jwt
-from scripts.docker_smoke import call, multipart, private_key
-
-from app.core.config import Settings
+from scripts.docker_smoke import call, multipart
 
 API = "http://app:8000/api/v1"
 FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
 
 
 def auth(owner: str) -> dict[str, str]:
-    settings = Settings()
-    now = int(time.time())
-    claims = {
-        "sub": str(uuid.uuid5(uuid.NAMESPACE_URL, f"user:{owner}")),
-        "iss": settings.auth_issuer,
-        "aud": settings.auth_audience,
-        "iat": now,
-        "exp": now + 300,
-        "scope": "batch:manage",
-    }
-    token = jwt.encode(claims, private_key(), algorithm="RS256")
-    return {"Authorization": f"Bearer {token}"}
+    """Header-mode identity (the Compose stack trusts it without a key)."""
+    return {"X-User-Id": owner.lower()}
 
 
 def notebook(sleep: int) -> bytes:

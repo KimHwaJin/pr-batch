@@ -10,6 +10,7 @@ from conftest import (
     ALICE,
     API,
     BOB,
+    CALLER_KEY,
     SCRIPTS,
     create_batch,
     metadata,
@@ -23,7 +24,7 @@ from app.domain.script_parser import parse_script
 from app.domain.scripts import ScriptType
 from app.models import ScriptVersion
 from app.services import script_service
-from app.services.runtime_catalog import UnconfiguredRuntimeCatalog
+from app.services.runtime_catalog import RuntimeCatalog
 from app.services.script_service import ScriptService
 
 
@@ -419,8 +420,8 @@ def test_original_integrity_and_activation_requires_configuration(
     )
     assert response.status_code == 503
     assert response.json()["code"] == "STORAGE_INTEGRITY_ERROR"
-    # Production wires this catalog when no Executor is configured.
-    client.app.state.runtime_catalog = UnconfiguredRuntimeCatalog()
+    # An empty BATCH_RUNTIMES setting blocks activation.
+    client.app.state.runtime_catalog = RuntimeCatalog([])
     assert (
         client.post(
             f"{API}/{batch['id']}/enable",
@@ -512,7 +513,7 @@ def test_resources_report_created_and_updated_by(client):
     assert renamed["created_at"] == batch["created_at"]
 
 
-def test_runtime_choices_and_unreachable_catalog(client):
+def test_runtime_choices_and_unconfigured_catalog(client):
     listed = client.get("/api/v1/runtimes", headers=token())
     assert listed.json()["items"] == [
         {"type": "JUPYTER", "profile": "python3"},
@@ -520,9 +521,10 @@ def test_runtime_choices_and_unreachable_catalog(client):
     ]
     batch = create_batch(client).json()
     assert batch["runtime"] == {"type": "JUPYTER", "profile": "python3"}
-    client.app.state.runtime_catalog = UnconfiguredRuntimeCatalog()
-    rejected = create_batch(client, key="no-executor")
+    client.app.state.runtime_catalog = RuntimeCatalog([])
+    rejected = create_batch(client, key="no-runtimes")
     assert rejected.status_code == 503
+    assert rejected.json()["code"] == "RUNTIMES_NOT_CONFIGURED"
     renamed = patch_batch(client, batch, "rename", {"name": "still ok"})
     assert renamed.status_code == 200
     moved = patch_batch(
@@ -538,44 +540,111 @@ def test_runtime_choices_and_unreachable_catalog(client):
     "tenant",
     ["dlq", "work", "Team-a", "ab", "a-", "-ab", "1ab", "a_b", "a" * 65],
 )
-def test_tenant_id_follows_executor_rule(client, tenant):
-    response = create_batch(client, config=metadata(tenant_id=tenant))
-    assert response.status_code == 422, tenant
+def test_tenant_header_follows_executor_rule(client, tenant):
+    response = create_batch(client, tenant=tenant)
+    assert response.status_code == 400, tenant
+    assert response.json()["code"] == "INVALID_IDENTITY"
 
 
-def test_tenant_id_is_optional_and_set_once(client):
+def test_body_tenant_id_is_rejected(client):
+    response = create_batch(client, config=metadata(tenant_id="agent3"))
+    assert response.status_code == 422
+    batch = create_batch(client, key="plain").json()
+    patched = patch_batch(client, batch, "body", {"tenant_id": "agent3"})
+    assert patched.status_code == 422
+
+
+def test_tenant_comes_from_the_key_and_is_set_once(client):
     plain = create_batch(client).json()
-    assert plain["tenant_id"] is None
-    batch = create_batch(
-        client, key="tenant", config=metadata(tenant_id="pr-agentic")
-    ).json()
-    assert batch["tenant_id"] == "pr-agentic"
+    assert plain["tenant_id"] == "pr-agentic-service"
+    batch = create_batch(client, key="relayed", tenant="agent3").json()
+    assert batch["tenant_id"] == "agent3"
     fetched = client.get(f"{API}/{batch['id']}", headers=token()).json()
-    assert fetched["tenant_id"] == "pr-agentic"
-    same = patch_batch(client, batch, "same", {"tenant_id": "pr-agentic"})
-    assert same.status_code == 200
-    # Resending the current value is not a change: no new config/revision.
-    assert same.json()["config_number"] == batch["config_number"]
-    assert same.json()["revision"] == batch["revision"]
-    assert same.json()["updated_at"] == batch["updated_at"]
-    changed = patch_batch(
-        client, same.json(), "change", {"tenant_id": "other-service"}
+    assert fetched["tenant_id"] == "agent3"
+    # Leaving X-Tenant-Id out keeps the stored tenant.
+    renamed = patch_batch(client, batch, "rename", {"name": "x"})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["tenant_id"] == "agent3"
+    same = client.patch(
+        f"{API}/{batch['id']}",
+        headers={
+            **token(tenant="agent3"),
+            "Idempotency-Key": "same",
+            "If-Match": f'"{renamed.json()["revision"]}"',
+        },
+        json={"name": "y"},
     )
-    assert changed.status_code == 409
-    assert changed.json()["code"] == "TENANT_IMMUTABLE"
-    cleared = patch_batch(client, same.json(), "clear", {"tenant_id": None})
-    assert cleared.status_code == 422
-    backfilled = patch_batch(client, plain, "fill", {"tenant_id": "team-a"})
-    assert backfilled.status_code == 200, backfilled.text
-    assert backfilled.json()["tenant_id"] == "team-a"
-    assert backfilled.json()["config_number"] == plain["config_number"] + 1
-    renamed = patch_batch(client, backfilled.json(), "rename", {"name": "x"})
-    assert renamed.json()["tenant_id"] == "team-a"
+    assert same.status_code == 200
+    other = client.patch(
+        f"{API}/{batch['id']}",
+        headers={
+            **token(tenant="pr-agentic-service"),
+            "Idempotency-Key": "other",
+            "If-Match": f'"{same.json()["revision"]}"',
+        },
+        json={"name": "z"},
+    )
+    assert other.status_code == 403
+    assert other.json()["code"] == "TENANT_MISMATCH"
+
+
+def test_relay_tenant_must_be_allowed(client):
+    response = create_batch(client, tenant="someone-else")
+    assert response.status_code == 403
+    assert create_batch(client, key="plain").status_code == 201
+
+
+def test_project_is_set_at_registration_only(client):
+    plain = create_batch(client).json()
+    assert plain["project_id"] is None
+    batch = create_batch(client, key="project", project="proj-1").json()
+    assert batch["project_id"] == "proj-1"
+    moved = client.patch(
+        f"{API}/{batch['id']}",
+        headers={
+            **token(project="proj-2"),
+            "Idempotency-Key": "move",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+        json={"name": "renamed"},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["project_id"] == "proj-1"
+    bad = create_batch(client, key="unscoped", project="unscoped")
+    assert bad.status_code == 400
+
+
+def test_user_ids_are_case_insensitive(client):
+    def headers(user, key):
+        return {
+            "X-Api-Key": CALLER_KEY,
+            "X-User-Id": user,
+            "Idempotency-Key": key,
+        }
+
+    script = client.post(
+        SCRIPTS,
+        headers=headers("ABC-12", "script"),
+        data={"type": "NOTEBOOK"},
+        files={"file": ("a.ipynb", notebook_bytes())},
+    ).json()
+    assert script["created_by"] == "abc-12"
+    seen = client.get(
+        f"{SCRIPTS}/{script['id']}",
+        headers={"X-Api-Key": CALLER_KEY, "X-User-Id": "abc-12"},
+    )
+    assert seen.status_code == 200
+    hidden = client.get(f"{SCRIPTS}/{script['id']}", headers=token())
+    assert hidden.status_code == 404
+    bad = client.get(
+        SCRIPTS, headers={"X-Api-Key": CALLER_KEY, "X-User-Id": ".abc"}
+    )
+    assert bad.status_code == 400
 
 
 def test_replay_is_answered_while_executor_is_down(client):
     created = create_batch(client)
-    client.app.state.runtime_catalog = UnconfiguredRuntimeCatalog()
+    client.app.state.runtime_catalog = RuntimeCatalog([])
     replay = create_batch(client)
     assert replay.status_code == 201
     assert replay.json() == created.json()

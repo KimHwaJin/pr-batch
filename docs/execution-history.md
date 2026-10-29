@@ -29,7 +29,7 @@ run_id를 넣어 Executor 쪽 이벤트에서도 실행을 찾을 수 있게 한
 | 소유·소속 | run_id, batch_id, owner_id |
 | 원본 | script_id, script_version_id, 선택한 런타임 |
 | 접수 맥락 | trigger(SCHEDULED/MANUAL), 예약 시각, config_number |
-| 실행 설정 | 접수 당시의 일정·정책·tenant_id 사본(`snapshot`) |
+| 실행 설정 | 접수 당시의 일정·정책·tenant_id·project_id 사본(`snapshot`) |
 | 상태 | Run 상태, Executor 실행 상태와 version, 노트북 projection 상태 |
 | 취소 | cancel_requested, 취소 출처(USER/POLICY)와 사유 |
 | 시간 | 접수, 제출, 실행 시작·종료, 마지막 상태 확인, 종료 시각 |

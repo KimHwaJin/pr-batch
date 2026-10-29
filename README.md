@@ -29,7 +29,7 @@ src 레이아웃입니다. 애플리케이션 패키지는 `src/app`이고 `from
 ```text
 src/app/
   main.py                 앱 생성: 라우터·미들웨어·예외 핸들러·헬스체크
-  core/                   config(환경 설정), security(JWT), exceptions, middleware
+  core/                   config(환경 설정), security(API key·신원 헤더), exceptions, middleware
   db/                     Base, 엔진·세션 생성, DB 시각
   models/                 SQLAlchemy 테이블: script, batch, run, idempotency
   schemas/                Pydantic 계약: common, schedule, script, batch, run
@@ -37,7 +37,7 @@ src/app/
     deps.py               인증·Idempotency-Key·If-Match·서비스 주입
     router.py             /api/v1 라우터 묶음
     v1/                   scripts, batches, runs 엔드포인트
-  services/               script, batch, run, idempotency, runtime_catalog(Executor 런타임 목록), 공용 조회
+  services/               script, batch, run, idempotency, runtime_catalog(설정의 BATCH 런타임 목록), 공용 조회
   domain/                 순수 로직: run_state(상태), schedule_clock, scripts(타입)·runtimes·script_parser·notebook_parser
   storage/                공유 PV 스크립트 원본 저장소
   integrations/           executor(실행) HTTP 클라이언트
@@ -79,7 +79,8 @@ uv sync --locked
 활성화하지 않아도 됩니다.
 
 PostgreSQL과 공유 PV를 준비하고 `.env.example`을 `.env`로 복사한 뒤 연결값,
-Executor 주소, 토큰 검증 공개키 경로를 설정합니다(`make auth-keys`가 로컬 키 쌍을 `.local-keys/`에 만듭니다). 공유 PV 경로는 미리 생성·마운트해야 합니다.
+Executor 주소를 설정합니다. 로컬은 `AUTH_MODE: header`라 key 없이 `X-User-Id` 헤더만으로 호출할 수 있습니다
+([인증 가이드](docs/client-auth.md)). 공유 PV 경로는 미리 생성·마운트해야 합니다.
 
 배포 환경(dev, stg, prd)은 ConfigMap·Secret 대신 계별 YAML 파일로 설정합니다.
 루트의 `config.dev.yml`, `config.stg.yml`, `config.prd.yml`에 계마다 다른
@@ -118,7 +119,6 @@ pr-batch는 외부 네트워크 `shared-infra`에 붙어 `postgres`와 `executor
 make docker-up      # DB 준비 후 app 컨테이너 1개 기동 (운영과 같은 형태)
 make docker-smoke   # 스크립트 업로드 → 배치 등록 → 수동 실행 → Executor 결과 확인
 make docker-logs
-make dev-token      # Swagger 테스트용 5분짜리 JWT 출력
 make docker-down
 ```
 
@@ -129,9 +129,10 @@ make docker-down
 - 공유 PV는 Executor가 `INPUT_STORAGE_ROOT`로 마운트하는
   `../executor/shared_dir`을 같은 경로로 마운트합니다(`EXECUTOR_SHARED_DIR`).
   두 이미지 모두 UID 1000으로 실행합니다.
-- 런타임 선택지는 로컬 Executor BATCH 풀에서 읽습니다(`GET /api/v1/runtimes`).
-- 토큰 검증 키는 `make auth-keys`가 만든 로컬 키 쌍(`.local-keys/`, git 제외)을 마운트해 씁니다.
-  배포 환경은 `keys/`에 커밋한 공개키를 `AUTH_PUBLIC_KEY_FILE`로 가리킵니다([keys/README.md](keys/README.md)).
+- 런타임 선택지는 설정 `BATCH_RUNTIMES`에서 읽습니다(`GET /api/v1/runtimes`). Executor BATCH 풀에 profile을
+  추가하면 이 목록도 같이 고칩니다.
+- Compose는 `AUTH_MODE: header`로 뜨므로 key 없이 `X-User-Id`만 보내면 됩니다. 배포 환경의 key 해시는
+  `config.{env}.yml`의 `AUTH_CLIENTS`, Executor 호출 key는 `EXECUTOR_API_KEY`에 둡니다.
 
 변수는 셸이나 Compose 변수 파일로 지정합니다. 컨테이너는 저장소의 `.env`를
 읽지 않습니다.

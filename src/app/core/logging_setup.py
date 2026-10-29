@@ -7,6 +7,7 @@ the standard library so the same code runs everywhere.
 
 import logging
 import logging.config
+import re
 from pathlib import Path
 
 import yaml
@@ -14,6 +15,18 @@ import yaml
 from app.core.config import PROJECT_ROOT
 
 LOGGER_CONFIG = PROJECT_ROOT / "logger.yml"
+# API keys issued for pr-batch (bat_...) and the Executor (exe_...).
+API_KEY = re.compile(r"\b(?:bat|exe)_[A-Za-z0-9_-]{8,}")
+
+
+class RedactApiKeys(logging.Filter):
+    """Keep API keys out of log output, whoever logs them."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if API_KEY.search(message):
+            record.msg, record.args = API_KEY.sub("[REDACTED]", message), None
+        return True
 
 
 def configure_logging(path: Path = LOGGER_CONFIG) -> None:
@@ -25,6 +38,10 @@ def configure_logging(path: Path = LOGGER_CONFIG) -> None:
         apply_logger_config(path)
     else:
         init_logger()
+    # Handler filters see records propagated from every logger.
+    for handler in logging.getLogger().handlers:
+        if not any(isinstance(f, RedactApiKeys) for f in handler.filters):
+            handler.addFilter(RedactApiKeys())
 
 
 def apply_logger_config(path: Path) -> None:
