@@ -30,7 +30,7 @@ make serve   # http://127.0.0.1:8100
 | `TASK_RETENTION_DAYS` | 30 | 끝난 내부 Task 보존 기간. 실행 이력은 지우지 않음 |
 
 Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
-`batch/inputs/users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
+`batch/inputs/tenants/.../users/.../scripts/.../versions/.../cells/*.py`를 같은 상대경로로 읽을 수 있어야 한다.
 PV는 프로젝트 루트(예: `/mnt/data/dtest`) 아래 서비스별 폴더(`batch/`, `executor/`)로 나눈다.
 `STORAGE_ROOT`와 Executor `INPUT_STORAGE_ROOT`는 프로젝트 루트,
 Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
@@ -82,7 +82,7 @@ Executor 호출(제출·조회·결과·취소)에는 `X-Api-Key: <EXECUTOR_API_
 **결과 다운로드는 pr-batch가 중계하지 않는다.** `result.notebook_artifact_id`(실행 결과 노트북)를 보고, prj_re가
 Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자에게 전달한다. Executor를 브라우저에
 직접 노출하지 않고, 호출 서비스는 먼저 그 사용자로 pr-batch에서 실행을 조회해 소유권을 확인한 뒤 자기 Executor key와
-같은 `X-User-Id`로 그 artifact만 내려받는다.
+같은 `X-User-Id`·`X-Tenant-Id`(배치의 `tenant_id`)로 그 artifact만 내려받는다.
 
 **리포트는 pr-batch가 만들지 않는다.** pr-agentic-service가 Executor `execution.completed` 이벤트(성공
 회차만)를 받아 직접 작성한다. 이벤트의 `execution.metadata.run_id`가 pr-batch `run_id`다.
@@ -112,7 +112,8 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 회차 식별자는 `metadata.run_id`에 둔다. 실행 완료는 Executor 이벤트가 아니라 `GET /executions/{id}` 폴링으로 확인한다.
 
 예: pr-batch 실행 응답의 `execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
-자세히 볼 수 있다. Executor는 인증이 없는 내부 서비스이므로 사용자에게는 prj_re가 소유권 확인 후 중계한다.
+자세히 볼 수 있다. Executor는 호출 서비스의 key와 같은 `X-User-Id`·`X-Tenant-Id`를 요구하므로, 사용자에게는
+prj_re가 pr-batch로 소유권을 확인한 뒤 중계한다.
 
 ## 내부 Task 파이프라인
 

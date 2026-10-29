@@ -147,7 +147,7 @@ REPLACE에서는 한 번에 여러 일정이 도래해도(누락 복구, 짧은 
 `from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, `config_number`,
 reason을 반환한다. 사유는 MISFIRE_SKIP, MISFIRE_LATEST, MISFIRE_CATCH_UP,
 REPLACED_BY_LATEST, DISABLED, SCHEDULE_REPLACED, DELETED다. limit 1~100, 불투명 문자열 cursor(이전 응답의 `next_cursor`)로 페이지를 넘긴다.
-소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은
+tenant나 소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은
 별도 API다.
 
 한 트랜잭션의 정상 접수는 최대 100개다. 남은 일정은 다음 tick에서 이어간다.

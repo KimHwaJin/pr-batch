@@ -1,4 +1,5 @@
-"""Exactly-once responses for retried writes, keyed per owner."""
+"""Exactly-once responses for retried writes, keyed per owner (tenant
+and user)."""
 
 import hashlib
 import json
@@ -10,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
+from app.core.security import Principal
 from app.models import IdempotencyRecord
 
 MutationResult = tuple[int, dict[str, Any]]
@@ -45,7 +47,7 @@ class Idempotency:
         self.sessions = sessions
 
     def replay(
-        self, owner: str, operation: str, key: str, payload: object
+        self, owner: Principal, operation: str, key: str, payload: object
     ) -> MutationResult | None:
         """The stored first response, if any, without starting a write.
 
@@ -53,14 +55,17 @@ class Idempotency:
         so a retried request is answered even while the Executor is down.
         """
         with self.sessions() as session:
-            record = session.get(IdempotencyRecord, (owner, operation, key))
+            record = session.get(
+                IdempotencyRecord,
+                (owner.tenant, owner.user_id, operation, key),
+            )
             if record is None:
                 return None
             return stored_result(record, fingerprint(payload))
 
     def run(
         self,
-        owner: str,
+        owner: Principal,
         operation: str,
         key: str,
         payload: object,
@@ -73,7 +78,8 @@ class Idempotency:
             session.execute(
                 insert(IdempotencyRecord)
                 .values(
-                    owner_id=owner,
+                    tenant_id=owner.tenant,
+                    owner_id=owner.user_id,
                     operation=operation,
                     key=key,
                     request_hash=request_hash,
@@ -83,7 +89,8 @@ class Idempotency:
             record = session.scalar(
                 select(IdempotencyRecord)
                 .where(
-                    IdempotencyRecord.owner_id == owner,
+                    IdempotencyRecord.tenant_id == owner.tenant,
+                    IdempotencyRecord.owner_id == owner.user_id,
                     IdempotencyRecord.operation == operation,
                     IdempotencyRecord.key == key,
                 )

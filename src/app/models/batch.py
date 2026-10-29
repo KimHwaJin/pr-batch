@@ -39,10 +39,19 @@ class Batch(SoftDeleteMixin, Base):
             name="disabled_reason_is_disabled",
         ),
         Index("ix_batches_due", "enabled", "next_run_at"),
-        Index("ix_batches_owner_created", "owner_id", "created_at", "id"),
+        Index(
+            "ix_batches_owner_created",
+            "tenant_id",
+            "owner_id",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # Owner: a user within a tenant, fixed at registration. The tenant is
+    # also the Executor tenant (event Stream) runs are submitted to.
+    tenant_id: Mapped[str] = mapped_column(String(64))
     owner_id: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
     enabled: Mapped[bool] = mapped_column(default=False)
@@ -91,8 +100,6 @@ class BatchConfig(AuditMixin, Base):
     runtime: Mapped[dict[str, Any]] = mapped_column(JSONB)
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    # Executor tenant (event Stream) for runs; fixed at registration.
-    tenant_id: Mapped[str] = mapped_column(String(64))
 
 
 class SkippedWindow(AuditMixin, Base):

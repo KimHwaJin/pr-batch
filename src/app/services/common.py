@@ -1,4 +1,4 @@
-"""Owner-scoped lookups, revisions and keyset cursors."""
+"""Owner-scoped (tenant and user) lookups, revisions and keyset cursors."""
 
 import base64
 import binascii
@@ -10,6 +10,7 @@ from sqlalchemy import ColumnElement, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core.exceptions import ServiceError
+from app.core.security import Principal
 from app.models import Batch, BatchConfig, Script, ScriptVersion
 from app.schemas.schedule import Policy, Schedule
 
@@ -26,7 +27,7 @@ def policy_of(config: BatchConfig) -> Policy:
 
 def owned_script(
     session: Session,
-    owner: str,
+    owner: Principal,
     script_id: UUID,
     *,
     lock: bool = False,
@@ -35,7 +36,8 @@ def owned_script(
     """A live script; `share` blocks its deletion until commit."""
     query = select(Script).where(
         Script.id == script_id,
-        Script.owner_id == owner,
+        Script.tenant_id == owner.tenant,
+        Script.owner_id == owner.user_id,
         Script.deleted_at.is_(None),
     )
     if lock or share:
@@ -47,11 +49,12 @@ def owned_script(
 
 
 def owned_batch(
-    session: Session, owner: str, batch_id: UUID, *, lock: bool = False
+    session: Session, owner: Principal, batch_id: UUID, *, lock: bool = False
 ) -> Batch:
     query = select(Batch).where(
         Batch.id == batch_id,
-        Batch.owner_id == owner,
+        Batch.tenant_id == owner.tenant,
+        Batch.owner_id == owner.user_id,
         Batch.deleted_at.is_(None),
     )
     if lock:

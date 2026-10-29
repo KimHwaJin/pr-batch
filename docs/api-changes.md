@@ -5,6 +5,10 @@
 > 바꿀 수 없다(본문 `tenant_id`는 422, `TENANT_IMMUTABLE` 대신 403 `TENANT_MISMATCH`). 런타임 목록은 설정
 > `BATCH_RUNTIMES`에서 오며 비어 있으면 503 `RUNTIMES_NOT_CONFIGURED`다. 자세한 내용은
 > [호출 서비스 인증 가이드](client-auth.md)를 따른다.
+>
+> **2026-10-29 tenant 소유 범위**: 스크립트·배치·실행은 Executor처럼 tenant + 사용자 소유다. 다른 tenant로 부르면
+> 404이고(`TENANT_MISMATCH`는 없어짐), relay key는 등록 때와 같은 `X-Tenant-Id`를 계속 보내야 한다.
+> `disable-by-owner`도 요청 tenant 안에서만 동작한다.
 
 [API별 호출 가이드](client-api.md)와 [호출 서비스 인증 가이드](client-auth.md)를 처음 전달한
 2026-10-21 이후, 호출 서비스 입장에서 바뀐 점만 모았다. 최신 상세 규격은 두 가이드와 서버의

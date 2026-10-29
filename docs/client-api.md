@@ -1,6 +1,6 @@
 # API별 호출 가이드
 
-pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다. 토큰 만드는 법은
+pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다. key와 신원 헤더는
 [호출 서비스 인증 가이드](client-auth.md)를 먼저 본다. 동작 원리와 세부 규칙은
 [등록 API](registration-api.md), [실행 API](execution-api.md), [예약 실행](scheduling-api.md) 문서에 있다.
 실행 중인 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
@@ -46,7 +46,10 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 ### 소유권
 
-모든 자원은 `X-User-Id` 사용자 소유다. 다른 사용자 자원과 삭제된 자원은 존재 여부를 숨기고 404로 응답한다.
+모든 자원은 **tenant + 사용자**(`X-User-Id`) 소유다. Executor와 같은 체계다. 요청의 tenant는 key의 기본 tenant이고,
+중계자 key는 `X-Tenant-Id`로 고른다([인증 가이드](client-auth.md#헤더)). 다른 tenant나 다른 사용자의 자원, 삭제된
+자원은 존재 여부를 숨기고 404로 응답한다. 같은 `X-User-Id`라도 tenant가 다르면 서로의 자원이 보이지 않으므로, 한
+자원은 만들 때와 **같은 tenant로** 계속 호출한다. `Idempotency-Key`도 tenant·사용자별로 따로 기록된다.
 
 ### 오류 형식
 
@@ -64,8 +67,8 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 | --- | --- | --- |
 | 400 | `INVALID_IDENTITY` | `X-User-Id` 없음·형식 오류 등 신원 헤더 오류 |
 | 401 | `UNAUTHENTICATED` | key 오류. [인증 가이드](client-auth.md#인증-오류) 확인 |
-| 403 | `FORBIDDEN`, `TENANT_MISMATCH` | 허용되지 않은 tenant, admin이 아닌 key, 저장된 tenant와 다른 값 |
-| 404 | `NOT_FOUND` | 없는 자원, 다른 사용자 자원, 삭제된 자원 |
+| 403 | `FORBIDDEN` | 허용되지 않은 tenant, admin이 아닌 key |
+| 404 | `NOT_FOUND` | 없는 자원, 다른 tenant·사용자 자원, 삭제된 자원 |
 | 409 | `IDEMPOTENCY_CONFLICT`, `REVISION_CONFLICT` 등 | 키 재사용·동시 수정 충돌·상태상 불가. 엔드포인트별 표 참고 |
 | 413 | `REQUEST_TOO_LARGE`, `UPLOAD_TOO_LARGE` | 업로드 크기 초과 (기본 10 MiB) |
 | 422 | `VALIDATION_ERROR` 등 | 입력 오류. 같은 요청을 재시도해도 실패한다 |
@@ -292,9 +295,10 @@ curl -o daily.ipynb "$BATCH_URL/api/v1/scripts/$SCRIPT_ID/versions/$VERSION_ID/c
 | `schedule` | X | 일정. 없으면 수동 실행 전용(활성화 불가) |
 | `policy` | X | 겹침(`overlap`)·누락(`misfire`) 정책. 생략하면 둘 다 `SKIP` |
 
-tenant와 project는 본문이 아니라 헤더로 정한다. tenant는 key의 기본 tenant이고, 중계자 key는 `X-Tenant-Id`로
-고를 수 있다. `X-Project-Id`를 보내면 `project_id`로 저장한다. 둘 다 등록 후에는 바뀌지 않는다. 본문에 `tenant_id`를
-보내면 422다.
+tenant와 project는 본문이 아니라 헤더로 정한다. tenant는 요청의 tenant(key의 기본 tenant, 중계자 key는
+`X-Tenant-Id`)이고 배치의 소유 범위이자 실행 이벤트를 받을 Executor tenant다. `script_id`는 같은 tenant·사용자의
+스크립트여야 한다(아니면 404). `X-Project-Id`를 보내면 `project_id`로 저장한다. 둘 다 등록 후에는 바뀌지 않는다.
+본문에 `tenant_id`를 보내면 422다.
 
 ```sh
 curl "$BATCH_URL/api/v1/batches" \
@@ -369,7 +373,7 @@ curl "$BATCH_URL/api/v1/batches" \
 
 | 오류 | 의미 |
 | --- | --- |
-| 404 `NOT_FOUND` | `script_id`가 없거나 내 것이 아님 |
+| 404 `NOT_FOUND` | `script_id`가 없거나 이 tenant·사용자의 것이 아님 |
 | 422 `VALIDATION_ERROR` | 필드 형식, 일정 정의, 모드에 없는 정책 값, 본문 `tenant_id` 등 모르는 필드 |
 | 422 `INVALID_POLICY` | 정책 조합 오류 |
 | 422 `UNKNOWN_RUNTIME` | 런타임 목록에 없는 조합 |
@@ -406,10 +410,10 @@ curl -X PATCH "$BATCH_URL/api/v1/batches/$BATCH_ID" \
 - `script_version_number: null` 또는 `script_id`만 보내면 최신 버전으로 다시 고정.
 - `schedule: null`은 일정 제거. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - 다른 `mode`를 보내면 그 구역은 새 모드의 기본값에서 다시 시작한다.
-- `X-Project-Id`는 무시한다. `X-Tenant-Id`를 빼면 저장된 tenant를 유지하고, 다른 값을 보내면 403 `TENANT_MISMATCH`.
+- `X-Project-Id`는 무시한다. tenant는 바꿀 수 없다. 등록 때와 다른 tenant로 부르면(중계자 key가 `X-Tenant-Id`를 빼서
+  기본 tenant가 된 경우 포함) 그 tenant에는 배치가 없으므로 404다.
 
 200, 변경된 BatchView와 새 `ETag`. 오류는 등록과 같고 409 `REVISION_CONFLICT`, `SCHEDULE_REQUIRED`,
-403 `TENANT_MISMATCH`,
 422 `NO_FUTURE_OCCURRENCE`(활성 배치의 새 일정에 앞으로 실행할 시각이 없음)가 추가된다.
 
 ### DELETE /api/v1/batches/{batch_id} — 삭제
@@ -455,7 +459,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 ### POST /api/v1/batches:disable-by-owner — 사용자 비활성 (운영)
 
 admin key만 부를 수 있다(`X-User-Id` 불필요). 본문 `{"owner_id": "e12345", "reason": "USER_DEACTIVATED"}`.
-그 사용자의 켜진 배치를 모두 끄고 `{"disabled": n}`을 돌려준다. 자세한 동작은
+요청의 tenant(admin key의 기본 tenant, 중계자 admin key는 `X-Tenant-Id`) 안에서 그 사용자의 켜진 배치를 모두 끄고 `{"disabled": n}`을 돌려준다. 자세한 동작은
 [인증 가이드](client-auth.md#사용자-비활성)를 본다.
 
 ### GET /api/v1/batches/{batch_id}/skipped-windows — 생략된 예약 구간
@@ -560,8 +564,9 @@ RunView에 셀별 `steps`가 추가된다. 실행이 끝날 때까지 이 API를
 `last_error`는 pr-batch와 Executor 사이 통신 오류 기록이며 서버가 자동으로 재시도한다. 코드 실패와는 별개다.
 
 **결과 노트북**은 pr-batch가 중계하지 않는다. `result.notebook_artifact_id`로 Executor
-`GET /api/v1/artifacts/{artifact_id}/content`에서 받는다. Executor는 인증이 없는 내부 서비스이므로 호출
-서비스가 먼저 이 API로 사용자 소유를 확인한 뒤 그 artifact만 내려받아 전달한다.
+`GET /api/v1/artifacts/{artifact_id}/content`에서 받는다. 호출 서비스가 먼저 이 API로 사용자 소유를 확인한 뒤,
+**자기 Executor key**(`X-Api-Key`)와 같은 `X-User-Id`·`X-Tenant-Id`(배치의 `tenant_id`)로 그 artifact만 내려받아
+전달한다. Executor도 tenant·사용자가 다르면 404다.
 
 ### POST /api/v1/batches/{batch_id}/runs/{run_id}/cancel — 취소
 

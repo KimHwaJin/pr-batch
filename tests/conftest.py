@@ -177,10 +177,11 @@ def upload_script(
     name: str | None = None,
     filename: str = "analysis.ipynb",
     script_type: str = "NOTEBOOK",
+    **identity: str,
 ):
     return client.post(
         SCRIPTS,
-        headers={**token(owner), "Idempotency-Key": key},
+        headers={**token(owner, **identity), "Idempotency-Key": key},
         data={"type": script_type, **({"name": name} if name else {})},
         files={
             "file": (
@@ -202,11 +203,16 @@ def create_batch(
 ):
     """Upload a notebook (same key) and register a batch for it.
 
-    Keyword identity (project=..., tenant=...) goes into the headers.
+    Keyword identity (project=..., tenant=...) goes into the headers of
+    both; an identity error from the upload is returned as is.
     """
     body = dict(config or metadata())
     if "script_id" not in body:
-        notebook = upload_script(client, f"notebook:{key}", owner, raw)
+        notebook = upload_script(
+            client, f"notebook:{key}", owner, raw, **identity
+        )
+        if notebook.status_code in (400, 403):
+            return notebook
         assert notebook.status_code == 201, notebook.text
         body["script_id"] = notebook.json()["id"]
     return client.post(

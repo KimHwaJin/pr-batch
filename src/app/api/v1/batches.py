@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import (
     AdminCaller,
+    AdminTenant,
     Batches,
     Cursor,
     Ident,
@@ -16,6 +17,7 @@ from app.api.deps import (
     Revision,
     mutation_response,
 )
+from app.core.security import Principal
 from app.schemas.batch import (
     BatchPage,
     BatchView,
@@ -44,10 +46,18 @@ def create_batch(
 
 @router.post(":disable-by-owner", response_model=DisabledCount)
 def disable_by_owner(
-    caller: AdminCaller, service: Batches, data: DisableByOwner
+    caller: AdminCaller,
+    tenant: AdminTenant,
+    service: Batches,
+    data: DisableByOwner,
 ) -> DisabledCount:
-    """Called when the owner is deactivated; repeating it is harmless."""
-    return service.disable_by_owner(data.owner_id, caller.client)
+    """Called when the owner is deactivated; repeating it is harmless.
+
+    Applies to the caller's tenant (X-Tenant-Id for a relay key).
+    """
+    return service.disable_by_owner(
+        Principal(tenant, data.owner_id), caller.client
+    )
 
 
 @router.get("", response_model=BatchPage)

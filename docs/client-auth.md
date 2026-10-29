@@ -9,7 +9,8 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 - 모든 `/api/v1/*` 요청에 `X-Api-Key`(호출 서비스 key)와 `X-User-Id`(대신하는 사용자)를 넣는다.
   `/healthz`, `/readyz`만 예외다. `GET /runtimes`와 `POST /batches:disable-by-owner`는 `X-User-Id`가 필요 없다.
 - pr-batch는 key 원문을 갖지 않는다. 설정 `AUTH_CLIENTS`에 key의 **SHA-256 해시**만 두고 상수 시간으로 비교한다.
-- tenant(Executor 이벤트를 받을 스트림)는 key로 정해진다. 본문에 `tenant_id`를 보내면 422다.
+- tenant는 key로 정해진다(중계자 key는 `X-Tenant-Id`로 고른다). 모든 자원은 Executor처럼 **tenant + 사용자** 소유이고,
+  tenant는 배치 실행 이벤트를 받을 Executor tenant이기도 하다. 본문에 `tenant_id`를 보내면 422다.
 - 로컬과 dev는 `AUTH_MODE: header`로 key 없이 `X-User-Id`만 보내도 된다. stg·prd에서 이 모드면 기동하지 않는다.
 
 ## 헤더
@@ -23,9 +24,11 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 | `X-Session-Id` | — | — | 보내도 무시한다 |
 
 - 헤더 값은 호출 서비스가 **자기 세션에서 확인한 사용자로 새로 만든다.** 브라우저나 상위 호출자가 보낸 값을 그대로 넘기지 않는다.
-- tenant는 등록할 때 정해지고 바꿀 수 없다. 수정 요청에서 `X-Tenant-Id`를 빼면 저장된 값을 그대로 쓰고,
-  저장된 값과 다른 값을 보내면 403 `TENANT_MISMATCH`다.
-- 다른 사용자의 자원은 404로 보인다. 엉뚱한 `X-User-Id`를 보내면 401이 아니라 404·빈 목록이 나온다.
+- 요청마다 tenant가 정해진다: relay key의 `X-Tenant-Id`(허용 목록 안), 없으면 key의 기본 tenant. 조회·수정·삭제 모두
+  이 tenant와 `X-User-Id`가 자원의 것과 같아야 한다. 자원의 tenant는 만들 때 정해지고 바꿀 수 없다.
+- 다른 tenant나 다른 사용자의 자원은 404로 보인다. 같은 `X-User-Id`라도 tenant가 다르면 별개의 사용자다. relay key가
+  `X-Tenant-Id`를 넣어 만든 자원은 이후에도 같은 `X-Tenant-Id`를 보내야 보인다. 빼면 기본 tenant가 되어 404·빈 목록이다.
+- `Idempotency-Key`도 tenant·사용자별로 기록된다. 다른 tenant에서 같은 키를 쓰면 새 요청이다.
 
 ## 설정 (`config.{APP_ENV}.yml`)
 
@@ -48,7 +51,7 @@ AUTH_CLIENTS:
 | `tenant` | — | `X-Tenant-Id`가 없을 때 쓰는 tenant |
 | `relay` | `false` | 중계자 여부. `allowed_tenants`는 `relay: true`일 때만 쓸 수 있다 |
 | `allowed_tenants` | `[]` | relay key가 `X-Tenant-Id`로 쓸 수 있는 tenant. 자기 기본 tenant도 명시해 보내려면 목록에 넣는다. 비우면 `X-Tenant-Id`를 쓸 수 없다 |
-| `admin` | `false` | 운영 API 허용 |
+| `admin` | `false` | 운영 API 허용. 운영 API도 요청의 tenant 안에서만 동작한다 |
 
 ## key 발급과 교체
 
@@ -105,6 +108,7 @@ curl -X POST "$BATCH_URL/api/v1/batches:disable-by-owner" \
 # {"disabled": 3}
 ```
 
+- 요청의 tenant 안의 배치에만 적용한다. 다른 tenant의 같은 사용자는 relay admin key가 `X-Tenant-Id`로 지정해 따로 부른다.
 - 켜져 있던 배치를 끄고 `disabled_reason=USER_DEACTIVATED`를 남긴다. 다시 불러도 결과가 같다(`{"disabled": 0}`).
 - 이미 Executor에 제출된 실행은 계속 돈다. 슬롯을 기다리던 run은 `SKIPPED`(`OWNER_DEACTIVATED`)가 된다.
 - 이렇게 꺼진 배치는 수동 실행도 409 `OWNER_DEACTIVATED`다. 자동으로 되살리지 않으며, 사용자가 직접 켜면
@@ -117,7 +121,6 @@ curl -X POST "$BATCH_URL/api/v1/batches:disable-by-owner" \
 | 401 | `UNAUTHENTICATED` | `api_key` 모드에서 key 없음, 등록되지 않은 key, 512자 초과 |
 | 400 | `INVALID_IDENTITY` | `X-User-Id` 없음·형식 오류, `X-Project-Id`·`X-Tenant-Id` 형식 오류 |
 | 403 | `FORBIDDEN` | relay가 아닌 key의 `X-Tenant-Id`, `allowed_tenants` 밖의 tenant, admin이 아닌 key의 운영 API |
-| 403 | `TENANT_MISMATCH` | 저장된 tenant와 다른 `X-Tenant-Id`로 배치 수정 |
 | 422 | `VALIDATION_ERROR` | 본문에 `tenant_id` 등 모르는 필드 |
 
 ## 알고 가는 위험

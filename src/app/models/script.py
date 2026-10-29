@@ -21,10 +21,18 @@ class Script(SoftDeleteMixin, Base):
     __table_args__ = (
         CheckConstraint("revision >= 1", name="script_revision_positive"),
         CheckConstraint("type IN ('NOTEBOOK')", name="script_type"),
-        Index("ix_scripts_owner_created", "owner_id", "created_at", "id"),
+        Index(
+            "ix_scripts_owner_created",
+            "tenant_id",
+            "owner_id",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # Owner: a user within a tenant, fixed at creation.
+    tenant_id: Mapped[str] = mapped_column(String(64))
     owner_id: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
     # Fixed at creation; every version must parse as this type.
