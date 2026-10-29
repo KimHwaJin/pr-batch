@@ -5,6 +5,8 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 [등록 API](registration-api.md), [실행 API](execution-api.md), [예약 실행](scheduling-api.md) 문서에 있다.
 실행 중인 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
 
+2026-10-21에 처음 전달한 이후 바뀐 점은 [API 사용 변경 사항](api-changes.md)에 정리했다.
+
 ## 공통 규칙
 
 ### 주소
@@ -28,7 +30,8 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 **Idempotency-Key**: 같은 사용자·같은 작업·같은 키로 같은 본문을 다시 보내면 처리하지 않고 최초 응답(상태
 코드 포함)을 그대로 돌려준다. 네트워크 오류·타임아웃 뒤에는 **같은 키와 같은 본문**으로 재시도한다. 같은
 키에 다른 본문을 보내면 409 `IDEMPOTENCY_CONFLICT`다. 재전송 응답은 최초 시점의 값이므로 최신 상태는 GET으로
-읽는다.
+읽는다. 키 기록은 7일 보관되며, 그 뒤 같은 키는 새 요청으로 처리된다. 런타임 목록이 비어 503이 나도 이미 처리된
+요청의 재전송은 최초 응답을 돌려준다.
 
 **If-Match**: 자원의 `revision`이 바뀌었으면 409 `REVISION_CONFLICT`다. 다시 GET해서 새 `ETag`로 요청한다.
 형식이 틀리면(따옴표 누락 등) 422 `INVALID_REVISION`, 헤더가 없으면 422 `VALIDATION_ERROR`다.
@@ -357,7 +360,7 @@ curl "$BATCH_URL/api/v1/batches" \
 | overlap (이전 실행이 아직 돌 때) | `SKIP` | 없음 |
 | | `QUEUE` | `max_queued` (100) |
 | | `PARALLEL` | `max_concurrent` (필수, 1~100), `max_queued` (100) |
-| | `REPLACE` | 없음. 실행 중인 것을 취소하고 새로 실행 |
+| | `REPLACE` | 없음. 실행 중인 것을 취소하고 새로 실행. 한 번에 여러 일정이 도래하면 마지막 하나만 실행 |
 | misfire (장애 등으로 놓친 일정) | `SKIP` | `grace_seconds` (300) |
 | | `LATEST` | `grace_seconds` (300) |
 | | `CATCH_UP` | `grace_seconds` (300), `max_runs` (10), `max_age_seconds` (86400) |
@@ -367,7 +370,7 @@ curl "$BATCH_URL/api/v1/batches" \
 | 오류 | 의미 |
 | --- | --- |
 | 404 `NOT_FOUND` | `script_id`가 없거나 내 것이 아님 |
-| 422 `VALIDATION_ERROR` | 필드 형식, 일정 정의, 모드에 없는 정책 값 |
+| 422 `VALIDATION_ERROR` | 필드 형식, 일정 정의, 모드에 없는 정책 값, 본문 `tenant_id` 등 모르는 필드 |
 | 422 `INVALID_POLICY` | 정책 조합 오류 |
 | 422 `UNKNOWN_RUNTIME` | 런타임 목록에 없는 조합 |
 | 422 `RUNTIME_NOT_SUPPORTED` | 스크립트 타입이 그 런타임에서 돌 수 없음 |
@@ -406,6 +409,7 @@ curl -X PATCH "$BATCH_URL/api/v1/batches/$BATCH_ID" \
 - `X-Project-Id`는 무시한다. `X-Tenant-Id`를 빼면 저장된 tenant를 유지하고, 다른 값을 보내면 403 `TENANT_MISMATCH`.
 
 200, 변경된 BatchView와 새 `ETag`. 오류는 등록과 같고 409 `REVISION_CONFLICT`, `SCHEDULE_REQUIRED`,
+403 `TENANT_MISMATCH`,
 422 `NO_FUTURE_OCCURRENCE`(활성 배치의 새 일정에 앞으로 실행할 시각이 없음)가 추가된다.
 
 ### DELETE /api/v1/batches/{batch_id} — 삭제
