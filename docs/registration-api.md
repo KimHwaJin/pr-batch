@@ -15,7 +15,7 @@ Python 3.12와 uv, PostgreSQL, 공유 PV가 필요하다. Redis는 사용하지 
 ```sh
 uv sync --locked
 cp .env.example .env
-# .env의 DB URL, 공유 PV 절대경로, 토큰 검증 공개키 경로, Executor 주소 수정
+# .env의 DB URL, 공유 PV 절대경로, Executor 주소·key 수정
 uv run --locked alembic upgrade head
 uv run --locked uvicorn app.main:create_app --factory
 ```
@@ -28,8 +28,10 @@ DB 초기화는 앱 기동과 분리한다. 되돌리기 명령은 등록 데이
 `alembic downgrade`는 보존할 데이터가 있는 환경에서 실행하지 않는다.
 
 `STORAGE_ROOT`는 미리 생성·마운트한 절대경로다. 원본과 셀 파일은
-`batch/inputs/users/<사용자 ID>/scripts/<id>/versions/<version>/` 아래 저장한다.
-사용자 ID는 `X-User-Id`를 소문자로 바꾼 값이며 `^[a-z0-9][a-z0-9._-]{0,63}$`만 허용하므로 경로를 벗어날 수 없다.
+`batch/inputs/tenants/<tenant>/users/<사용자 ID>/scripts/<id>/versions/<version>/` 아래 저장한다
+(Executor workspace와 같은 `tenants/…/users/…` 구조).
+tenant는 `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, 사용자 ID는 `X-User-Id`를 소문자로 바꾼 값이며 `^[a-z0-9][a-z0-9._-]{0,63}$`만
+허용하고, 저장 직전에 다시 검사하므로 경로를 벗어날 수 없다.
 사용자 파일명은 경로로 사용하지 않는다. 버전 디렉터리는 0750, 파일은 0640이며
 Executor가 읽을 공유 그룹·UID/GID·마운트 권한을 운영 환경에서 맞춘다.
 서비스는 자기 저장 영역에 쓰기 권한이 필요하다. 다른 사용자 코드가 이 등록
@@ -140,12 +142,13 @@ curl --fail-with-body http://127.0.0.1:8100/api/v1/scripts \
 | schedule | X | 없으면 수동 실행 전용. 활성화하려면 필요 |
 | policy | X | 보낸 값만 적용하고 나머지는 기본값 |
 
-tenant와 project는 본문이 아니라 헤더로 정한다(본문 `tenant_id`는 422).
+tenant와 project는 본문이 아니라 헤더로 정한다(본문 `tenant_id`는 422). 스크립트와 배치는 모두 tenant + 사용자 소유이며,
+배치는 같은 tenant·사용자의 스크립트만 쓸 수 있다(아니면 404).
 
 | 값 | 출처 | 규칙 |
 | --- | --- | --- |
 | `tenant_id` | 중계자 key의 `X-Tenant-Id`(허용 목록 안), 없으면 key의 기본 tenant | Executor 규칙 `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가(위반 400). 배치 실행 이벤트는 `executor.events.{tenant_id}`로 간다 |
-| `project_id` | `X-Project-Id` | 선택. `^[A-Za-z0-9._-]{1,255}$`, `unscoped` 불가 |
+| `project_id` | `X-Project-Id` | 선택. `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 |
 
 응답(BatchView)은 등록 요청과 같은 모양에 `script_version_number`, `tenant_id`, `project_id`, `enabled`,
 `disabled_reason`, `disabled_at`,
@@ -161,8 +164,8 @@ tenant와 project는 본문이 아니라 헤더로 정한다(본문 `tenant_id`�
   현재 스크립트의 최신 버전으로 다시 고정한다.
 - `schedule: null`은 일정 제거다. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - `policy`는 보낸 하위 필드만 바뀌며, 결과 조합이 잘못되면 422 `INVALID_POLICY`.
-- tenant와 project는 바꿀 수 없다. 수정 요청의 `X-Project-Id`는 무시하고, `X-Tenant-Id`를 빼면 저장된 값을 유지하며,
-  저장된 값과 다른 `X-Tenant-Id`는 403 `TENANT_MISMATCH`다. 실행 도중 이벤트 수신자가 바뀌어 결과가 유실되는 것을 막는다.
+- tenant와 project는 바꿀 수 없다. 수정 요청의 `X-Project-Id`는 무시한다. tenant는 소유 범위이므로 다른 tenant로
+  부르면(relay key가 `X-Tenant-Id`를 뺀 경우 포함) 404다. 실행 이벤트 수신자도 바뀌지 않는다.
 - 새 스크립트 버전을 올려도 기존 배치는 바뀌지 않는다. 이미 접수된 실행은 접수 당시
   설정을 유지한다.
 
@@ -285,8 +288,8 @@ HTTP 요청 전체는 업로드 상한 + 64 KiB를 넘으면 본문 파싱 전�
 chunked 요청도 실제 수신 바이트로 제한한다.
 
 JSON 본문 오류는 422 `VALIDATION_ERROR`와 `errors[]`의 `loc`, `type`, `msg`를
-준다. 사용자가 보낸 값은 되돌려주지 않는다. 401은 서비스 토큰 오류, 403은 scope 오류,
-404는 접근 불가능하거나 삭제된 자원, 409는 멱등성·revision 충돌, `SCHEDULE_REQUIRED`와 삭제 차단 사유,
+준다. 사용자가 보낸 값은 되돌려주지 않는다. 400은 신원 헤더 오류, 401은 key 오류, 403은 허용되지 않은
+tenant·admin 전용 API, 404는 다른 tenant·사용자의 자원이거나 삭제된 자원, 409는 멱등성·revision 충돌, `SCHEDULE_REQUIRED`와 삭제 차단 사유,
 413은 크기 상한이다. DB·PV 사용 불가와 원본 해시 불일치는 503이며 내부 경로나
 코드 본문을 반환하지 않는다.
 

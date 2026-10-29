@@ -14,6 +14,7 @@ def upgrade() -> None:
     op.create_table(
         "batches",
         sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("tenant_id", sa.String(length=64), nullable=False),
         sa.Column("owner_id", sa.String(length=255), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
@@ -63,12 +64,13 @@ def upgrade() -> None:
     op.create_index(
         "ix_batches_owner_created",
         "batches",
-        ["owner_id", "created_at", "id"],
+        ["tenant_id", "owner_id", "created_at", "id"],
         unique=False,
         schema="batch",
     )
     op.create_table(
         "idempotency_records",
+        sa.Column("tenant_id", sa.String(length=64), nullable=False),
         sa.Column("owner_id", sa.String(length=255), nullable=False),
         sa.Column("operation", sa.String(length=128), nullable=False),
         sa.Column("key", sa.String(length=255), nullable=False),
@@ -78,7 +80,7 @@ def upgrade() -> None:
         ),
         sa.Column("status_code", sa.Integer(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.PrimaryKeyConstraint("owner_id", "operation", "key"),
+        sa.PrimaryKeyConstraint("tenant_id", "owner_id", "operation", "key"),
         schema="batch",
     )
     op.create_index(
@@ -91,6 +93,7 @@ def upgrade() -> None:
     op.create_table(
         "scripts",
         sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("tenant_id", sa.String(length=64), nullable=False),
         sa.Column("owner_id", sa.String(length=255), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("type", sa.String(length=16), nullable=False),
@@ -113,7 +116,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_scripts_owner_created",
         "scripts",
-        ["owner_id", "created_at", "id"],
+        ["tenant_id", "owner_id", "created_at", "id"],
         unique=False,
         schema="batch",
     )
@@ -171,7 +174,6 @@ def upgrade() -> None:
         sa.Column(
             "policy", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),
-        sa.Column("tenant_id", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by_type", sa.String(length=16), nullable=False),
         sa.Column("created_by", sa.String(length=255), nullable=False),

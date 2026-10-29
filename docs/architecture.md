@@ -228,6 +228,8 @@ JWT(RS256)를 쓰지 않게 된 이유는 다음과 같다.
 - 호출 서비스(상위 에이전트, 다른 서비스)가 늘어날 예정이라 등록이 쉬운 방식이 필요하다.
 - pr-batch, Executor, pr-agentic-service가 같은 헤더·설정 형식(`tenant`, `relay`, `allowed_tenants`, `admin`)을 쓴다.
 
+자원은 Executor와 같이 **tenant + 사용자**로 소유한다(스크립트·배치·실행·멱등성 기록, PV 경로
+`batch/inputs/tenants/{tenant}/users/{user}/…`). 다른 tenant의 자원은 404다.
 tenant와 project는 등록할 때 정해지고 바꿀 수 없다. 실행을 만들 때 스냅샷에 고정되므로, 배치를 고쳐도 진행 중인
 실행의 Executor 호출 신원은 바뀌지 않는다. 실행 완료는 Executor 이벤트가 아니라 `GET /executions/{id}` 폴링으로 안다.
 나중에 사내 표준(mTLS, OIDC 등)이 정해지면 `app/core/security.py` 경계에서 교체한다.

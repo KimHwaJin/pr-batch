@@ -8,9 +8,19 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from app.core.exceptions import ServiceError
-from app.core.security import USER_ID
+from app.core.security import TENANT, USER_ID, Principal
 from app.domain.scripts import ORIGINAL_NAMES, ParsedScript
+
+
+def tenant_ok(tenant: str) -> bool:
+    try:
+        TENANT.validate_python(tenant)
+    except ValidationError:
+        return False
+    return True
 
 
 class ScriptStorage:
@@ -33,19 +43,24 @@ class ScriptStorage:
         return candidate
 
     def save(
-        self, owner: str, script_id: UUID, version: UUID, parsed: ParsedScript
+        self,
+        owner: Principal,
+        script_id: UUID,
+        version: UUID,
+        parsed: ParsedScript,
     ) -> tuple[str, str, list[dict[str, Any]]]:
         """Write the version; returns (directory, original path, cells)."""
         if not self.root.is_dir():
             raise ServiceError(
                 503, "STORAGE_UNAVAILABLE", "Mount storage before registering."
             )
-        # Normalized at authentication; checked again since it is a path.
-        if not USER_ID.fullmatch(owner):
-            raise ServiceError(400, "INVALID_IDENTITY", "Invalid user ID.")
+        # Checked at authentication; checked again since they form a path.
+        if not USER_ID.fullmatch(owner.user_id) or not tenant_ok(owner.tenant):
+            raise ServiceError(400, "INVALID_IDENTITY", "Invalid owner.")
+        # Same tenants/{tenant}/users/{user} layout as Executor workspaces.
         directory = (
-            f"batch/inputs/users/{owner}/scripts/{script_id}"
-            f"/versions/{version}"
+            f"batch/inputs/tenants/{owner.tenant}/users/{owner.user_id}"
+            f"/scripts/{script_id}/versions/{version}"
         )
         destination = self.safe_path(directory)
         destination.parent.mkdir(parents=True, exist_ok=True)

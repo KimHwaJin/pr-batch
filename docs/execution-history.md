@@ -18,7 +18,7 @@ Artifact를 찾을 수 있도록 한다. 결과 리포트는 pr-agentic-service�
 | step_id | 원본 코드 셀과 대응하는 Executor Step의 ID |
 | artifact_id | Executor가 관리하는 결과 노트북의 ID |
 
-배치는 사용자 단위로 소유하며 프로젝트에 속하지 않는다. 실행 이력 조회에도 같은
+배치는 tenant + 사용자 단위로 소유하며 project는 소유 범위가 아니다. 실행 이력 조회에도 같은
 소유권을 적용한다. Executor 제출 시 `metadata`에 batch_id, script_id, script_version_id,
 run_id를 넣어 Executor 쪽 이벤트에서도 실행을 찾을 수 있게 한다.
 

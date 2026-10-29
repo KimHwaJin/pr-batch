@@ -11,7 +11,9 @@ from app.core.exceptions import ServiceError
 from app.core.security import (
     Caller,
     Identity,
+    Principal,
     admin_caller,
+    admin_tenant,
     current_caller,
     current_identity,
     current_owner,
@@ -24,10 +26,11 @@ from app.services.run_service import RunService
 from app.services.runtime_catalog import RuntimeCatalog
 from app.services.script_service import ScriptService
 
-Owner = Annotated[str, Depends(current_owner)]
+Owner = Annotated[Principal, Depends(current_owner)]
 Ident = Annotated[Identity, Depends(current_identity)]
 KeyCaller = Annotated[Caller, Depends(current_caller)]
 AdminCaller = Annotated[Caller, Depends(admin_caller)]
+AdminTenant = Annotated[str, Depends(admin_tenant)]
 Key = Annotated[
     str,
     Header(

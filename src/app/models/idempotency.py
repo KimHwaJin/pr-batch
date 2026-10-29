@@ -16,6 +16,8 @@ class IdempotencyRecord(Base):
     __tablename__ = "idempotency_records"
     __table_args__ = (Index("ix_idempotency_created", "created_at"),)
 
+    # Scoped like resources: the same key in another tenant is new.
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     operation: Mapped[str] = mapped_column(String(128), primary_key=True)
     key: Mapped[str] = mapped_column(String(255), primary_key=True)

@@ -3,7 +3,7 @@
 pr-batch keeps only SHA-256 hashes of caller keys (auth_clients), so its
 repository and image cannot be used to call it. The caller vouches for
 the user it names in X-User-Id; pr-batch trusts it and scopes every
-resource to that user.
+resource to that user within the request's tenant, as the Executor does.
 """
 
 import re
@@ -66,6 +66,14 @@ class Caller:
 
 
 @dataclass(frozen=True)
+class Principal:
+    """Who owns a resource: a user within a tenant (as in the Executor)."""
+
+    tenant: str
+    user_id: str
+
+
+@dataclass(frozen=True)
 class Identity:
     caller: Caller
     user_id: str
@@ -76,6 +84,10 @@ class Identity:
     @property
     def tenant(self) -> str:
         return self.requested_tenant or self.caller.tenant
+
+    @property
+    def owner(self) -> Principal:
+        return Principal(self.tenant, self.user_id)
 
 
 def unauthenticated() -> ServiceError:
@@ -165,5 +177,13 @@ def current_identity(
 
 def current_owner(
     identity: Annotated[Identity, Depends(current_identity)],
+) -> Principal:
+    return identity.owner
+
+
+def admin_tenant(
+    caller: Annotated[Caller, Depends(admin_caller)],
+    tenant: TenantHeader = None,
 ) -> str:
-    return identity.user_id
+    """The tenant an admin operation applies to, chosen like any other."""
+    return requested_tenant(tenant, caller) or caller.tenant

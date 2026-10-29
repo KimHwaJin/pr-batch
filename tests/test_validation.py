@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.core.exceptions import ServiceError
+from app.core.security import Principal
 from app.domain.notebook_parser import parse_notebook
 from app.domain.scripts import ScriptType
 from app.main import create_app
@@ -283,13 +284,19 @@ def test_storage_escape_and_symlink(settings, tmp_path):
     with pytest.raises(ServiceError):
         storage.safe_path("link/file")
     notebook = parse_notebook(notebook_bytes(), "x.ipynb", settings)
-    for owner in ("../../alice", ".alice", "Alice"):
+    for tenant, user in (
+        ("dev", "../../alice"),
+        ("dev", ".alice"),
+        ("dev", "Alice"),
+        ("../dev", "alice"),
+        ("Dev", "alice"),
+    ):
         with pytest.raises(ServiceError):
-            storage.save(owner, uuid4(), uuid4(), notebook)
-    owner = "e12345"
-    directory, path, _ = storage.save(str(owner), uuid4(), uuid4(), notebook)
+            storage.save(Principal(tenant, user), uuid4(), uuid4(), notebook)
+    owner = Principal("agent3", "e12345")
+    directory, path, _ = storage.save(owner, uuid4(), uuid4(), notebook)
     assert path.startswith(f"{directory}/")
-    assert path.startswith(f"batch/inputs/users/{owner}/scripts/")
+    assert path.startswith("batch/inputs/tenants/agent3/users/e12345/scripts/")
     assert (
         storage.read(path, notebook.sha256, len(notebook.raw)) == notebook.raw
     )
@@ -300,7 +307,9 @@ def test_missing_storage_root_is_not_created(settings, tmp_path):
     storage = ScriptStorage(root)
     notebook = parse_notebook(notebook_bytes(), "x.ipynb", settings)
     with pytest.raises(ServiceError, match="Mount storage"):
-        storage.save(str(uuid4()), uuid4(), uuid4(), notebook)
+        storage.save(
+            Principal("dev", str(uuid4())), uuid4(), uuid4(), notebook
+        )
     assert not root.exists()
 
 
@@ -388,3 +397,5 @@ def test_openapi_declares_auth_headers(settings):
     assert {"X-User-Id", "X-Project-Id", "X-Tenant-Id"} <= headers
     assert {"APIKeyHeader": []} in create["security"]
     assert not spec["paths"][RUNTIMES]["get"].get("parameters")
+    admin = spec["paths"][f"{API}:disable-by-owner"]["post"]
+    assert [p["name"] for p in admin["parameters"]] == ["X-Tenant-Id"]

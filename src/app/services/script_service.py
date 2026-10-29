@@ -1,4 +1,5 @@
-"""Script uploads, immutable versions and owner-scoped reads."""
+"""Script uploads, immutable versions and owner-scoped (tenant and user)
+reads."""
 
 from collections.abc import Callable
 from pathlib import PurePath
@@ -8,6 +9,7 @@ from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
+from app.core.security import Principal
 from app.db.base import Actor
 from app.db.session import database_now
 from app.domain.run_state import ACTIVE
@@ -92,7 +94,10 @@ class ScriptService:
         version_id = uuid4()
         try:
             directory, path, cell_map = self.storage.save(
-                script.owner_id, script.id, version_id, parsed
+                Principal(script.tenant_id, script.owner_id),
+                script.id,
+                version_id,
+                parsed,
             )
         except OSError as exc:
             raise ServiceError(
@@ -120,7 +125,7 @@ class ScriptService:
 
     def run_upload(
         self,
-        owner: str,
+        owner: Principal,
         operation: str,
         key: str,
         payload: object,
@@ -138,15 +143,25 @@ class ScriptService:
             raise
 
     def create_script(
-        self, owner: str, key: str, name: str | None, parsed: ParsedScript
+        self,
+        owner: Principal,
+        key: str,
+        name: str | None,
+        parsed: ParsedScript,
     ) -> MutationResult:
         display = name or PurePath(parsed.filename).stem or "script"
 
         def action(session: Session, written: list[str]) -> MutationResult:
             script = Script(
-                id=uuid4(), owner_id=owner, name=display, type=parsed.type
+                id=uuid4(),
+                tenant_id=owner.tenant,
+                owner_id=owner.user_id,
+                name=display,
+                type=parsed.type,
             )
-            script.stamp_created(Actor.user(owner), database_now(session))
+            script.stamp_created(
+                Actor.user(owner.user_id), database_now(session)
+            )
             session.add(script)
             session.flush()
             version = self.save_version(session, script, parsed, 1, written)
@@ -161,7 +176,7 @@ class ScriptService:
         )
 
     def add_version(
-        self, owner: str, script_id: UUID, key: str, parsed: ParsedScript
+        self, owner: Principal, script_id: UUID, key: str, parsed: ParsedScript
     ) -> MutationResult:
         """`parsed` was parsed as this script's own type (see the API)."""
 
@@ -181,7 +196,7 @@ class ScriptService:
             )
             script.latest_version_number = number
             script.revision += 1
-            script.stamp_updated(Actor.user(owner), version.created_at)
+            script.stamp_updated(Actor.user(owner.user_id), version.created_at)
             return 201, version_view(version).model_dump(mode="json")
 
         return self.run_upload(
@@ -194,7 +209,7 @@ class ScriptService:
 
     def rename_script(
         self,
-        owner: str,
+        owner: Principal,
         script_id: UUID,
         key: str,
         expected: int,
@@ -205,7 +220,9 @@ class ScriptService:
             check_revision(script.revision, expected)
             script.name = name
             script.revision += 1
-            script.stamp_updated(Actor.user(owner), database_now(session))
+            script.stamp_updated(
+                Actor.user(owner.user_id), database_now(session)
+            )
             latest = script_version(
                 session, script.id, script.latest_version_number
             )
@@ -220,7 +237,7 @@ class ScriptService:
         )
 
     def delete_script(
-        self, owner: str, script_id: UUID, key: str, expected: int
+        self, owner: Principal, script_id: UUID, key: str, expected: int
     ) -> MutationResult:
         def action(session: Session) -> MutationResult:
             # The row lock waits for batches pinning it (they share-lock).
@@ -248,7 +265,9 @@ class ScriptService:
                     "Wait for or cancel its active runs first.",
                 )
             script.revision += 1
-            script.stamp_deleted(Actor.user(owner), database_now(session))
+            script.stamp_deleted(
+                Actor.user(owner.user_id), database_now(session)
+            )
             return 204, {}
 
         return self.idempotency.run(
@@ -259,7 +278,7 @@ class ScriptService:
             action,
         )
 
-    def get_script(self, owner: str, script_id: UUID) -> ScriptView:
+    def get_script(self, owner: Principal, script_id: UUID) -> ScriptView:
         with self.sessions() as session:
             script = owned_script(session, owner, script_id)
             latest = script_version(
@@ -268,7 +287,7 @@ class ScriptService:
             return script_view(script, latest)
 
     def list_scripts(
-        self, owner: str, limit: int, cursor: str | None
+        self, owner: Principal, limit: int, cursor: str | None
     ) -> ScriptPage:
         query = (
             select(Script, ScriptVersion)
@@ -280,7 +299,11 @@ class ScriptService:
                     == Script.latest_version_number,
                 ),
             )
-            .where(Script.owner_id == owner, Script.deleted_at.is_(None))
+            .where(
+                Script.tenant_id == owner.tenant,
+                Script.owner_id == owner.user_id,
+                Script.deleted_at.is_(None),
+            )
         )
         if cursor:
             query = query.where(
@@ -296,7 +319,7 @@ class ScriptService:
         return ScriptPage(items=items, next_cursor=next_cursor)
 
     def versions(
-        self, owner: str, script_id: UUID, limit: int, cursor: str | None
+        self, owner: Principal, script_id: UUID, limit: int, cursor: str | None
     ) -> VersionPage:
         with self.sessions() as session:
             owned_script(session, owner, script_id)
@@ -325,7 +348,7 @@ class ScriptService:
             )
 
     def version(
-        self, owner: str, script_id: UUID, version_id: UUID
+        self, owner: Principal, script_id: UUID, version_id: UUID
     ) -> VersionDetail:
         with self.sessions() as session:
             owned_script(session, owner, script_id)
@@ -333,12 +356,12 @@ class ScriptService:
                 script_version(session, script_id, version_id)
             )
 
-    def script_type(self, owner: str, script_id: UUID) -> ScriptType:
+    def script_type(self, owner: Principal, script_id: UUID) -> ScriptType:
         with self.sessions() as session:
             return ScriptType(owned_script(session, owner, script_id).type)
 
     def download(
-        self, owner: str, script_id: UUID, version_id: UUID
+        self, owner: Principal, script_id: UUID, version_id: UUID
     ) -> tuple[bytes, ScriptType]:
         with self.sessions() as session:
             script = owned_script(session, owner, script_id)

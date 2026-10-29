@@ -20,6 +20,7 @@ from conftest import (
 )
 from sqlalchemy import create_engine, select, text
 
+from app.core.security import Principal
 from app.domain.script_parser import parse_script
 from app.domain.scripts import ScriptType
 from app.models import ScriptVersion
@@ -554,27 +555,30 @@ def test_body_tenant_id_is_rejected(client):
     assert patched.status_code == 422
 
 
-def test_tenant_comes_from_the_key_and_is_set_once(client):
+def test_tenant_comes_from_the_key_and_scopes_the_batch(client):
     plain = create_batch(client).json()
     assert plain["tenant_id"] == "pr-agentic-service"
     batch = create_batch(client, key="relayed", tenant="agent3").json()
     assert batch["tenant_id"] == "agent3"
-    fetched = client.get(f"{API}/{batch['id']}", headers=token()).json()
+    fetched = client.get(
+        f"{API}/{batch['id']}", headers=token(tenant="agent3")
+    ).json()
     assert fetched["tenant_id"] == "agent3"
-    # Leaving X-Tenant-Id out keeps the stored tenant.
+    # The key's default tenant does not see it, so callers must send the
+    # X-Tenant-Id they registered with.
     renamed = patch_batch(client, batch, "rename", {"name": "x"})
-    assert renamed.status_code == 200, renamed.text
-    assert renamed.json()["tenant_id"] == "agent3"
+    assert renamed.status_code == 404
     same = client.patch(
         f"{API}/{batch['id']}",
         headers={
             **token(tenant="agent3"),
             "Idempotency-Key": "same",
-            "If-Match": f'"{renamed.json()["revision"]}"',
+            "If-Match": f'"{batch["revision"]}"',
         },
         json={"name": "y"},
     )
     assert same.status_code == 200
+    assert same.json()["tenant_id"] == "agent3"
     other = client.patch(
         f"{API}/{batch['id']}",
         headers={
@@ -584,8 +588,70 @@ def test_tenant_comes_from_the_key_and_is_set_once(client):
         },
         json={"name": "z"},
     )
-    assert other.status_code == 403
-    assert other.json()["code"] == "TENANT_MISMATCH"
+    assert other.status_code == 404
+
+
+def test_same_user_in_two_tenants_sees_only_its_own(client):
+    script = upload_script(client).json()
+    batch = create_batch(client, key="mine").json()
+    other = token(tenant="agent3")
+    for path in (
+        f"{SCRIPTS}/{script['id']}",
+        f"{SCRIPTS}/{script['id']}/versions",
+        f"{SCRIPTS}/{script['id']}/versions/{script['latest_version']['id']}",
+        f"{SCRIPTS}/{script['id']}/versions/"
+        f"{script['latest_version']['id']}/content",
+        f"{API}/{batch['id']}",
+        f"{API}/{batch['id']}/skipped-windows",
+    ):
+        assert client.get(path, headers=other).status_code == 404, path
+    assert client.get(SCRIPTS, headers=other).json()["items"] == []
+    assert client.get(API, headers=other).json()["items"] == []
+    for action in ("enable", "disable"):
+        response = client.post(
+            f"{API}/{batch['id']}/{action}",
+            headers={**other, "Idempotency-Key": action, "If-Match": '"1"'},
+        )
+        assert response.status_code == 404, action
+    deleted = client.delete(
+        f"{API}/{batch['id']}",
+        headers={**other, "Idempotency-Key": "delete", "If-Match": '"1"'},
+    )
+    assert deleted.status_code == 404
+    # A batch in another tenant cannot use this tenant's script.
+    foreign = client.post(
+        API,
+        headers={**other, "Idempotency-Key": "foreign"},
+        json=metadata(script_id=script["id"]),
+    )
+    assert foreign.status_code == 404
+    assert client.get(f"{SCRIPTS}/{script['id']}", headers=token()).json()
+
+
+def test_idempotency_keys_are_scoped_by_tenant(client):
+    first = upload_script(client, key="same-key").json()
+    response = client.post(
+        SCRIPTS,
+        headers={**token(tenant="agent3"), "Idempotency-Key": "same-key"},
+        data={"type": "NOTEBOOK"},
+        files={
+            "file": ("analysis.ipynb", notebook_bytes(), "application/json")
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] != first["id"]
+    replay = upload_script(client, key="same-key").json()
+    assert replay["id"] == first["id"]
+
+
+def test_storage_path_includes_the_tenant(client, settings):
+    script = upload_script(client, key="pathed").json()
+    prefix = (
+        settings.storage_root
+        / f"batch/inputs/tenants/pr-agentic-service/users/{ALICE}"
+        / f"scripts/{script['id']}"
+    )
+    assert prefix.is_dir()
 
 
 def test_relay_tenant_must_be_allowed(client):
@@ -665,5 +731,7 @@ def test_upload_files_are_removed_when_the_write_rolls_back(
 
     monkeypatch.setattr(script_service, "script_view", broken)
     with pytest.raises(RuntimeError):
-        service.create_script(ALICE, "k", None, parsed)
+        service.create_script(
+            Principal("pr-agentic-service", ALICE), "k", None, parsed
+        )
     assert not any(settings.storage_root.rglob("original.ipynb"))

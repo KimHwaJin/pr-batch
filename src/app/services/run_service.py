@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
+from app.core.security import Principal
 from app.db.base import DISPATCHER, Actor
 from app.db.session import database_now
 from app.domain.run_state import CANCELLABLE, OCCUPYING, RunStatus
@@ -144,7 +145,7 @@ def admit_run(
             "policy": policy,
             # Fixed per run: the Executor idempotency fingerprint includes
             # them, so a resubmission must send the same values.
-            "tenant_id": config.tenant_id,
+            "tenant_id": batch.tenant_id,
             "project_id": batch.project_id,
         },
         status=target,
@@ -269,16 +270,17 @@ class RunService:
     def owned_run(
         self,
         session: Session,
-        owner: str,
+        owner: Principal,
         batch_id: UUID,
         run_id: UUID,
         *,
         lock: bool = False,
     ) -> BatchRun:
+        """Callers check the batch first, which scopes it to the tenant."""
         query = select(BatchRun).where(
             BatchRun.id == run_id,
             BatchRun.batch_id == batch_id,
-            BatchRun.owner_id == owner,
+            BatchRun.owner_id == owner.user_id,
         )
         if lock:
             query = query.with_for_update()
@@ -287,7 +289,9 @@ class RunService:
             raise ServiceError(404, "NOT_FOUND", "Run not found.")
         return run
 
-    def create(self, owner: str, batch_id: UUID, key: str) -> MutationResult:
+    def create(
+        self, owner: Principal, batch_id: UUID, key: str
+    ) -> MutationResult:
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
             if batch.disabled_reason == "USER_DEACTIVATED":
@@ -297,13 +301,15 @@ class RunService:
                     "The owner was deactivated; enable the batch first.",
                 )
             config = current_config(session, batch)
-            status, run = admit_run(session, batch, config, Actor.user(owner))
+            status, run = admit_run(
+                session, batch, config, Actor.user(owner.user_id)
+            )
             return status, run_view(run).model_dump(mode="json")
 
         return self.idempotency.run(owner, f"run:{batch_id}", key, {}, action)
 
     def cancel(
-        self, owner: str, batch_id: UUID, run_id: UUID, key: str
+        self, owner: Principal, batch_id: UUID, run_id: UUID, key: str
     ) -> MutationResult:
         def action(session: Session) -> MutationResult:
             # Lock order everywhere: batch row, then run row.
@@ -314,7 +320,7 @@ class RunService:
                     409, "NOT_CANCELLABLE", "Run can no longer be cancelled."
                 )
             now = database_now(session)
-            run.stamp_updated(Actor.user(owner), now)
+            run.stamp_updated(Actor.user(owner.user_id), now)
             request_cancel(run, "USER", USER_CANCEL_REASON)
             if run.status == RunStatus.WAITING:
                 run.status = RunStatus.CANCELLED
@@ -330,7 +336,7 @@ class RunService:
             owner, f"run:cancel:{run_id}", key, {}, action
         )
 
-    def get(self, owner: str, batch_id: UUID, run_id: UUID) -> RunDetail:
+    def get(self, owner: Principal, batch_id: UUID, run_id: UUID) -> RunDetail:
         with self.sessions() as session:
             owned_batch(session, owner, batch_id)
             run = self.owned_run(session, owner, batch_id, run_id)
@@ -345,12 +351,13 @@ class RunService:
             )
 
     def list(
-        self, owner: str, batch_id: UUID, limit: int, cursor: str | None
+        self, owner: Principal, batch_id: UUID, limit: int, cursor: str | None
     ) -> RunPage:
         with self.sessions() as session:
             owned_batch(session, owner, batch_id)
             query = select(BatchRun).where(
-                BatchRun.batch_id == batch_id, BatchRun.owner_id == owner
+                BatchRun.batch_id == batch_id,
+                BatchRun.owner_id == owner.user_id,
             )
             if cursor:
                 query = query.where(

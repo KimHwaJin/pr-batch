@@ -257,16 +257,17 @@ def execution(client):
     remote.close()
 
 
-def run_request(client, batch_id, key="run-1", owner="alice"):
+def run_request(client, batch_id, key="run-1", owner="alice", **identity):
     return client.post(
         f"{API}/{batch_id}/runs",
-        headers={**token(owner), "Idempotency-Key": key},
+        headers={**token(owner, **identity), "Idempotency-Key": key},
     )
 
 
-def run_get(client, run, owner="alice"):
+def run_get(client, run, owner="alice", **identity):
     return client.get(
-        f"{API}/{run['batch_id']}/runs/{run['id']}", headers=token(owner)
+        f"{API}/{run['batch_id']}/runs/{run['id']}",
+        headers=token(owner, **identity),
     )
 
 
@@ -869,7 +870,7 @@ def test_replace_overlap_cancels_running_and_starts_new(client, execution):
 def test_submission_carries_identity_headers_and_run_id(client, execution):
     fake, worker = execution
     batch = create_batch(client, tenant="agent3", project="proj-1").json()
-    run = run_request(client, batch["id"]).json()
+    run = run_request(client, batch["id"], tenant="agent3").json()
     assert run["snapshot"]["tenant_id"] == "agent3"
     assert run["snapshot"]["project_id"] == "proj-1"
     fake.state = "SUCCEEDED"
@@ -896,10 +897,21 @@ def test_submission_carries_identity_headers_and_run_id(client, execution):
     assert "x-project-id" not in fake.headers[-1]
 
 
-def test_tenant_is_fixed_when_the_run_is_created(client, execution):
+def test_runs_are_not_visible_from_another_tenant(client, execution):
     fake, worker = execution
     batch = create_batch(client, tenant="agent3").json()
-    run = run_request(client, batch["id"]).json()
+    run = run_request(client, batch["id"], tenant="agent3").json()
+    # Same user, the key's default tenant: neither the batch nor its runs.
+    assert run_request(client, batch["id"], key="x").status_code == 404
+    assert run_get(client, run).status_code == 404
+    listed = client.get(f"{API}/{batch['id']}/runs", headers=token())
+    assert listed.status_code == 404
+    cancel = client.post(
+        f"{API}/{batch['id']}/runs/{run['id']}/cancel",
+        headers={**token(), "Idempotency-Key": "cancel"},
+    )
+    assert cancel.status_code == 404
+    assert run_get(client, run, tenant="agent3").status_code == 200
     response = client.patch(
         f"{API}/{batch['id']}",
         headers={
@@ -909,15 +921,18 @@ def test_tenant_is_fixed_when_the_run_is_created(client, execution):
         },
         json={"name": "renamed"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 404
     tick(worker, run)
     assert fake.headers[0]["x-tenant-id"] == "agent3"
 
 
-def disable_owner(client, owner="alice", key=CALLER_KEY):
+def disable_owner(client, owner="alice", key=CALLER_KEY, tenant=None):
     return client.post(
         f"{API}:disable-by-owner",
-        headers={"X-Api-Key": key},
+        headers={
+            "X-Api-Key": key,
+            **({"X-Tenant-Id": tenant} if tenant else {}),
+        },
         json={"owner_id": user_id(owner), "reason": "USER_DEACTIVATED"},
     )
 
@@ -972,6 +987,32 @@ def test_disable_by_owner_stops_schedules_and_waiting_runs(client, execution):
     assert again.status_code == 200, again.text
     assert again.json()["disabled_reason"] is None
     assert again.json()["disabled_at"] is None
+
+
+def test_disable_by_owner_applies_to_one_tenant(client, execution):
+    batches = {}
+    for tenant in ("pr-agentic-service", "agent3"):
+        created = create_batch(client, key=tenant, tenant=tenant).json()
+        enabled = client.post(
+            f"{API}/{created['id']}/enable",
+            headers={
+                **token(tenant=tenant),
+                "Idempotency-Key": f"enable-{tenant}",
+                "If-Match": f'"{created["revision"]}"',
+            },
+        )
+        assert enabled.status_code == 200, enabled.text
+        batches[tenant] = created["id"]
+    assert disable_owner(client, tenant="agent3").json() == {"disabled": 1}
+    off = client.get(
+        f"{API}/{batches['agent3']}", headers=token(tenant="agent3")
+    ).json()
+    assert off["disabled_reason"] == "USER_DEACTIVATED"
+    # Without X-Tenant-Id: the key's default tenant only.
+    on = client.get(f"{API}/{batches['pr-agentic-service']}", headers=token())
+    assert on.json()["enabled"] is True
+    assert disable_owner(client).json() == {"disabled": 1}
+    assert disable_owner(client, tenant="someone-else").status_code == 403
 
 
 def test_disable_by_owner_needs_an_admin_key(client):
