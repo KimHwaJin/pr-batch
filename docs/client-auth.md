@@ -75,7 +75,9 @@ import httpx
 BATCH_API_KEY = "bat_live_…"  # 호출 서비스 설정에서 읽는다
 
 
-def batch_headers(user_id: str, project_id: str | None = None) -> dict[str, str]:
+def batch_headers(
+    user_id: str, project_id: str | None = None
+) -> dict[str, str]:
     headers = {"X-Api-Key": BATCH_API_KEY, "X-User-Id": user_id}
     if project_id:
         headers["X-Project-Id"] = project_id
@@ -87,6 +89,8 @@ response = httpx.get(
 )
 response.raise_for_status()
 ```
+
+Swagger(`/docs`)에서는 **Authorize**에 key를 넣고, 각 API의 `X-User-Id` 칸을 채운다.
 
 dev(`AUTH_MODE: header`)에서는 `X-Api-Key` 없이 `X-User-Id`만 보내도 된다. 이때 tenant는 `X-Tenant-Id`, 없으면 `dev`다.
 
