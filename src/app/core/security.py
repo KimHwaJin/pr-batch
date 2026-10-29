@@ -8,9 +8,10 @@ resource to that user.
 
 import re
 from dataclasses import dataclass
-from typing import cast
+from typing import Annotated, cast
 
-from fastapi import Request
+from fastapi import Depends, Header, Request, Security
+from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
 from app.core.config import Settings
@@ -25,6 +26,32 @@ API_KEY_MAX_LENGTH = 512
 # Tenant of batches registered in header mode without X-Tenant-Id.
 HEADER_MODE_TENANT = "dev"
 TENANT = TypeAdapter(TenantId)
+
+# Declared (not read from request.headers) so OpenAPI and Swagger show
+# them. Optional, so a missing header is our 400/401, not FastAPI's 422.
+API_KEY_HEADER = APIKeyHeader(
+    name="X-Api-Key",
+    auto_error=False,
+    description="Calling service key. Optional only with AUTH_MODE=header.",
+)
+UserHeader = Annotated[
+    str | None,
+    Header(
+        alias="X-User-Id",
+        description="Required. User the caller acts for.",
+    ),
+]
+ProjectHeader = Annotated[
+    str | None,
+    Header(alias="X-Project-Id", description="Optional project scope."),
+]
+TenantHeader = Annotated[
+    str | None,
+    Header(
+        alias="X-Tenant-Id",
+        description="Optional tenant; relay keys and allowed tenants only.",
+    ),
+]
 
 
 @dataclass(frozen=True)
@@ -69,9 +96,10 @@ def normalize_user_id(value: str) -> str:
     return normalized
 
 
-def current_caller(request: Request) -> Caller:
+def current_caller(
+    request: Request, key: Annotated[str | None, Security(API_KEY_HEADER)]
+) -> Caller:
     settings = cast(Settings, request.app.state.settings)
-    key = request.headers.get("X-Api-Key")
     if key is None:
         if settings.auth_mode == "header":
             return Caller(None, HEADER_MODE_TENANT, True, None, True)
@@ -90,15 +118,13 @@ def current_caller(request: Request) -> Caller:
     )
 
 
-def admin_caller(request: Request) -> Caller:
-    caller = current_caller(request)
+def admin_caller(caller: Annotated[Caller, Depends(current_caller)]) -> Caller:
     if not caller.admin:
         raise ServiceError(403, "FORBIDDEN", "This key is not an admin key.")
     return caller
 
 
-def requested_tenant(request: Request, caller: Caller) -> str | None:
-    value = request.headers.get("X-Tenant-Id")
+def requested_tenant(value: str | None, caller: Caller) -> str | None:
     if value is None:
         return None
     try:
@@ -113,12 +139,14 @@ def requested_tenant(request: Request, caller: Caller) -> str | None:
     return tenant
 
 
-def current_identity(request: Request) -> Identity:
-    caller = current_caller(request)
-    user = request.headers.get("X-User-Id")
+def current_identity(
+    caller: Annotated[Caller, Depends(current_caller)],
+    user: UserHeader = None,
+    project: ProjectHeader = None,
+    tenant: TenantHeader = None,
+) -> Identity:
     if user is None:
         raise invalid_identity("X-User-Id is required.")
-    project = request.headers.get("X-Project-Id")
     if project is not None and (
         not PROJECT_ID.fullmatch(project) or project == "unscoped"
     ):
@@ -130,9 +158,11 @@ def current_identity(request: Request) -> Identity:
         caller=caller,
         user_id=normalize_user_id(user),
         project_id=project,
-        requested_tenant=requested_tenant(request, caller),
+        requested_tenant=requested_tenant(tenant, caller),
     )
 
 
-def current_owner(request: Request) -> str:
-    return current_identity(request).user_id
+def current_owner(
+    identity: Annotated[Identity, Depends(current_identity)],
+) -> str:
+    return identity.user_id

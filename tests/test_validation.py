@@ -373,3 +373,16 @@ def test_monthly_nth_weekday_and_interval_anchor_default():
     following = ScheduleClock(interval).find(start)
     assert following is not None
     assert following.astimezone(SEOUL).hour == 1
+
+
+def test_openapi_declares_auth_headers(settings):
+    with TestClient(create_app(settings)) as client:
+        spec = client.get("/openapi.json").json()
+    scheme = spec["components"]["securitySchemes"]["APIKeyHeader"]
+    assert scheme == {**scheme, "type": "apiKey", "in": "header"}
+    assert scheme["name"] == "X-Api-Key"
+    create = spec["paths"][API]["post"]
+    headers = {p["name"] for p in create["parameters"] if p["in"] == "header"}
+    assert {"X-User-Id", "X-Project-Id", "X-Tenant-Id"} <= headers
+    assert {"APIKeyHeader": []} in create["security"]
+    assert not spec["paths"][RUNTIMES]["get"].get("parameters")
