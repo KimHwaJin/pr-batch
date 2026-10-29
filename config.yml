@@ -15,7 +15,8 @@ DB_POOL_SIZE: 3
 DB_MAX_OVERFLOW: 3
 # Kernels of the Executor BATCH pool that batches may choose.
 BATCH_RUNTIMES:
-  - {type: JUPYTER, profile: python3}
+  - {type: JUPYTER, profile: default}
+  - {type: JUPYTER, profile: "3102311"}
 TASK_CONCURRENCY: 4
 TASK_LEASE_SECONDS: 90
 SYNC_INITIAL_SECONDS: 5
