@@ -1,7 +1,7 @@
 """Batch registration, partial update and view contracts."""
 
 from datetime import datetime
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -12,7 +12,7 @@ from app.schemas.common import (
     Contract,
     KernelName,
     Name,
-    TenantId,
+    UserId,
 )
 from app.schemas.schedule import Policy, PolicyPatch, Schedule
 
@@ -38,8 +38,6 @@ class CreateBatch(Contract):
     runtime: RuntimeSpec
     schedule: Schedule | None = None
     policy: Policy = Field(default_factory=Policy)
-    # Receiver of this batch's Executor events; null: shared Stream.
-    tenant_id: TenantId | None = None
 
 
 class UpdateBatch(Contract):
@@ -52,14 +50,12 @@ class UpdateBatch(Contract):
     runtime: RuntimeSpec | None = None
     schedule: Schedule | None = None
     policy: PolicyPatch | None = None
-    # Set once (null -> value); the receiver of events never changes after.
-    tenant_id: TenantId | None = None
 
     @model_validator(mode="after")
     def validate_patch(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("Send at least one field to change.")
-        for field in ("name", "script_id", "runtime", "policy", "tenant_id"):
+        for field in ("name", "script_id", "runtime", "policy"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null.")
         return self
@@ -74,8 +70,13 @@ class BatchView(Audited, Contract):
     runtime: RuntimeSpec
     schedule: Schedule | None
     policy: Policy
-    tenant_id: str | None
+    # Both fixed at registration, from the caller's key and headers.
+    tenant_id: str
+    project_id: str | None
     enabled: bool
+    # OWNER | USER_DEACTIVATED; null when enabled or never enabled.
+    disabled_reason: str | None
+    disabled_at: datetime | None
     next_run_at: datetime | None
     preview_runs: list[datetime]
     config_number: int
@@ -101,3 +102,12 @@ class SkippedView(Audited, BaseModel):
 class SkippedPage(BaseModel):
     items: list[SkippedView]
     next_cursor: str | None
+
+
+class DisableByOwner(Contract):
+    owner_id: UserId
+    reason: Literal["USER_DEACTIVATED"]
+
+
+class DisabledCount(Contract):
+    disabled: int

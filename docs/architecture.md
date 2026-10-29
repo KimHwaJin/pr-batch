@@ -36,12 +36,12 @@ flowchart LR
             R["Retention loop\n만료 멱등성 기록·Task 삭제"]
         end
     end
-    U["호출 서비스"] -->|JWT| API
+    U["호출 서비스"] -->|X-Api-Key + X-User-Id| API
     API --> PG[(PostgreSQL\nbatch 스키마)]
     S --> PG
     D --> PG
     API --> PV[(공유 PV · RWX)]
-    D -->|제출·조회·취소| EX["Executor"]
+    D -->|제출·조회·취소\nX-Api-Key + 신원 헤더| EX["Executor"]
     EX --> PV
 ```
 
@@ -214,19 +214,23 @@ Task 하나는 "짧은 claim 트랜잭션 → 커넥션 반납 → 원격 호출
 - `LISTEN/NOTIFY`처럼 Pod마다 커넥션을 계속 점유하는 방식은 쓰지 않는다.
 - 풀 크기·동시성은 환경변수로 바꿀 수 있게 하고, 부하 측정 후 조정한다.
 
-## 10. 인증
+## 10. 인증 (2026-10-29 변경)
 
 | 구간 | 방식 |
 | --- | --- |
-| 사용자 → prj_re | SSO (필수, prj_re 책임) |
-| prj_re → pr-batch | **prj_re가 SSO로 확인한 사용자 ID로 pr-batch 전용 단기 JWT를 발급**해 호출(현재 구현 유지). RS256(호출 서비스가 공유 개인키로 서명, pr-batch는 공개키 파일로 검증), `iss=batch-client`, `aud=batch-service`, `scope=batch:manage`, 수명 5분 이하 |
-| pr-batch → Executor | 인증 없음 (내부 서비스). 내부망·NetworkPolicy로 접근 제한 |
+| 사용자 → pr-agentic-service | SSO (pr-agentic-service 책임) |
+| 호출 서비스 → pr-batch | 호출자별 API key(`X-Api-Key`) + 사용자 헤더(`X-User-Id`, 선택 `X-Project-Id`·`X-Tenant-Id`). pr-batch는 key의 SHA-256만 `AUTH_CLIENTS`에 둔다 |
+| pr-batch → Executor | pr-batch의 Executor key(`EXECUTOR_API_KEY`) + 실행 스냅샷의 `X-User-Id`·`X-Tenant-Id`·`X-Project-Id` |
 
-prj_re의 사용자별 내부 bearer token을 pr-batch까지 그대로 넘기는 방식은 택하지 않는다.
-- 예약 실행은 사용자가 접속해 있지 않은 시각에 돌기 때문에, 그때 쓸 수 있는 사용자 토큰이 없다.
-- 사용자 토큰을 pr-batch가 검증하려면 prj_re에 매 요청 조회하거나 서명 키를 공유해야 해서 결합이 커진다.
-- 서비스 간 단기 JWT는 prj_re 쪽 변경이 작고(서명 1회), pr-batch는 공개키 파일 하나로 검증한다(서명용 개인키는 호출 서비스만 보관).
-  나중에 사내 표준(mTLS, OIDC client credentials 등)이 정해지면 `app/core/security.py` 경계에서 교체한다.
+JWT(RS256)를 쓰지 않게 된 이유는 다음과 같다.
+- 운영 클러스터는 NetworkPolicy를 강제할 수 없고 Kubernetes Secret도 쓸 수 없어, 비밀은 어차피 레포 설정에 들어간다.
+  개인키를 레포·이미지에 두는 JWT는 API key에 비해 실질적인 보안 차이가 작고, 키 쌍 발급·교체 비용만 크다.
+- 호출 서비스(상위 에이전트, 다른 서비스)가 늘어날 예정이라 등록이 쉬운 방식이 필요하다.
+- pr-batch, Executor, pr-agentic-service가 같은 헤더·설정 형식(`tenant`, `relay`, `allowed_tenants`, `admin`)을 쓴다.
+
+tenant와 project는 등록할 때 정해지고 바꿀 수 없다. 실행을 만들 때 스냅샷에 고정되므로, 배치를 고쳐도 진행 중인
+실행의 Executor 호출 신원은 바뀌지 않는다. 실행 완료는 Executor 이벤트가 아니라 `GET /executions/{id}` 폴링으로 안다.
+나중에 사내 표준(mTLS, OIDC 등)이 정해지면 `app/core/security.py` 경계에서 교체한다.
 
 호출 서비스의 구현 방법은 [호출 서비스 인증 가이드](client-auth.md)에 있다.
 
@@ -239,7 +243,7 @@ prj_re의 사용자별 내부 bearer token을 pr-batch까지 그대로 넘기는
 | HPA min/max | 지정 가능 | min 2, max 4, CPU 70% 제안 (5장) |
 | PVC 공유 | 가능 | Executor와 RWX PVC 공유 (8장) |
 | DB 커넥션 | 직접 설정 가능, 자원 넉넉하지 않음 | 전체 상한 24, 원격 호출 중 커넥션 미점유 (9장) |
-| 서비스 인증 | Executor 없음. prj_re는 SSO 필수, 나머지는 변경 요청 가능 | 서비스 간 단기 JWT (10장) |
+| 서비스 인증 | Executor 없음. prj_re는 SSO 필수, 나머지는 변경 요청 가능 | 서비스 간 단기 JWT → 2026-10-29 API key + 신원 헤더로 변경 (10장) |
 
 ## 12. 여러 인스턴스 검증 (2026-10-13)
 

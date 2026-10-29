@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from app.core.exceptions import ServiceError
+from app.core.security import USER_ID
 from app.domain.scripts import ORIGINAL_NAMES, ParsedScript
 
 
@@ -39,9 +40,11 @@ class ScriptStorage:
             raise ServiceError(
                 503, "STORAGE_UNAVAILABLE", "Mount storage before registering."
             )
-        user_id = UUID(owner)  # authenticated user UUID; never raw input
+        # Normalized at authentication; checked again since it is a path.
+        if not USER_ID.fullmatch(owner):
+            raise ServiceError(400, "INVALID_IDENTITY", "Invalid user ID.")
         directory = (
-            f"batch/inputs/users/{user_id}/scripts/{script_id}"
+            f"batch/inputs/users/{owner}/scripts/{script_id}"
             f"/versions/{version}"
         )
         destination = self.safe_path(directory)

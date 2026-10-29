@@ -11,13 +11,16 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 - Base URL: 클러스터 안 `http://pr-batch:8000`, 로컬 `http://127.0.0.1:8100` (환경별 주소는 배치팀에 확인)
 - 모든 API는 `/api/v1` 아래에 있다.
-- 예시의 `$BATCH_URL`은 Base URL, `$TOKEN`은 [인증 가이드](client-auth.md)로 만든 JWT다.
+- 예시의 `$BATCH_URL`은 Base URL, `$BATCH_API_KEY`는 호출 서비스 key, `$USER_ID`는 대신하는 사용자다
+  ([인증 가이드](client-auth.md)). dev는 key 없이 `X-User-Id`만 보내도 된다.
 
 ### 헤더
 
 | 헤더 | 언제 | 값 |
 | --- | --- | --- |
-| `Authorization` | 모든 `/api/v1` 요청 | `Bearer <JWT>` |
+| `X-Api-Key` | 모든 `/api/v1` 요청 (dev 제외) | 호출 서비스 key |
+| `X-User-Id` | `GET /runtimes`, `disable-by-owner` 외 모든 요청 | 대신하는 사용자. 소문자로 바꿔 저장·비교 |
+| `X-Project-Id`, `X-Tenant-Id` | 배치 등록 때 선택 | 등록 시점에 고정. [인증 가이드](client-auth.md#헤더) |
 | `Idempotency-Key` | 모든 쓰기(POST, PATCH, DELETE) | 1~255자, 공백 없는 ASCII 출력 문자. 요청마다 새 값(UUID 권장) |
 | `If-Match` | 스크립트 이름 변경·삭제, 배치 수정·삭제·활성화·비활성화 | 상세 GET 응답의 `ETag` 값 그대로, 예: `"3"` (따옴표 포함) |
 | `Content-Type` | JSON 본문 | `application/json` (파일 업로드는 `multipart/form-data`) |
@@ -40,7 +43,7 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 ### 소유권
 
-모든 자원은 토큰 `sub` 사용자 소유다. 다른 사용자 자원과 삭제된 자원은 존재 여부를 숨기고 404로 응답한다.
+모든 자원은 `X-User-Id` 사용자 소유다. 다른 사용자 자원과 삭제된 자원은 존재 여부를 숨기고 404로 응답한다.
 
 ### 오류 형식
 
@@ -56,13 +59,14 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 | HTTP | 대표 code | 의미·대응 |
 | --- | --- | --- |
-| 401 | `UNAUTHENTICATED` | 토큰 오류. [인증 가이드](client-auth.md#인증-오류) 확인 |
-| 403 | `FORBIDDEN` | `scope`가 `batch:manage`가 아님 |
+| 400 | `INVALID_IDENTITY` | `X-User-Id` 없음·형식 오류 등 신원 헤더 오류 |
+| 401 | `UNAUTHENTICATED` | key 오류. [인증 가이드](client-auth.md#인증-오류) 확인 |
+| 403 | `FORBIDDEN`, `TENANT_MISMATCH` | 허용되지 않은 tenant, admin이 아닌 key, 저장된 tenant와 다른 값 |
 | 404 | `NOT_FOUND` | 없는 자원, 다른 사용자 자원, 삭제된 자원 |
 | 409 | `IDEMPOTENCY_CONFLICT`, `REVISION_CONFLICT` 등 | 키 재사용·동시 수정 충돌·상태상 불가. 엔드포인트별 표 참고 |
 | 413 | `REQUEST_TOO_LARGE`, `UPLOAD_TOO_LARGE` | 업로드 크기 초과 (기본 10 MiB) |
 | 422 | `VALIDATION_ERROR` 등 | 입력 오류. 같은 요청을 재시도해도 실패한다 |
-| 503 | `DATABASE_UNAVAILABLE`, `STORAGE_UNAVAILABLE`, `EXECUTOR_NOT_CONFIGURED`, `RUNTIME_CATALOG_UNAVAILABLE` 등 | 일시 장애. 같은 `Idempotency-Key`로 잠시 뒤 재시도 |
+| 503 | `DATABASE_UNAVAILABLE`, `STORAGE_UNAVAILABLE`, `EXECUTOR_NOT_CONFIGURED`, `RUNTIMES_NOT_CONFIGURED` 등 | 일시 장애·설정 누락. 같은 `Idempotency-Key`로 잠시 뒤 재시도 |
 
 ### 공통 응답 필드
 
@@ -91,6 +95,7 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 | | POST | `/api/v1/batches/{batch_id}/enable` | 200 | O | O |
 | | POST | `/api/v1/batches/{batch_id}/disable` | 200 | O | O |
 | | GET | `/api/v1/batches/{batch_id}/skipped-windows` | 200 | | |
+| | POST | `/api/v1/batches:disable-by-owner` (admin key) | 200 | | |
 | 실행 | POST | `/api/v1/batches/{batch_id}/runs` | 202 | O | |
 | | GET | `/api/v1/batches/{batch_id}/runs` | 200 | | |
 | | GET | `/api/v1/batches/{batch_id}/runs/{run_id}` | 200 | | |
@@ -112,10 +117,11 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 ### GET /api/v1/runtimes
 
-배치 등록 때 `runtime`에 넣을 수 있는 조합 목록이다. Executor BATCH 풀 기준이며 30초 캐시한다.
+배치 등록 때 `runtime`에 넣을 수 있는 조합 목록이다. pr-batch 설정 `BATCH_RUNTIMES`에서 읽는다.
+key만 필요하고 `X-User-Id`는 없어도 된다.
 
 ```sh
-curl "$BATCH_URL/api/v1/runtimes" -H "Authorization: Bearer $TOKEN"
+curl "$BATCH_URL/api/v1/runtimes" -H "X-Api-Key: $BATCH_API_KEY"
 ```
 
 ```json
@@ -124,8 +130,7 @@ curl "$BATCH_URL/api/v1/runtimes" -H "Authorization: Bearer $TOKEN"
 
 | 오류 | 의미 |
 | --- | --- |
-| 503 `RUNTIME_CATALOG_UNAVAILABLE` | Executor를 조회할 수 없음 |
-| 503 `EXECUTOR_NOT_CONFIGURED` | pr-batch에 Executor 주소가 설정되지 않음 |
+| 503 `RUNTIMES_NOT_CONFIGURED` | `BATCH_RUNTIMES`가 비어 있음 |
 
 ---
 
@@ -143,7 +148,7 @@ curl "$BATCH_URL/api/v1/runtimes" -H "Authorization: Bearer $TOKEN"
 
 ```sh
 curl "$BATCH_URL/api/v1/scripts" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -F 'file=@daily.ipynb' -F 'type=NOTEBOOK' -F 'name=생산라인 일일 분석'
 ```
@@ -183,7 +188,7 @@ curl "$BATCH_URL/api/v1/scripts" \
 쿼리: `limit`, `cursor`. 응답 `{"items": [ScriptView...], "next_cursor": "..."}`.
 
 ```sh
-curl "$BATCH_URL/api/v1/scripts?limit=20" -H "Authorization: Bearer $TOKEN"
+curl "$BATCH_URL/api/v1/scripts?limit=20" -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID"
 ```
 
 ### GET /api/v1/scripts/{script_id} — 상세
@@ -194,7 +199,7 @@ curl "$BATCH_URL/api/v1/scripts?limit=20" -H "Authorization: Bearer $TOKEN"
 
 ```sh
 curl -X PATCH "$BATCH_URL/api/v1/scripts/$SCRIPT_ID" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H 'If-Match: "1"' \
   -H 'Content-Type: application/json' \
@@ -209,7 +214,7 @@ soft delete이며 되살리는 API는 없다. 204, 본문 없음.
 
 ```sh
 curl -X DELETE "$BATCH_URL/api/v1/scripts/$SCRIPT_ID" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H 'If-Match: "2"'
 ```
@@ -225,7 +230,7 @@ multipart `file`만 보낸다. 스크립트의 `type`으로 파싱한다. `If-Ma
 
 ```sh
 curl "$BATCH_URL/api/v1/scripts/$SCRIPT_ID/versions" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -F 'file=@daily.ipynb'
 ```
@@ -260,7 +265,7 @@ VersionView에 원본 셀별 `cell_list`가 추가된다.
 
 ```sh
 curl -o daily.ipynb "$BATCH_URL/api/v1/scripts/$SCRIPT_ID/versions/$VERSION_ID/content" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID"
 ```
 
 | 오류 | 의미 |
@@ -284,9 +289,13 @@ curl -o daily.ipynb "$BATCH_URL/api/v1/scripts/$SCRIPT_ID/versions/$VERSION_ID/c
 | `schedule` | X | 일정. 없으면 수동 실행 전용(활성화 불가) |
 | `policy` | X | 겹침(`overlap`)·누락(`misfire`) 정책. 생략하면 둘 다 `SKIP` |
 
+tenant와 project는 본문이 아니라 헤더로 정한다. tenant는 key의 기본 tenant이고, 중계자 key는 `X-Tenant-Id`로
+고를 수 있다. `X-Project-Id`를 보내면 `project_id`로 저장한다. 둘 다 등록 후에는 바뀌지 않는다. 본문에 `tenant_id`를
+보내면 422다.
+
 ```sh
 curl "$BATCH_URL/api/v1/batches" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -316,7 +325,11 @@ curl "$BATCH_URL/api/v1/batches" \
     "overlap": {"mode": "QUEUE", "max_queued": 100},
     "misfire": {"mode": "LATEST", "grace_seconds": 300}
   },
+  "tenant_id": "pr-agentic-service",
+  "project_id": null,
   "enabled": false,
+  "disabled_reason": null,
+  "disabled_at": null,
   "next_run_at": null,
   "preview_runs": ["2026-10-21T23:00:00Z", "2026-10-22T23:00:00Z", "…"],
   "config_number": 1,
@@ -358,14 +371,14 @@ curl "$BATCH_URL/api/v1/batches" \
 | 422 `INVALID_POLICY` | 정책 조합 오류 |
 | 422 `UNKNOWN_RUNTIME` | 런타임 목록에 없는 조합 |
 | 422 `RUNTIME_NOT_SUPPORTED` | 스크립트 타입이 그 런타임에서 돌 수 없음 |
-| 503 `RUNTIME_CATALOG_UNAVAILABLE` | Executor 조회 실패 |
+| 503 `RUNTIMES_NOT_CONFIGURED` | `BATCH_RUNTIMES`가 비어 있음 |
 
 ### GET /api/v1/batches — 목록
 
 쿼리: `limit`, `cursor`, `script_id`(선택, 특정 스크립트를 쓰는 배치만).
 
 ```sh
-curl "$BATCH_URL/api/v1/batches?script_id=$SCRIPT_ID" -H "Authorization: Bearer $TOKEN"
+curl "$BATCH_URL/api/v1/batches?script_id=$SCRIPT_ID" -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID"
 ```
 
 ### GET /api/v1/batches/{batch_id} — 상세
@@ -379,7 +392,7 @@ BatchView와 `ETag`. `enabled`, `next_run_at`(처리할 다음 예약), `preview
 
 ```sh
 curl -X PATCH "$BATCH_URL/api/v1/batches/$BATCH_ID" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H 'If-Match: "1"' \
   -H 'Content-Type: application/json' \
@@ -390,6 +403,7 @@ curl -X PATCH "$BATCH_URL/api/v1/batches/$BATCH_ID" \
 - `script_version_number: null` 또는 `script_id`만 보내면 최신 버전으로 다시 고정.
 - `schedule: null`은 일정 제거. 활성 배치에서는 409 `SCHEDULE_REQUIRED`.
 - 다른 `mode`를 보내면 그 구역은 새 모드의 기본값에서 다시 시작한다.
+- `X-Project-Id`는 무시한다. `X-Tenant-Id`를 빼면 저장된 tenant를 유지하고, 다른 값을 보내면 403 `TENANT_MISMATCH`.
 
 200, 변경된 BatchView와 새 `ETag`. 오류는 등록과 같고 409 `REVISION_CONFLICT`, `SCHEDULE_REQUIRED`,
 422 `NO_FUTURE_OCCURRENCE`(활성 배치의 새 일정에 앞으로 실행할 시각이 없음)가 추가된다.
@@ -400,7 +414,7 @@ soft delete. 활성 배치는 비활성화되고 이후 배치와 그 실행·�
 
 ```sh
 curl -X DELETE "$BATCH_URL/api/v1/batches/$BATCH_ID" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H 'If-Match: "3"'
 ```
@@ -415,7 +429,7 @@ curl -X DELETE "$BATCH_URL/api/v1/batches/$BATCH_ID" \
 
 ```sh
 curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H 'If-Match: "1"'
 ```
@@ -427,11 +441,18 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 | 409 `SCHEDULE_REQUIRED` | 일정이 없는 배치 |
 | 422 `NO_FUTURE_OCCURRENCE` | 앞으로 실행할 시각이 없음(지난 ONCE, 끝난 기간) |
 | 422 `UNKNOWN_RUNTIME`, `RUNTIME_NOT_SUPPORTED` | 배치의 런타임을 지금 쓸 수 없음 |
-| 503 `EXECUTOR_NOT_CONFIGURED`, `RUNTIME_CATALOG_UNAVAILABLE` | Executor 미설정·조회 실패 |
+| 503 `EXECUTOR_NOT_CONFIGURED`, `RUNTIMES_NOT_CONFIGURED` | Executor·런타임 목록 미설정 |
 
 ### POST /api/v1/batches/{batch_id}/disable — 예약 중지
 
-본문 없음. 새 예약 접수만 멈추고 이미 접수·실행 중인 실행은 취소하지 않는다. 200, `enabled: false`인 BatchView.
+본문 없음. 새 예약 접수만 멈추고 이미 접수·실행 중인 실행은 취소하지 않는다. 200, `enabled: false`,
+`disabled_reason: "OWNER"`인 BatchView. 다시 활성화하면 `disabled_reason`·`disabled_at`이 지워진다.
+
+### POST /api/v1/batches:disable-by-owner — 사용자 비활성 (운영)
+
+admin key만 부를 수 있다(`X-User-Id` 불필요). 본문 `{"owner_id": "e12345", "reason": "USER_DEACTIVATED"}`.
+그 사용자의 켜진 배치를 모두 끄고 `{"disabled": n}`을 돌려준다. 자세한 동작은
+[인증 가이드](client-auth.md#사용자-비활성)를 본다.
 
 ### GET /api/v1/batches/{batch_id}/skipped-windows — 생략된 예약 구간
 
@@ -461,7 +482,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 
 ```sh
 curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)"
 ```
 
@@ -476,6 +497,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs" \
 
 | 오류 | 의미 |
 | --- | --- |
+| 409 `OWNER_DEACTIVATED` | 사용자 비활성으로 꺼진 배치(`disabled_reason=USER_DEACTIVATED`) |
 | 503 `EXECUTOR_NOT_CONFIGURED` | Executor 미설정 |
 
 ### GET /api/v1/batches/{batch_id}/runs — 실행 이력
@@ -543,7 +565,7 @@ RunView에 셀별 `steps`가 추가된다. 실행이 끝날 때까지 이 API를
 
 ```sh
 curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs/$RUN_ID/cancel" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: $(uuidgen)"
 ```
 
@@ -558,7 +580,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs/$RUN_ID/cancel" \
 
 ## Python 클라이언트 예시
 
-토큰 발급(`batch_token`)은 [인증 가이드](client-auth.md#python-pyjwt)의 함수를 쓴다.
+key와 사용자 헤더는 [인증 가이드](client-auth.md#헤더)를 따른다.
 
 ```python
 import time
@@ -567,12 +589,13 @@ import uuid
 import httpx
 
 BATCH_URL = "http://pr-batch:8000"
+BATCH_API_KEY = "bat_live_…"  # 호출 서비스 설정에서 읽는다
 
 
 def client(user_id: str) -> httpx.Client:
     return httpx.Client(
         base_url=f"{BATCH_URL}/api/v1",
-        headers={"Authorization": f"Bearer {batch_token(user_id)}"},
+        headers={"X-Api-Key": BATCH_API_KEY, "X-User-Id": user_id},
         timeout=30,
     )
 
@@ -588,9 +611,7 @@ def run_and_wait(user_id: str, batch_id: str) -> dict:
         run = run.json()
     while run["status"] not in ("COMPLETED", "FAILED", "CANCELLED", "SKIPPED"):
         time.sleep(5)
-        with client(
-            user_id
-        ) as api:  # 토큰 유효 기간이 짧으므로 조회마다 새로 발급
+        with client(user_id) as api:
             run = (
                 api.get(f"/batches/{batch_id}/runs/{run['id']}")
                 .raise_for_status()

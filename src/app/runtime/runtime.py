@@ -25,10 +25,18 @@ from app.tasks.handlers import Clients
 logger = logging.getLogger(__name__)
 
 
-def build_clients(settings: Settings) -> Clients:
+def executor_client(settings: Settings) -> ExecutorClient:
     assert settings.executor_base_url is not None
+    key = settings.executor_api_key
+    return ExecutorClient(
+        settings.executor_base_url,
+        api_key=key.get_secret_value() if key else None,
+    )
+
+
+def build_clients(settings: Settings) -> Clients:
     return Clients(
-        executor=ExecutorClient(settings.executor_base_url),
+        executor=executor_client(settings),
         sync_initial_seconds=settings.sync_initial_seconds,
         sync_max_seconds=settings.sync_max_seconds,
     )

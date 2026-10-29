@@ -3,7 +3,13 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, StringConstraints
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    StringConstraints,
+)
 
 Name = Annotated[
     str,
@@ -42,6 +48,14 @@ TenantId = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z][a-z0-9-]{1,62}[a-z0-9]$"),
     AfterValidator(not_reserved),
+]
+
+
+# Opaque caller-chosen user IDs (UUIDs, employee numbers); lower-cased.
+UserId = Annotated[
+    str,
+    BeforeValidator(lambda v: v.lower() if isinstance(v, str) else v),
+    StringConstraints(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$"),
 ]
 
 

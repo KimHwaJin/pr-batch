@@ -8,14 +8,21 @@ present), both at the project root. ConfigMaps and
 Secrets are unavailable on the platform, so the files ship in the image.
 """
 
+import hashlib
+import hmac
 import os
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from pydantic import Field, PrivateAttr, SecretStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    StringConstraints,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -23,6 +30,9 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 from sqlalchemy.engine import make_url
+
+from app.schemas.batch import RuntimeSpec
+from app.schemas.common import TenantId
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 APP_ENVS = ("dev", "stg", "prd")
@@ -45,21 +55,36 @@ def config_files() -> list[Path]:
     return files
 
 
-def load_auth_public_key(path: Path) -> RSAPublicKey:
-    """Read and check the token verification key at startup."""
-    resolved = path if path.is_absolute() else PROJECT_ROOT / path
-    try:
-        key = load_pem_public_key(resolved.read_bytes())
-    except (OSError, ValueError) as exc:
-        raise ValueError(
-            "auth_public_key_file: cannot read a PEM public key at "
-            f"{resolved}."
-        ) from exc
-    if not isinstance(key, RSAPublicKey) or key.key_size < 2048:
-        raise ValueError(
-            "auth_public_key_file: use an RSA public key of 2048 bits or more."
-        )
-    return key
+# Environments where identity headers may be trusted without a key.
+HEADER_AUTH_ENVS = (None, "dev")
+
+ClientName = Annotated[
+    str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{1,62}[a-z0-9]$")
+]
+KeyHash = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+class AuthClient(BaseModel):
+    """One calling service, known by the SHA-256 of its API key."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: ClientName
+    # Several hashes while a key is being replaced.
+    key_sha256: list[KeyHash] = Field(min_length=1)
+    # Event Stream for batches this caller registers.
+    tenant: TenantId
+    # A relay may name another tenant (X-Tenant-Id), within allowed_tenants.
+    relay: bool = False
+    allowed_tenants: list[TenantId] = Field(default_factory=list)
+    # May call owner-wide operations such as disable-by-owner.
+    admin: bool = False
+
+    @model_validator(mode="after")
+    def validate_relay(self) -> Self:
+        if self.allowed_tenants and not self.relay:
+            raise ValueError(f"{self.name}: allowed_tenants needs relay.")
+        return self
 
 
 class Settings(BaseSettings):
@@ -70,14 +95,10 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     database_url: SecretStr
     storage_root: Path
-    # PEM RSA public key that verifies caller tokens (RS256). Callers sign
-    # with the matching private key; a relative path is under the project
-    # root, so a key committed in keys/ ships in the image.
-    auth_public_key_file: Path
-    # Every calling service puts this same value in "iss".
-    auth_issuer: str = "batch-client"
-    auth_audience: str = "batch-service"
-    auth_max_lifetime_seconds: int = Field(default=300, ge=30, le=3600)
+    # api_key: callers send X-Api-Key, matched against auth_clients.
+    # header: identity headers are trusted without a key (local/dev only).
+    auth_mode: Literal["api_key", "header"] = "api_key"
+    auth_clients: list[AuthClient] = Field(default_factory=list)
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
     max_code_cells: int = Field(default=100, ge=1, le=10000)
     cell_max_bytes: int = Field(default=1024 * 1024, ge=1)
@@ -89,8 +110,10 @@ class Settings(BaseSettings):
     db_auto_migrate: bool = True
 
     executor_base_url: str | None = None
-    # BATCH runtimes come from the Executor; cache them this long.
-    runtime_catalog_ttl_seconds: float = Field(default=30, ge=1, le=3600)
+    # pr-batch's own key for the Executor (X-Api-Key on every call).
+    executor_api_key: SecretStr | None = None
+    # Runtimes batches may choose; kernels of the Executor's BATCH pool.
+    batch_runtimes: list[RuntimeSpec] = Field(default_factory=list)
 
     # In-process background runtime (scheduler + task dispatcher).
     background_enabled: bool = True
@@ -106,8 +129,6 @@ class Settings(BaseSettings):
     # Purge expired idempotency keys and settled tasks (history is kept).
     idempotency_retention_days: int = Field(default=7, ge=1, le=365)
     task_retention_days: int = Field(default=30, ge=1, le=365)
-
-    _auth_public_key: RSAPublicKey = PrivateAttr()
 
     @classmethod
     def settings_customise_sources(
@@ -137,7 +158,17 @@ class Settings(BaseSettings):
             raise ValueError("Use a postgresql+psycopg database URL.")
         if not self.storage_root.is_absolute():
             raise ValueError("storage_root must be an absolute path.")
-        self._auth_public_key = load_auth_public_key(self.auth_public_key_file)
+        if (
+            self.auth_mode == "header"
+            and os.environ.get("APP_ENV") not in HEADER_AUTH_ENVS
+        ):
+            raise ValueError("auth_mode header is only allowed locally/dev.")
+        hashes = [h for c in self.auth_clients for h in c.key_sha256]
+        if len(hashes) != len(set(hashes)):
+            raise ValueError("auth_clients: a key hash is listed twice.")
+        names = [c.name for c in self.auth_clients]
+        if len(names) != len(set(names)):
+            raise ValueError("auth_clients: a client name is listed twice.")
         if self.executor_base_url is not None:
             endpoint = urlsplit(self.executor_base_url)
             if (
@@ -156,6 +187,12 @@ class Settings(BaseSettings):
             raise ValueError("sync_initial_seconds exceeds sync_max_seconds.")
         return self
 
-    @property
-    def auth_public_key(self) -> RSAPublicKey:
-        return self._auth_public_key
+    def match_client(self, key: str) -> AuthClient | None:
+        """The client whose key this is; constant time per stored hash."""
+        digest = hashlib.sha256(key.encode()).hexdigest()
+        found = None
+        for client in self.auth_clients:
+            for stored in client.key_sha256:
+                if hmac.compare_digest(digest, stored):
+                    found = client
+        return found

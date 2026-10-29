@@ -29,14 +29,9 @@ serve:
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.
-.PHONY: docker-up docker-down docker-smoke docker-logs docker-multi dev-token auth-keys
+.PHONY: docker-up docker-down docker-smoke docker-logs docker-multi
 
-# Local RSA pair in .local-keys/ (kept if present): the stack verifies with
-# the public half, dev-token and the smoke checks sign with the private one.
-auth-keys:
-	@uv run --locked python scripts/auth_keys.py
-
-docker-up: auth-keys
+docker-up:
 	docker compose up -d --build --wait --remove-orphans app
 
 docker-down:
@@ -50,10 +45,6 @@ docker-logs:
 
 # Three identical app replicas on one database (HPA-like); see
 # scripts/multi_instance_check.py for the scheduling/recovery checks.
-docker-multi: auth-keys
+docker-multi:
 	docker compose -f compose.yaml -f compose.multi.yaml up -d --build \
 		--wait --remove-orphans app app-2 app-3
-
-# 5-minute JWT for Swagger (/docs → Authorize) against the Docker stack.
-dev-token: auth-keys
-	@uv run --locked python scripts/dev_token.py

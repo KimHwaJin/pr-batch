@@ -9,7 +9,6 @@ from typing import Literal
 from app.domain.scripts import ScriptType
 
 RuntimeType = Literal["JUPYTER"]
-BATCH_POOL = "BATCH"
 
 SCRIPT_RUNTIMES: dict[ScriptType, frozenset[str]] = {
     ScriptType.NOTEBOOK: frozenset({"JUPYTER"}),

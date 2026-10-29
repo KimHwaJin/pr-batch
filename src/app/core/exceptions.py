@@ -19,11 +19,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def service_error(
         request: Request, exc: ServiceError
     ) -> JSONResponse:
-        headers = {"WWW-Authenticate": "Bearer"} if exc.status == 401 else None
         return JSONResponse(
             {"code": exc.code, "message": exc.message},
             status_code=exc.status,
-            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

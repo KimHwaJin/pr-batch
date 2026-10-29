@@ -4,9 +4,8 @@
 HOST: 0.0.0.0
 # Listen port; keep deploy/k8s containerPort in step.
 PORT: 8000
-AUTH_ISSUER: batch-client
-AUTH_AUDIENCE: batch-service
-AUTH_MAX_LIFETIME_SECONDS: 300
+# Callers send X-Api-Key; config.{APP_ENV}.yml lists them (AUTH_CLIENTS).
+AUTH_MODE: api_key
 UPLOAD_MAX_BYTES: 10485760
 MAX_CODE_CELLS: 100
 CELL_MAX_BYTES: 1048576
@@ -14,7 +13,9 @@ DB_AUTO_MIGRATE: true
 # Connection budget: (3 + 3) per pod x maxReplicas 4 = 24.
 DB_POOL_SIZE: 3
 DB_MAX_OVERFLOW: 3
-RUNTIME_CATALOG_TTL_SECONDS: 30
+# Kernels of the Executor BATCH pool that batches may choose.
+BATCH_RUNTIMES:
+  - {type: JUPYTER, profile: python3}
 TASK_CONCURRENCY: 4
 TASK_LEASE_SECONDS: 90
 SYNC_INITIAL_SECONDS: 5

@@ -17,12 +17,8 @@ from app.core.logging_setup import configure_logging
 from app.core.middleware import RequestSizeLimit
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_db_engine, create_sessions
-from app.integrations.executor import ExecutorClient
 from app.runtime.runtime import BackgroundRuntime, build_clients
-from app.services.runtime_catalog import (
-    RuntimeCatalog,
-    UnconfiguredRuntimeCatalog,
-)
+from app.services.runtime_catalog import RuntimeCatalog
 from app.storage.script_storage import ScriptStorage
 
 MIGRATION_HEAD = "0001_initial"
@@ -62,14 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessions = sessions
     app.state.storage = ScriptStorage(settings.storage_root)
     app.state.runtime = None
-    app.state.runtime_catalog = (
-        RuntimeCatalog(
-            ExecutorClient(settings.executor_base_url),
-            settings.runtime_catalog_ttl_seconds,
-        )
-        if settings.executor_base_url
-        else UnconfiguredRuntimeCatalog()
-    )
+    app.state.runtime_catalog = RuntimeCatalog(settings.batch_runtimes)
     app.state.ready = False
     app.add_middleware(
         RequestSizeLimit, max_bytes=settings.upload_max_bytes + 64 * 1024

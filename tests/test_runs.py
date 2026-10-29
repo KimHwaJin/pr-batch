@@ -12,11 +12,14 @@ from conftest import (
     ALICE,
     API,
     BOB,
+    CALLER_KEY,
+    PLAIN_KEY,
     SCRIPTS,
     create_batch,
     metadata,
     notebook_bytes,
     token,
+    user_id,
 )
 from sqlalchemy import event, func, select, update
 
@@ -52,9 +55,14 @@ class FakeExecutor:
         self.bad_result = False
         self.cancels = []
         self.contents = {}
+        self.identities = {}
+        self.headers = []
 
     def handle(self, request):
         self.requests.append((request.method, request.url.path))
+        self.headers.append(
+            {k: v for k, v in request.headers.items() if k.startswith("x-")}
+        )
         if self.http_error:
             if self.error_code:
                 return httpx2.Response(
@@ -95,6 +103,7 @@ class FakeExecutor:
             payload = json.loads(request.content)
             self.payloads.append(payload)
             key = payload["idempotency_key"]
+            self.identities.setdefault(key, self.headers[-1])
             if key not in self.receipts:
                 self.receipts[key] = {
                     "execution_id": str(uuid4()),
@@ -126,7 +135,10 @@ class FakeExecutor:
             for k, r in self.receipts.items()
             if r["execution_id"] == execution_id
         )
-        payload = next(p for p in self.payloads if p["idempotency_key"] == key)
+        identity = self.identities[key]
+        context = {"user_id": identity["x-user-id"]}
+        if "x-project-id" in identity:
+            context["project_id"] = identity["x-project-id"]
         lifecycle = {
             "started_at": "2026-10-12T01:00:00Z",
             "finished_at": (
@@ -143,11 +155,8 @@ class FakeExecutor:
                     "execution_id": execution_id,
                     "state": state,
                     "context": {
-                        **payload["context"],
-                        "user_id": (
-                            self.owner_override
-                            or payload["context"]["user_id"]
-                        ),
+                        **context,
+                        "user_id": self.owner_override or context["user_id"],
                     },
                     "lifecycle": lifecycle,
                     "failure": (
@@ -231,12 +240,17 @@ class FakeExecutor:
         )
 
 
+EXECUTOR_KEY = "exe_test_0123456789"
+
+
 @pytest.fixture
 def execution(client):
     client.app.state.settings.executor_base_url = "http://executor.test"
     fake = FakeExecutor()
     remote = ExecutorClient(
-        "http://executor.test", transport=httpx2.MockTransport(fake.handle)
+        "http://executor.test",
+        api_key=EXECUTOR_KEY,
+        transport=httpx2.MockTransport(fake.handle),
     )
     worker = Dispatcher(client.app.state.sessions, Clients(remote, 5, 60))
     yield fake, worker
@@ -340,7 +354,7 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     tick(worker, run)
     payload = fake.payloads[0]
     assert payload["runtime"] == {"type": "JUPYTER", "profile": "python3"}
-    assert payload["context"] == {"user_id": ALICE}
+    assert "context" not in payload
     assert payload["metadata"]["run_id"] == run["id"]
     assert payload["metadata"]["script_version_id"] == run["script_version_id"]
     assert payload["metadata"]["script_id"] == batch["script_id"]
@@ -720,7 +734,7 @@ def test_client_limits_response_and_validates_contract():
         )
         try:
             with pytest.raises(ExecutorError, match=expected):
-                client.submit({})
+                client.submit({}, {"X-User-Id": "alice"})
         finally:
             client.close()
 
@@ -852,44 +866,135 @@ def test_replace_overlap_cancels_running_and_starts_new(client, execution):
     assert run_get(client, new).json()["status"] in {"QUEUED", "RUNNING"}
 
 
-def test_submission_carries_tenant_and_run_id(client, execution):
+def test_submission_carries_identity_headers_and_run_id(client, execution):
     fake, worker = execution
-    batch = create_batch(client, config=metadata(tenant_id="pr-agentic"))
-    run = run_request(client, batch.json()["id"]).json()
-    assert run["snapshot"]["tenant_id"] == "pr-agentic"
-    tick(worker, run)
+    batch = create_batch(client, tenant="agent3", project="proj-1").json()
+    run = run_request(client, batch["id"]).json()
+    assert run["snapshot"]["tenant_id"] == "agent3"
+    assert run["snapshot"]["project_id"] == "proj-1"
+    fake.state = "SUCCEEDED"
+    drain(worker, run)
     body = fake.payloads[0]
-    assert body["tenant_id"] == "pr-agentic"
-    assert body["context"] == {"user_id": ALICE}
+    assert "tenant_id" not in body and "context" not in body
     assert body["metadata"] == {
         "batch_id": run["batch_id"],
         "script_id": run["script_id"],
         "script_version_id": run["script_version_id"],
         "run_id": run["id"],
     }
-    other = create_batch(client, key="no-tenant").json()
+    # Submit, detail and result all carry the stored identity.
+    assert len(fake.headers) >= 3
+    for headers in fake.headers:
+        assert headers["x-api-key"] == EXECUTOR_KEY
+        assert headers["x-user-id"] == ALICE
+        assert headers["x-tenant-id"] == "agent3"
+        assert headers["x-project-id"] == "proj-1"
+    other = create_batch(client, key="default").json()
     run = run_request(client, other["id"], key="run-2").json()
     tick(worker, run)
-    assert "tenant_id" not in fake.payloads[1]
-    assert fake.payloads[1]["metadata"]["run_id"] == run["id"]
+    assert fake.headers[-1]["x-tenant-id"] == "pr-agentic-service"
+    assert "x-project-id" not in fake.headers[-1]
 
 
 def test_tenant_is_fixed_when_the_run_is_created(client, execution):
     fake, worker = execution
-    batch = create_batch(client).json()
+    batch = create_batch(client, tenant="agent3").json()
     run = run_request(client, batch["id"]).json()
     response = client.patch(
         f"{API}/{batch['id']}",
         headers={
-            **token(),
-            "Idempotency-Key": "set-tenant",
+            **token(tenant="pr-agentic-service"),
+            "Idempotency-Key": "move-tenant",
             "If-Match": f'"{batch["revision"]}"',
         },
-        json={"tenant_id": "pr-agentic"},
+        json={"name": "renamed"},
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 403
     tick(worker, run)
-    assert "tenant_id" not in fake.payloads[0]
+    assert fake.headers[0]["x-tenant-id"] == "agent3"
+
+
+def disable_owner(client, owner="alice", key=CALLER_KEY):
+    return client.post(
+        f"{API}:disable-by-owner",
+        headers={"X-Api-Key": key},
+        json={"owner_id": user_id(owner), "reason": "USER_DEACTIVATED"},
+    )
+
+
+def test_disable_by_owner_stops_schedules_and_waiting_runs(client, execution):
+    fake, worker = execution
+    batch = create_batch(
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
+    ).json()
+    enabled = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={
+            **token(),
+            "Idempotency-Key": "enable",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+    running = run_request(client, batch["id"]).json()
+    tick(worker, running)
+    waiting = run_request(client, batch["id"], key="run-2").json()
+    assert run_get(client, waiting).json()["status"] == "WAITING"
+    bobs = create_batch(client, key="bob", owner="bob").json()
+    response = disable_owner(client)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"disabled": 1}
+    view = client.get(f"{API}/{batch['id']}", headers=token()).json()
+    assert view["enabled"] is False
+    assert view["disabled_reason"] == "USER_DEACTIVATED"
+    assert view["disabled_at"] is not None
+    assert view["next_run_at"] is None
+    skipped = run_get(client, waiting).json()
+    assert skipped["status"] == "SKIPPED"
+    assert skipped["skip_reason"] == "OWNER_DEACTIVATED"
+    # The submitted execution keeps running.
+    assert run_get(client, running).json()["status"] in {"QUEUED", "RUNNING"}
+    manual = run_request(client, batch["id"], key="run-3")
+    assert manual.status_code == 409
+    assert manual.json()["code"] == "OWNER_DEACTIVATED"
+    assert disable_owner(client).json() == {"disabled": 0}
+    untouched = client.get(f"{API}/{bobs['id']}", headers=token("bob"))
+    assert untouched.json()["disabled_reason"] is None
+    # Re-enabling is explicit and clears the reason.
+    again = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={
+            **token(),
+            "Idempotency-Key": "re-enable",
+            "If-Match": f'"{view["revision"]}"',
+        },
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["disabled_reason"] is None
+    assert again.json()["disabled_at"] is None
+
+
+def test_disable_by_owner_needs_an_admin_key(client):
+    assert disable_owner(client, key=PLAIN_KEY).status_code == 403
+    assert disable_owner(client, key="bat_unknown_key").status_code == 401
+
+
+def test_owner_disabled_batch_still_runs_manually(client, execution):
+    batch = create_batch(client).json()
+    enabled = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={**token(), "Idempotency-Key": "on", "If-Match": '"1"'},
+    ).json()
+    disabled = client.post(
+        f"{API}/{batch['id']}/disable",
+        headers={
+            **token(),
+            "Idempotency-Key": "off",
+            "If-Match": f'"{enabled["revision"]}"',
+        },
+    ).json()
+    assert disabled["disabled_reason"] == "OWNER"
+    assert run_request(client, batch["id"]).status_code == 202
 
 
 @pytest.mark.parametrize(

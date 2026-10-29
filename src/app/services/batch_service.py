@@ -9,9 +9,10 @@ from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.exceptions import ServiceError
+from app.core.security import Identity
 from app.db.base import Actor
 from app.db.session import database_now
-from app.domain.run_state import ACTIVE
+from app.domain.run_state import ACTIVE, RunStatus
 from app.domain.schedule_clock import EPSILON, ScheduleClock
 from app.domain.scripts import ScriptType
 from app.models import (
@@ -26,6 +27,7 @@ from app.schemas.batch import (
     BatchPage,
     BatchView,
     CreateBatch,
+    DisabledCount,
     RuntimeSpec,
     SkippedPage,
     SkippedView,
@@ -68,7 +70,10 @@ def batch_view(
         schedule=schedule,
         policy=policy_of(config),
         tenant_id=config.tenant_id,
+        project_id=batch.project_id,
         enabled=batch.enabled,
+        disabled_reason=batch.disabled_reason,
+        disabled_at=batch.disabled_at,
         next_run_at=batch.next_run_at,
         preview_runs=(
             ScheduleClock(schedule).preview(now) if schedule else []
@@ -143,6 +148,7 @@ def stop_schedule(
     config: BatchConfig,
     now: datetime,
     reason: str,
+    actor: Actor | None = None,
 ) -> None:
     """Clear the next occurrence, recording it if it was already due."""
     if batch.next_run_at and batch.next_run_at <= now:
@@ -154,7 +160,7 @@ def stop_schedule(
             now + EPSILON,
             reason,
             now,
-            Actor.user(batch.owner_id),
+            actor or Actor.user(batch.owner_id),
         )
     batch.next_run_at = None
 
@@ -185,9 +191,15 @@ class BatchService:
         )
 
     def create_batch(
-        self, owner: str, key: str, data: CreateBatch
+        self, identity: Identity, key: str, data: CreateBatch
     ) -> MutationResult:
-        payload = data.model_dump(mode="json")
+        owner = identity.user_id
+        # Header-derived values are part of the request a key replays.
+        payload = {
+            **data.model_dump(mode="json"),
+            "tenant_id": identity.tenant,
+            "project_id": identity.project_id,
+        }
         if replayed := self.idempotency.replay(
             owner, "batch:create", key, payload
         ):
@@ -203,7 +215,13 @@ class BatchService:
             )
             actor = Actor.user(owner)
             now = database_now(session)
-            batch = Batch(id=uuid4(), owner_id=owner, name=data.name)
+            batch = Batch(
+                id=uuid4(),
+                owner_id=owner,
+                name=data.name,
+                project_id=identity.project_id,
+                client=identity.caller.client,
+            )
             batch.stamp_created(actor, now)
             session.add(batch)
             session.flush()
@@ -215,7 +233,7 @@ class BatchService:
                 runtime=data.runtime.model_dump(mode="json"),
                 schedule=dump(anchored(data.schedule, batch.created_at)),
                 policy=data.policy.model_dump(mode="json"),
-                tenant_id=data.tenant_id,
+                tenant_id=identity.tenant,
             )
             config.stamp_created(actor, batch.created_at)
             session.add(config)
@@ -230,12 +248,13 @@ class BatchService:
 
     def update_batch(
         self,
-        owner: str,
+        identity: Identity,
         batch_id: UUID,
         key: str,
         expected: int,
         data: UpdateBatch,
     ) -> MutationResult:
+        owner = identity.user_id
         fields = data.model_fields_set
         operation = f"batch:update:{batch_id}"
         payload = {
@@ -253,10 +272,17 @@ class BatchService:
             batch = owned_batch(session, owner, batch_id, lock=True)
             check_revision(batch.revision, expected)
             config = current_config(session, batch)
+            requested = identity.requested_tenant
+            if requested is not None and requested != config.tenant_id:
+                # Running executions keep sending events to the stored
+                # tenant; changing it would lose their results.
+                raise ServiceError(
+                    403,
+                    "TENANT_MISMATCH",
+                    "The tenant is fixed at registration.",
+                )
             now = database_now(session)
             changed = set(fields)
-            if data.tenant_id == config.tenant_id:
-                changed.discard("tenant_id")  # resending it changes nothing
             if not changed:
                 return 200, batch_view(
                     batch, config, config_version(session, config), now
@@ -297,17 +323,6 @@ class BatchService:
             if "schedule" in fields
             else schedule_of(current)
         )
-        tenant_id = current.tenant_id
-        if "tenant_id" in fields and data.tenant_id != tenant_id:
-            if tenant_id is not None:
-                # Running executions keep sending events to the old
-                # receiver; changing it would lose their results.
-                raise ServiceError(
-                    409,
-                    "TENANT_IMMUTABLE",
-                    "tenant_id can only be set once.",
-                )
-            tenant_id = data.tenant_id
         policy = policy_of(current)
         if data.policy is not None:
             policy = merged_policy(
@@ -351,7 +366,7 @@ class BatchService:
             ),
             schedule=dump(schedule),
             policy=policy.model_dump(mode="json"),
-            tenant_id=tenant_id,
+            tenant_id=current.tenant_id,
         )
         config.stamp_created(Actor.user(owner), now)
         session.add(config)
@@ -409,12 +424,13 @@ class BatchService:
 
     def set_enabled(
         self,
-        owner: str,
+        identity: Identity,
         batch_id: UUID,
         key: str,
         expected: int,
         enabled: bool,
     ) -> MutationResult:
+        owner = identity.user_id
         operation = f"activation:{batch_id}"
         payload = {"enabled": enabled, "expected_revision": expected}
         if replayed := self.idempotency.replay(owner, operation, key, payload):
@@ -445,8 +461,13 @@ class BatchService:
                             "Choose a schedule with a future occurrence.",
                         )
                     batch.next_run_at = following
+                    batch.disabled_reason = None
+                    batch.disabled_at = batch.disabled_by = None
                 else:
                     stop_schedule(session, batch, config, now, "DISABLED")
+                    batch.disabled_reason = "OWNER"
+                    batch.disabled_at = now
+                    batch.disabled_by = identity.caller.client
                 batch.enabled = enabled
                 batch.revision += 1
                 batch.stamp_updated(Actor.user(owner), now)
@@ -455,6 +476,60 @@ class BatchService:
             ).model_dump(mode="json")
 
         return self.idempotency.run(owner, operation, key, payload, action)
+
+    def disable_by_owner(
+        self, owner: str, caller: str | None
+    ) -> DisabledCount:
+        """Stop a deactivated user's schedules (repeatable).
+
+        Running executions finish; runs still waiting for a slot are
+        skipped, since nothing of them reached the Executor yet.
+        """
+        actor = Actor("SYSTEM", caller or "header-mode")
+        with self.sessions.begin() as session:
+            # Lock order everywhere: batch rows, then run rows.
+            batches = list(
+                session.scalars(
+                    select(Batch)
+                    .where(
+                        Batch.owner_id == owner,
+                        Batch.deleted_at.is_(None),
+                    )
+                    .order_by(Batch.id)
+                    .with_for_update()
+                )
+            )
+            now = database_now(session)
+            disabled = 0
+            for batch in batches:
+                if not batch.enabled:
+                    continue
+                config = current_config(session, batch)
+                stop_schedule(
+                    session, batch, config, now, "OWNER_DEACTIVATED", actor
+                )
+                batch.enabled = False
+                batch.disabled_reason = "USER_DEACTIVATED"
+                batch.disabled_at = now
+                batch.disabled_by = caller
+                batch.revision += 1
+                batch.stamp_updated(actor, now)
+                disabled += 1
+            if batches:
+                waiting = session.scalars(
+                    select(BatchRun)
+                    .where(
+                        BatchRun.batch_id.in_([b.id for b in batches]),
+                        BatchRun.status == RunStatus.WAITING,
+                    )
+                    .with_for_update()
+                )
+                for run in waiting:
+                    run.status = RunStatus.SKIPPED
+                    run.skip_reason = "OWNER_DEACTIVATED"
+                    run.completed_at = now
+                    run.stamp_updated(actor, now)
+        return DisabledCount(disabled=disabled)
 
     def delete_batch(
         self, owner: str, batch_id: UUID, key: str, expected: int

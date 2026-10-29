@@ -14,8 +14,6 @@ from app.integrations.executor.contracts import (
     Detail,
     Receipt,
     Result,
-    RuntimeTarget,
-    RuntimeTargetPage,
 )
 
 ERROR_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,45}$")
@@ -68,6 +66,7 @@ class ExecutorClient:
         self,
         base_url: str,
         *,
+        api_key: str | None = None,
         transport: httpx2.BaseTransport | None = None,
         response_max_bytes: int = 4 * 1024 * 1024,
     ) -> None:
@@ -77,6 +76,7 @@ class ExecutorClient:
             follow_redirects=False,
             trust_env=False,
             transport=transport,
+            headers={"X-Api-Key": api_key} if api_key else None,
         )
         self.response_max_bytes = response_max_bytes
 
@@ -90,11 +90,12 @@ class ExecutorClient:
         model: type[T],
         payload: dict[str, Any] | None = None,
         params: dict[str, str | int] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> T:
         try:
             started = time.monotonic()
             with self.client.stream(
-                method, path, json=payload, params=params
+                method, path, json=payload, params=params, headers=headers
             ) as response:
                 if not 200 <= response.status_code < 300:
                     status = response.status_code
@@ -131,15 +132,30 @@ class ExecutorClient:
                 return b""
         return bytes(body)
 
-    def submit(self, payload: dict[str, Any]) -> Receipt:
-        return self.request("POST", "api/v1/executions", Receipt, payload)
+    # `identity` is the run's identity headers (identity_headers): the
+    # Executor scopes every execution call to that user and tenant.
 
-    def detail(self, execution_id: UUID) -> Detail:
-        return self.request("GET", f"api/v1/executions/{execution_id}", Detail)
-
-    def result(self, execution_id: UUID) -> Result:
+    def submit(
+        self, payload: dict[str, Any], identity: dict[str, str]
+    ) -> Receipt:
         return self.request(
-            "GET", f"api/v1/executions/{execution_id}/result", Result
+            "POST", "api/v1/executions", Receipt, payload, headers=identity
+        )
+
+    def detail(self, execution_id: UUID, identity: dict[str, str]) -> Detail:
+        return self.request(
+            "GET",
+            f"api/v1/executions/{execution_id}",
+            Detail,
+            headers=identity,
+        )
+
+    def result(self, execution_id: UUID, identity: dict[str, str]) -> Result:
+        return self.request(
+            "GET",
+            f"api/v1/executions/{execution_id}/result",
+            Result,
+            headers=identity,
         )
 
     def cancel(
@@ -148,6 +164,7 @@ class ExecutorClient:
         key: str,
         actor: dict[str, str],
         reason: str,
+        identity: dict[str, str],
     ) -> bool:
         """Request cancellation; False when Executor reports it too late.
 
@@ -160,6 +177,7 @@ class ExecutorClient:
                 f"api/v1/executions/{execution_id}/cancel",
                 CommandAck,
                 {"idempotency_key": key, "reason": reason, "actor": actor},
+                headers=identity,
             )
         except ExecutorError as exc:
             # Only a terminal execution; an idempotency conflict is a bug.
@@ -167,28 +185,3 @@ class ExecutorClient:
                 return False
             raise
         return True
-
-    def runtime_targets(self, pool: str) -> list[RuntimeTarget]:
-        """Enabled runtime targets of a pool, following pagination."""
-        targets: list[RuntimeTarget] = []
-        cursor: str | None = None
-        for _ in range(50):  # hard stop against a misbehaving cursor
-            params: dict[str, str | int] = {
-                "pool": pool,
-                "enabled": "true",
-                "limit": 100,
-            }
-            if cursor:
-                params["cursor"] = cursor
-            page = self.request(
-                "GET",
-                "api/v1/runtime-targets",
-                RuntimeTargetPage,
-                None,
-                params,
-            )
-            targets.extend(page.items)
-            cursor = page.next_cursor
-            if not cursor:
-                return targets
-        raise ExecutorError("EXECUTOR_CONTRACT_MISMATCH")

@@ -1,50 +1,48 @@
 """Tests use an explicitly supplied, disposable PostgreSQL database."""
 
+import hashlib
 import json
 import os
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-import jwt
 import pytest
 from alembic import command
 from alembic.config import Config
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from app.core.config import Settings
+from app.core.config import AuthClient, Settings
 from app.main import create_app
 from app.schemas.batch import RuntimeSpec
 from app.services.runtime_catalog import RuntimeCatalog
 
-# Callers sign with the private half; Settings reads the public PEM file.
-CALLER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-PUBLIC_PEM = CALLER_KEY.public_key().public_bytes(
-    serialization.Encoding.PEM,
-    serialization.PublicFormat.SubjectPublicKeyInfo,
+# The calling service's key; Settings keeps only its SHA-256.
+CALLER_KEY = "bat_test_0123456789abcdef0123456789abcdef"
+PLAIN_KEY = "bat_test_plain_0123456789abcdef0123456789"
+CALLER = AuthClient(
+    name="pr-agentic-service",
+    key_sha256=[hashlib.sha256(CALLER_KEY.encode()).hexdigest()],
+    tenant="pr-agentic-service",
+    relay=True,
+    allowed_tenants=["pr-agentic-service", "agent3"],
+    admin=True,
+)
+# A non-relay, non-admin caller.
+PLAIN = AuthClient(
+    name="plain-service",
+    key_sha256=[hashlib.sha256(PLAIN_KEY.encode()).hexdigest()],
+    tenant="plain-service",
 )
 API = "/api/v1/batches"
 SCRIPTS = "/api/v1/scripts"
 
 
-class StaticRuntimeCatalog(RuntimeCatalog):
-    """Fixed catalog standing in for the Executor BATCH pool."""
-
-    def __init__(self, specs: list[RuntimeSpec]) -> None:
-        self.specs = specs
-
-    def available(self) -> list[RuntimeSpec]:
-        return list(self.specs)
-
-
 def user_id(name: str) -> str:
-    """Stable UUID for a readable test user name (prj_re IDs are UUIDs)."""
+    """Stable UUID for a readable test user name (any opaque ID works)."""
     try:
         return str(UUID(name))
     except ValueError:
@@ -54,19 +52,17 @@ def user_id(name: str) -> str:
 ALICE, BOB = user_id("alice"), user_id("bob")
 
 
-def token(owner: str = "alice", **overrides: object) -> dict[str, str]:
-    now = int(time.time())
-    claims = {
-        "sub": user_id(owner),
-        "iss": "batch-client",
-        "aud": "batch-service",
-        "iat": now,
-        "exp": now + 120,
-        "scope": "batch:manage",
-    }
-    claims.update(overrides)
-    encoded = jwt.encode(claims, CALLER_KEY, algorithm="RS256")
-    return {"Authorization": f"Bearer {encoded}"}
+def token(
+    owner: str = "alice", key: str = CALLER_KEY, **headers: str
+) -> dict[str, str]:
+    """Caller key + identity headers; extra keyword names map to X-...
+
+    token(project="p1", tenant="agent3") adds X-Project-Id/X-Tenant-Id.
+    """
+    result = {"X-Api-Key": key, "X-User-Id": user_id(owner)}
+    for name, value in headers.items():
+        result[f"X-{name.title()}-Id"] = value
+    return result
 
 
 def notebook_bytes(
@@ -113,15 +109,13 @@ def metadata(**updates: object) -> dict:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    key_file = tmp_path / "auth_public.pem"
-    key_file.write_bytes(PUBLIC_PEM)
     return Settings(
         _env_file=None,
         database_url=SecretStr(
             "postgresql+psycopg://unused:unused@127.0.0.1:1/unit_test"
         ),
         storage_root=tmp_path,
-        auth_public_key_file=key_file,
+        auth_clients=[CALLER, PLAIN],
         db_auto_migrate=False,
         background_enabled=False,
     )
@@ -165,7 +159,7 @@ def client(database_url: str, settings: Settings) -> Iterator[TestClient]:
         update={"database_url": SecretStr(database_url)}
     )
     app = create_app(configured)
-    app.state.runtime_catalog = StaticRuntimeCatalog(
+    app.state.runtime_catalog = RuntimeCatalog(
         [
             RuntimeSpec(type="JUPYTER", profile="python3"),
             RuntimeSpec(type="JUPYTER", profile="analytics"),
@@ -204,13 +198,19 @@ def create_batch(
     owner: str = "alice",
     raw: bytes | None = None,
     config: dict | None = None,
+    **identity: str,
 ):
-    """Upload a notebook (same key) and register a batch for it."""
+    """Upload a notebook (same key) and register a batch for it.
+
+    Keyword identity (project=..., tenant=...) goes into the headers.
+    """
     body = dict(config or metadata())
     if "script_id" not in body:
         notebook = upload_script(client, f"notebook:{key}", owner, raw)
         assert notebook.status_code == 201, notebook.text
         body["script_id"] = notebook.json()["id"]
     return client.post(
-        API, headers={**token(owner), "Idempotency-Key": key}, json=body
+        API,
+        headers={**token(owner, **identity), "Idempotency-Key": key},
+        json=body,
     )

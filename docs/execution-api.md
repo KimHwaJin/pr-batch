@@ -34,12 +34,13 @@ Executor의 `INPUT_STORAGE_ROOT`에서 Batch가 저장한
 PV는 프로젝트 루트(예: `/mnt/data/dtest`) 아래 서비스별 폴더(`batch/`, `executor/`)로 나눈다.
 `STORAGE_ROOT`와 Executor `INPUT_STORAGE_ROOT`는 프로젝트 루트,
 Executor `SHARED_STORAGE_ROOT`는 `<프로젝트 루트>/executor`로 둔다.
-런타임 선택지는 Executor BATCH 풀에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목). Executor 호출에는 인증이 없으며(내부 서비스)
-pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
+런타임 선택지는 설정 `BATCH_RUNTIMES`에서 읽는다([등록 API 안내](registration-api.md)의 런타임 항목).
+Executor 호출(제출·조회·결과·취소)에는 `X-Api-Key: <EXECUTOR_API_KEY>`와 실행 스냅샷의 신원 헤더
+`X-User-Id`, `X-Tenant-Id`(항상), `X-Project-Id`(있을 때)를 붙인다. 호출 서비스가 pr-batch에 보낸 key는 넘기지 않는다.
 
 ## HTTP 계약
 
-공통 prefix는 `/api/v1/batches/{batch_id}/runs`이며 서비스 JWT(`sub`=사용자, [인증 가이드](client-auth.md))가 필요하다. 다른 사용자의 배치·실행과
+공통 prefix는 `/api/v1/batches/{batch_id}/runs`이며 API key와 `X-User-Id`([인증 가이드](client-auth.md))가 필요하다. 다른 사용자의 배치·실행과
 삭제된 배치의 실행은 404다(이력은 DB에 보관). 진행 중인 실행이 있는 배치는 삭제할 수 없다
 ([등록 API 안내](registration-api.md#삭제)).
 
@@ -79,9 +80,9 @@ pr-batch 호출용 JWT를 Executor에 넘기지 않는다.
 복제하지 않고 `result_ref`와 artifact ID로만 가리킨다.
 
 **결과 다운로드는 pr-batch가 중계하지 않는다.** `result.notebook_artifact_id`(실행 결과 노트북)를 보고, prj_re가
-Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자에게 전달한다. Executor는 인증이
-없는 내부 서비스이므로 브라우저에 직접 노출하지 않고, prj_re는 먼저 그 사용자의 서비스 JWT로 pr-batch에서 실행을
-조회해 소유권을 확인한 뒤 그 artifact만 내려받는다.
+Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자에게 전달한다. Executor를 브라우저에
+직접 노출하지 않고, 호출 서비스는 먼저 그 사용자로 pr-batch에서 실행을 조회해 소유권을 확인한 뒤 자기 Executor key와
+같은 `X-User-Id`로 그 artifact만 내려받는다.
 
 **리포트는 pr-batch가 만들지 않는다.** pr-agentic-service가 Executor `execution.completed` 이벤트(성공
 회차만)를 받아 직접 작성한다. 이벤트의 `execution.metadata.run_id`가 pr-batch `run_id`다.
@@ -101,16 +102,14 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 | 방향 | 방법 |
 | --- | --- |
 | pr-batch → Executor | 실행 응답의 `execution_id`(제출 후 채워짐, QUEUED 동안은 null), `operation_id`, 상세의 셀별 `steps[].step_id` |
-| Executor → pr-batch | Execution의 `context.user_id` = 사용자 UUID, `metadata`에 `batch_id`, `script_id`, `script_version_id`, `run_id`(= pr-batch `run_id`). `execution.completed` 이벤트의 `execution.metadata`에도 같은 값이 실린다 |
+| Executor → pr-batch | Execution의 `context.user_id` = 배치 소유자(`X-User-Id`, 소문자), `metadata`에 `batch_id`, `script_id`, `script_version_id`, `run_id`(= pr-batch `run_id`). `execution.completed` 이벤트의 `execution.metadata`에도 같은 값이 실린다 |
 
 제출 trigger는 `{type: BATCH, actor: {type: USER, id: owner_id}}`다. actor가 소유자이므로 배치는
 `metadata.batch_id`로 식별한다. Executor가 BATCH trigger에 USER actor를 허용한 뒤에 배포해야 한다.
 
-배치에 `tenant_id`가 있으면 제출 본문 최상위에 싣는다(`context` 안이 아니다). 값은 실행을 만들 때
-`snapshot.tenant_id`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 그대로 간다(Executor
-멱등성 비교에 `tenant_id`가 들어가므로 재제출도 같은 값을 보낸다). `context`는 Executor 범위 정보인
-`{user_id}`만 보내고, 회차 식별자는 `metadata.run_id`에 둔다. Executor의 2026-10-25 변경 이후 형식만
-지원하며 `context.task_id`는 보내지 않는다.
+제출 본문에는 `context`와 `tenant_id`를 넣지 않는다. 신원은 헤더로만 보낸다. tenant와 project는 실행을 만들 때
+`snapshot`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 같은 헤더로 제출·조회·취소된다(재제출도 같은 값).
+회차 식별자는 `metadata.run_id`에 둔다. 실행 완료는 Executor 이벤트가 아니라 `GET /executions/{id}` 폴링으로 확인한다.
 
 예: pr-batch 실행 응답의 `execution_id`로 Executor `GET /api/v1/executions/{execution_id}`, `/events`, `/steps`를 조회해 진행 상황을
 자세히 볼 수 있다. Executor는 인증이 없는 내부 서비스이므로 사용자에게는 prj_re가 소유권 확인 후 중계한다.

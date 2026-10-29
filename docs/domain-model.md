@@ -5,7 +5,7 @@
 ## 1. 한눈에 보기
 
 ```text
-사용자 (owner, 호출 서비스가 JWT sub로 보낸 ID)
+사용자 (owner, 호출 서비스가 X-User-Id로 보낸 ID, 소문자)
 │
 ├── Script                         업로드한 스크립트 (여러 개, type: NOTEBOOK)
 │   └── ScriptVersion              업로드 원본 1개 = 불변 버전 (v1, v2, …)
@@ -83,7 +83,7 @@ erDiagram
 | 생성 | `POST /api/v1/batches` (JSON). 항상 **비활성**으로 생성 |
 | 주요 속성 | 이름, 활성 여부, 다음 예약 시각, 현재 설정 번호, revision |
 | 현재 설정 | 스크립트 버전, 런타임, 일정(선택), 정책 → 실제 값은 최신 BatchConfig에 있음 |
-| 바뀌는 것 | 이름, 설정(PATCH), 활성/비활성, `tenant_id`(비어 있을 때 한 번만) |
+| 바뀌는 것 | 이름, 설정(PATCH), 활성/비활성(`disabled_reason`: `OWNER`·`USER_DEACTIVATED`). `tenant_id`·`project_id`는 등록 때 고정 |
 | API | `/api/v1/batches`, `/batches/{batch_id}`, `/enable`, `/disable` |
 
 수명주기:
@@ -121,7 +121,7 @@ erDiagram
 | 항목 | 내용 |
 | --- | --- |
 | 생성 | 예약(`trigger=SCHEDULED`, `scheduled_for`) 또는 수동(`POST /batches/{id}/runs`, `trigger=MANUAL`) |
-| 고정되는 것 | 접수 시점의 BatchConfig 번호, 스크립트 버전, 런타임, 일정·정책 사본, `tenant_id` |
+| 고정되는 것 | 접수 시점의 BatchConfig 번호, 스크립트 버전, 런타임, 일정·정책 사본, `tenant_id`, `project_id` |
 | 외부 연결 | Executor `execution_id`, 결과 노트북 artifact |
 | API | `/batches/{id}/runs`, `/runs/{run_id}`, `/runs/{run_id}/cancel` |
 

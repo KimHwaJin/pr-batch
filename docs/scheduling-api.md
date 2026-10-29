@@ -15,8 +15,8 @@
 
 ## 활성화·중지 API
 
-공통 prefix는 `/api/v1/batches`다. 호출 서비스가 사용자 UUID(`sub`)로 발급한 RS256 서비스 JWT를
-전달한다([호출 서비스 인증 가이드](client-auth.md)).
+공통 prefix는 `/api/v1/batches`다. 호출 서비스는 `X-Api-Key`와 사용자 `X-User-Id`를
+보낸다([호출 서비스 인증 가이드](client-auth.md)).
 
 | Method | 경로 | 기능 |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ ETag를 반환한다. 실제 활성화 상태를 바꿀 때 revision을 증가�
 
 ```sh
 curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $BATCH_API_KEY" -H "X-User-Id: $USER_ID" \
   -H "Idempotency-Key: enable-request-001" \
   -H 'If-Match: "1"'
 ```
@@ -42,8 +42,12 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 사용자가 중지한 동안의 일정은 소급 실행하지 않는다. 이미 지난 ONCE, 종료 기간이
 지난 일정처럼 앞으로 실행할 시각이 없으면 422 `NO_FUTURE_OCCURRENCE`다.
 일정이 없는 배치는 409 `SCHEDULE_REQUIRED`, Executor 주소가 없으면 503 `EXECUTOR_NOT_CONFIGURED`,
-Executor 런타임 목록을 읽지 못하면 503 `RUNTIME_CATALOG_UNAVAILABLE`, 선택한 런타임이 지금 Executor BATCH 풀에
+런타임 목록(`BATCH_RUNTIMES`)이 비어 있으면 503 `RUNTIMES_NOT_CONFIGURED`, 선택한 런타임이 목록에
 없으면 422 `UNKNOWN_RUNTIME`으로 거절한다. 같은 `Idempotency-Key`의 재전송은 Executor 상태와 관계없이 최초 응답을 돌려준다.
+
+disable은 `disabled_reason: OWNER`를 남기고, enable은 `disabled_reason`·`disabled_at`을 지운다. 사용자 비활성으로
+운영자가 끈 배치(`USER_DEACTIVATED`, `POST /batches:disable-by-owner`)는 대기 중인 run을 `SKIPPED`로 돌리고,
+수동 실행도 409 `OWNER_DEACTIVATED`로 막는다. 자동으로 되살리지 않는다.
 
 중지는 이미 접수·대기·실행 중인 작업을 취소하지 않는다. 중지할 때 아직 접수하지
 못한 과거 예약은 `DISABLED` 생략 구간으로 보존한다. 중지 이후의 예약은 생성하지

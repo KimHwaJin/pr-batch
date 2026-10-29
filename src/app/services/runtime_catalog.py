@@ -1,22 +1,15 @@
-"""Available BATCH runtimes, read from the Executor and cached briefly.
+"""BATCH runtimes this deployment offers, from settings (BATCH_RUNTIMES).
 
-Registration and activation validate against this instead of a static
-allowlist, so kernels added to the Executor are usable without redeploying
-pr-batch. If the Executor cannot be reached, callers get 503 rather than
-storing a runtime that may not exist.
+Registration and activation validate against this list. The Executor's
+runtime target API is for operators (admin key) only, so the list of
+kernels its BATCH pool runs is kept here; add a profile to the settings
+when the Executor gains one.
 """
 
-import threading
-import time
-from typing import get_args
-
 from app.core.exceptions import ServiceError
-from app.domain.runtimes import BATCH_POOL, SCRIPT_RUNTIMES, RuntimeType
+from app.domain.runtimes import SCRIPT_RUNTIMES
 from app.domain.scripts import ScriptType
-from app.integrations.executor import ExecutorClient, ExecutorError
 from app.schemas.batch import RuntimeSpec
-
-KNOWN_TYPES = frozenset(get_args(RuntimeType))
 
 
 def check_runtime(
@@ -40,52 +33,14 @@ def check_runtime(
 
 
 class RuntimeCatalog:
-    def __init__(self, executor: ExecutorClient, ttl_seconds: float) -> None:
-        self.executor = executor
-        self.ttl = ttl_seconds
-        # Guards the cache only; the Executor is read without holding it.
-        self.lock = threading.Lock()
-        self.cached: tuple[float, list[RuntimeSpec]] | None = None
+    def __init__(self, specs: list[RuntimeSpec]) -> None:
+        self.specs = list(specs)
 
     def available(self) -> list[RuntimeSpec]:
-        with self.lock:
-            cached = self.cached
-        if cached and time.monotonic() - cached[0] < self.ttl:
-            return cached[1]
-        try:
-            targets = self.executor.runtime_targets(BATCH_POOL)
-        except ExecutorError as exc:
+        if not self.specs:
             raise ServiceError(
                 503,
-                "RUNTIME_CATALOG_UNAVAILABLE",
-                "Cannot read available runtimes from the Executor.",
-            ) from exc
-        specs = sorted(
-            {
-                (target.runtime.type, profile)
-                for target in targets
-                if target.runtime.pool == BATCH_POOL
-                and target.state.enabled
-                and target.runtime.type in KNOWN_TYPES
-                for profile in target.runtime.supported_profiles
-            }
-        )
-        result = [
-            RuntimeSpec.model_validate({"type": kind, "profile": profile})
-            for kind, profile in specs
-        ]
-        with self.lock:
-            self.cached = (time.monotonic(), result)
-        return result
-
-
-class UnconfiguredRuntimeCatalog(RuntimeCatalog):
-    """No Executor configured: runtimes cannot be validated."""
-
-    def __init__(self) -> None:
-        pass
-
-    def available(self) -> list[RuntimeSpec]:
-        raise ServiceError(
-            503, "EXECUTOR_NOT_CONFIGURED", "Configure Executor first."
-        )
+                "RUNTIMES_NOT_CONFIGURED",
+                "Configure BATCH_RUNTIMES first.",
+            )
+        return list(self.specs)

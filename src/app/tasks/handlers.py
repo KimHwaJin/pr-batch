@@ -28,7 +28,11 @@ from app.integrations.executor import (
     require,
 )
 from app.models import BatchRun, RunStepBinding, Task
-from app.services.run_service import promote_waiting, submission_request
+from app.services.run_service import (
+    identity_headers,
+    promote_waiting,
+    submission_request,
+)
 from app.tasks.queue import (
     ClaimedTask,
     TaskKind,
@@ -117,6 +121,7 @@ class Submission:
     # An earlier attempt may have reached the Executor (lost response,
     # outage): a later rejection then does not prove nothing was created.
     uncertain: bool
+    identity: dict[str, str]
 
 
 @dataclass
@@ -136,11 +141,13 @@ class SubmitExecution:
             return None
         # An uncertain earlier attempt may have created the execution:
         # resubmit (same key, so never a second one) and cancel it after.
-        return Submission(submission_request(session, run), uncertain)
+        return Submission(
+            submission_request(session, run), uncertain, identity_headers(run)
+        )
 
     def call(self, clients, context):
         try:
-            return clients.executor.submit(context.request)
+            return clients.executor.submit(context.request, context.identity)
         except ExecutorError as exc:
             if exc.submit_rejected and not context.uncertain:
                 return Rejected(exc)
@@ -190,10 +197,10 @@ class SyncExecution:
     def prepare(self, session, run, task):
         if run.status != RunStatus.RUNNING or run.execution_id is None:
             return None
-        return run.execution_id
+        return run.execution_id, identity_headers(run)
 
     def call(self, clients, context):
-        return clients.executor.detail(context)
+        return clients.executor.detail(*context)
 
     def apply(self, session, task, run, context, response, now, clients):
         assert isinstance(response, Detail)
@@ -227,10 +234,10 @@ class CollectResult:
     def prepare(self, session, run, task):
         if run.status != RunStatus.COLLECTING or run.execution_id is None:
             return None
-        return run.execution_id
+        return run.execution_id, identity_headers(run)
 
     def call(self, clients, context):
-        return clients.executor.result(context)
+        return clients.executor.result(*context)
 
     def apply(self, session, task, run, context, response, now, clients):
         assert isinstance(response, Result)
@@ -291,11 +298,11 @@ class CancelExecution:
             f"batch-run:{run.id}:cancel",
             actor,
             run.cancel_reason,
+            identity_headers(run),
         )
 
     def call(self, clients, context):
-        execution_id, key, actor, reason = context
-        return clients.executor.cancel(execution_id, key, actor, reason)
+        return clients.executor.cancel(*context)
 
     def apply(self, session, task, run, context, response, now, clients):
         # SYNC_EXECUTION observes the resulting CANCELLED state.

@@ -29,6 +29,15 @@ class Batch(SoftDeleteMixin, Base):
         CheckConstraint(
             "deleted_at IS NULL OR NOT enabled", name="deleted_is_disabled"
         ),
+        CheckConstraint(
+            "disabled_reason IS NULL OR "
+            "disabled_reason IN ('OWNER', 'USER_DEACTIVATED')",
+            name="batch_disabled_reason",
+        ),
+        CheckConstraint(
+            "disabled_reason IS NULL OR NOT enabled",
+            name="disabled_reason_is_disabled",
+        ),
         Index("ix_batches_due", "enabled", "next_run_at"),
         Index("ix_batches_owner_created", "owner_id", "created_at", "id"),
     )
@@ -42,6 +51,17 @@ class Batch(SoftDeleteMixin, Base):
     )
     revision: Mapped[int] = mapped_column(default=1)
     config_number: Mapped[int] = mapped_column(default=1)
+    # Fixed at registration (X-Project-Id); null: not project-scoped.
+    project_id: Mapped[str | None] = mapped_column(String(255))
+    # auth_clients name of the registering key; null in header mode.
+    client: Mapped[str | None] = mapped_column(String(64))
+    # Why the batch is off: OWNER (disabled by its owner) or
+    # USER_DEACTIVATED (disable-by-owner); null when enabled or never on.
+    disabled_reason: Mapped[str | None] = mapped_column(String(32))
+    disabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    disabled_by: Mapped[str | None] = mapped_column(String(64))
 
 
 class BatchConfig(AuditMixin, Base):
@@ -71,8 +91,8 @@ class BatchConfig(AuditMixin, Base):
     runtime: Mapped[dict[str, Any]] = mapped_column(JSONB)
     schedule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    # Executor tenant (event Stream) for runs of this config; null: shared.
-    tenant_id: Mapped[str | None] = mapped_column(String(64))
+    # Executor tenant (event Stream) for runs; fixed at registration.
+    tenant_id: Mapped[str] = mapped_column(String(64))
 
 
 class SkippedWindow(AuditMixin, Base):
