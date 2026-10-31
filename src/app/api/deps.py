@@ -56,7 +56,11 @@ def get_script_service(request: Request) -> ScriptService:
 
 def get_batch_service(request: Request) -> BatchService:
     state = request.app.state
-    return BatchService(state.sessions, state.runtime_catalog)
+    return BatchService(
+        state.sessions,
+        state.runtime_catalog,
+        executor_configured=state.settings.executor_base_url is not None,
+    )
 
 
 def get_runtime_catalog(request: Request) -> RuntimeCatalog:

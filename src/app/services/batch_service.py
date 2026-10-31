@@ -167,12 +167,17 @@ def stop_schedule(
 
 class BatchService:
     def __init__(
-        self, sessions: sessionmaker[Session], catalog: RuntimeCatalog
+        self,
+        sessions: sessionmaker[Session],
+        catalog: RuntimeCatalog,
+        executor_configured: bool = True,
     ) -> None:
         self.sessions = sessions
         self.idempotency = Idempotency(sessions)
-        # Read outside transactions: the lookup may call the Executor.
         self.catalog = catalog
+        # Without an Executor the background runtime never starts, so an
+        # enabled batch would silently never run. Drafts need no Executor.
+        self.executor_configured = executor_configured
 
     def resolve_version(
         self,
@@ -433,6 +438,10 @@ class BatchService:
 
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
+            if enabled and not self.executor_configured:
+                raise ServiceError(
+                    503, "EXECUTOR_NOT_CONFIGURED", "Configure Executor first."
+                )
             check_revision(batch.revision, expected)
             config = current_config(session, batch)
             now = database_now(session)

@@ -114,7 +114,7 @@ def enable_batch(
     key: Key,
     expected: Revision,
 ) -> JSONResponse:
-    # Without an Executor the runtime catalog answers 503 itself.
+    # 503 EXECUTOR_NOT_CONFIGURED without an Executor: nothing would run.
     return mutation_response(
         service.set_enabled(identity, batch_id, key, expected, True)
     )

@@ -17,7 +17,7 @@ make serve   # http://127.0.0.1:8100
 
 | 설정 | 기본 | 의미 |
 | --- | --- | --- |
-| `EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수·배치 등록·수정·활성화는 503 `EXECUTOR_NOT_CONFIGURED`(런타임 목록을 확인할 수 없음), 백그라운드 런타임도 시작하지 않음 |
+| `EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수와 배치 활성화는 503 `EXECUTOR_NOT_CONFIGURED`(백그라운드 런타임이 시작하지 않아 실행될 수 없음). 배치 등록·수정은 Executor 없이도 된다 |
 | `BACKGROUND_ENABLED` | true | 이 프로세스에서 백그라운드 런타임 실행 |
 | `DB_AUTO_MIGRATE` | true | 시작 시 advisory lock 아래 `alembic upgrade head` |
 | `TASK_CONCURRENCY` | 4 | Pod당 동시에 처리하는 Task 수 (= Executor 동시 요청 상한) |
