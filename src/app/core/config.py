@@ -103,8 +103,8 @@ class Settings(BaseSettings):
     max_code_cells: int = Field(default=100, ge=1, le=10000)
     cell_max_bytes: int = Field(default=1024 * 1024, ge=1)
     # Remote calls never hold a connection, so a small pool suffices.
-    db_pool_size: int = Field(default=3, ge=1, le=100)
-    db_max_overflow: int = Field(default=3, ge=0, le=100)
+    db_pool_size: int = Field(default=5, ge=1, le=100)
+    db_max_overflow: int = Field(default=5, ge=0, le=100)
     # Kubernetes allows neither Jobs nor init containers for this service:
     # the first pod upgrades the schema under a PostgreSQL advisory lock.
     db_auto_migrate: bool = True
