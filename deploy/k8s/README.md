@@ -10,7 +10,7 @@
 | hpa.yaml | CPU 70%, min 1, max 4 |
 | pdb.yaml | 노드 drain 등 자발적 중단 시 한 번에 Pod 하나만 내림 (`maxUnavailable: 1`, Pod 1개여도 drain을 막지 않음) |
 
-- DB 역할 준비(한 번): `CREATE ROLE batch LOGIN PASSWORD '…' CONNECTION LIMIT 24;`
+- DB 역할 준비(한 번): `CREATE ROLE batch LOGIN PASSWORD '…' CONNECTION LIMIT 40;` (Pod당 풀 5 + 5, 최대 4 Pod)
   `CREATE DATABASE batch OWNER batch;` 스키마와 테이블은 앱이 시작할 때 만든다.
 - 공유 PV는 Executor와 같은 RWX PVC(`executor-shared`)를 `/mnt/data`에 마운트한다. 이름은 환경에 맞게 바꾼다.
   `storage_root`는 프로젝트 루트(`/mnt/data/dtest`)이고 파일은 `batch/inputs/` 아래 저장한다.
