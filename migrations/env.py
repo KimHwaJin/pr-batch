@@ -85,7 +85,13 @@ else:
         connection.execute(
             text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK}
         )
-        connection.execute(text("CREATE SCHEMA IF NOT EXISTS batch"))
+        # CREATE SCHEMA IF NOT EXISTS checks the database CREATE privilege
+        # even when the schema exists; a DBA-made schema needs no such grant.
+        exists = connection.execute(
+            text("SELECT 1 FROM pg_namespace WHERE nspname = 'batch'")
+        ).first()
+        if exists is None:
+            connection.execute(text("CREATE SCHEMA batch"))
         connection.commit()
         context.configure(
             connection=connection,

@@ -161,6 +161,8 @@ Pod 쉘에서 `alembic upgrade head`를 수동 실행하는 것은 장애 복구
 
 - `DB_AUTO_MIGRATE=true`이면 시작 시 PostgreSQL advisory lock을 잡고 `alembic upgrade head`.
   여러 Pod가 동시에 떠도 한 Pod만 수행하고 나머지는 기다림.
+- `batch` 스키마가 없을 때만 만든다. DBA가 스키마를 미리 만들고 앱 계정에 그 스키마의 소유권(또는 USAGE·CREATE)만
+  주면, 앱 계정에 DB 수준 CREATE 권한은 필요 없다.
 - 롤링 배포 중에는 옛 버전과 새 버전 Pod가 잠시 공존하므로 운영 이후의 migration은 "추가 → 코드 전환 →
   제거" 순서(expand/contract)로 나눠, 직전 버전 코드와 호환되게 작성한다.
   - 한 배포에서 하는 것: 테이블·nullable 컬럼·인덱스 추가, 기본값 있는 컬럼 추가.
