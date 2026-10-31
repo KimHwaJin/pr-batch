@@ -29,7 +29,7 @@ serve:
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.
-.PHONY: docker-up docker-down docker-smoke docker-logs docker-multi
+.PHONY: docker-up docker-down docker-smoke docker-load docker-logs docker-multi
 
 docker-up:
 	docker compose up -d --build --wait --remove-orphans app
@@ -39,6 +39,11 @@ docker-down:
 
 docker-smoke:
 	docker compose --profile smoke run --rm smoke
+
+# Burst of scheduled runs plus API and upload load; prints a JSON summary.
+LOAD_ARGS ?= 20 30 8 10
+docker-load:
+	docker compose --profile load run --rm load $(LOAD_ARGS)
 
 docker-logs:
 	docker compose logs -f app
