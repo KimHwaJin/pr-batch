@@ -1208,6 +1208,48 @@ def test_task_failing_past_the_limit_abandons_the_run(client, execution):
     assert run_get(client, second).json()["status"] == "QUEUED"
 
 
+def give_up(worker, run):
+    with worker.sessions.begin() as session:
+        session.execute(
+            update(Task)
+            .where(Task.run_id == UUID(run["id"]), Task.status == "PENDING")
+            .values(failing_since=Task.failing_since - timedelta(days=2))
+        )
+
+
+def test_abandoned_running_execution_is_cancelled_once(client, execution):
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    tick(worker, run)  # submitted: RUNNING
+    fake.http_error = 503
+    tick(worker, run)  # poll fails
+    give_up(worker, run)
+    tick(worker, run)  # abandoned; one cancel queued
+    detail = run_get(client, run).json()
+    assert (detail["status"], detail["failure_type"]) == (
+        "FAILED",
+        "ABANDONED",
+    )
+    assert pending_tasks(worker, run) == ["CANCEL_EXECUTION"]
+    fake.http_error = None
+    drain(worker, run)
+    assert len(fake.cancels) == 1
+    assert run_get(client, run).json()["status"] == "FAILED"
+
+
+def test_abandon_cancel_is_not_retried(client, execution):
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    tick(worker, run)
+    fake.http_error = 503
+    tick(worker, run)
+    give_up(worker, run)
+    tick(worker, run)
+    tick(worker, run)  # the cancel fails too
+    assert pending_tasks(worker, run) == []
+    assert run_get(client, run).json()["failure_type"] == "ABANDONED"
+
+
 def test_retention_purges_old_records_only(client, execution):
     fake, worker = execution
     batch = create_batch(client).json()
