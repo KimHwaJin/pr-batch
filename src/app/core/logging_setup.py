@@ -19,6 +19,24 @@ LOGGER_CONFIG = PROJECT_ROOT / "logger.yml"
 API_KEY = re.compile(r"\b(?:bat|exe)_[A-Za-z0-9_-]{8,}")
 
 
+# Probed every 10-20s by Kubernetes; an access line each is only noise.
+PROBE_PATHS = frozenset({"/healthz", "/readyz"})
+# Logs a line per HTTP call; Executor failures are logged by pr-batch.
+QUIET_LOGGERS = ("httpx2", "httpx", "httpcore")
+
+
+class SkipProbes(logging.Filter):
+    """Drop uvicorn access lines for health and readiness probes."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn: (client, method, path, http_version, status_code)
+        if isinstance(args, tuple) and len(args) >= 3:
+            path = str(args[2]).split("?", 1)[0]
+            return path not in PROBE_PATHS
+        return True
+
+
 class RedactApiKeys(logging.Filter):
     """Keep API keys out of log output, whoever logs them."""
 
@@ -42,6 +60,14 @@ def configure_logging(path: Path = LOGGER_CONFIG) -> None:
     for handler in logging.getLogger().handlers:
         if not any(isinstance(f, RedactApiKeys) for f in handler.filters):
             handler.addFilter(RedactApiKeys())
+    # In code, not logger.yml: HCP's init_logger brings its own file.
+    for name in QUIET_LOGGERS:
+        logger = logging.getLogger(name)
+        if logger.level < logging.WARNING:
+            logger.setLevel(logging.WARNING)
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, SkipProbes) for f in access.filters):
+        access.addFilter(SkipProbes())
 
 
 def apply_logger_config(path: Path) -> None:
