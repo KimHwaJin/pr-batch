@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import DISPATCHER
@@ -64,6 +65,23 @@ def lock_run(session: Session, run_id) -> BatchRun | None:
     )
 
 
+def unexpected(
+    claimed: ClaimedTask, stage: str, exc: Exception
+) -> ExecutorError:
+    """A bug or unforeseen error: retried with backoff and the give-up
+    limit like an outage, instead of on every lease expiry forever."""
+    logger.error(
+        "Task %s %s: unexpected error in %s.",
+        claimed.kind,
+        claimed.id,
+        stage,
+        exc_info=exc,
+    )
+    # No status: a submission is never taken as refused, so it is
+    # retried as uncertain under the same idempotency key.
+    return ExecutorError(f"UNEXPECTED_ERROR: {type(exc).__name__}")
+
+
 class Dispatcher:
     def __init__(
         self,
@@ -80,11 +98,22 @@ class Dispatcher:
 
     def tick(self) -> bool:
         """Process at most one task; False when nothing was due."""
+        broken = None
         with self.sessions.begin() as session:
             claimed = claim(session, self.lease_seconds)
             if claimed is None:
                 return False
-            context = self.prepare(session, claimed)
+            try:
+                # A savepoint keeps the claim when prepare itself breaks.
+                with session.begin_nested():
+                    context = self.prepare(session, claimed)
+            except SQLAlchemyError:
+                raise
+            except Exception as exc:
+                broken = unexpected(claimed, "prepare", exc)
+        if broken is not None:
+            self.fail(claimed, broken)
+            return True
         if context is None:
             return True
         handler = HANDLERS[claimed.kind]
@@ -92,6 +121,9 @@ class Dispatcher:
             response = handler.call(self.clients, context)
         except ExecutorError as exc:
             self.fail(claimed, exc)
+            return True
+        except Exception as exc:
+            self.fail(claimed, unexpected(claimed, "call", exc))
             return True
         try:
             with self.sessions.begin() as session:
@@ -110,6 +142,10 @@ class Dispatcher:
                     run.stamp_updated(DISPATCHER, now)
         except ExecutorError as exc:  # contract violations found in apply
             self.fail(claimed, exc)
+        except SQLAlchemyError:
+            raise  # an outage, not this task's fault: the lease recovers it
+        except Exception as exc:
+            self.fail(claimed, unexpected(claimed, "apply", exc))
         return True
 
     def prepare(self, session: Session, claimed: ClaimedTask):
