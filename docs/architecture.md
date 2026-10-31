@@ -163,15 +163,21 @@ Pod 쉘에서 `alembic upgrade head`를 수동 실행하는 것은 장애 복구
   여러 Pod가 동시에 떠도 한 Pod만 수행하고 나머지는 기다림.
 - 롤링 배포 중에는 옛 버전과 새 버전 Pod가 잠시 공존하므로 운영 이후의 migration은 "추가 → 코드 전환 →
   제거" 순서(expand/contract)로 나눠, 직전 버전 코드와 호환되게 작성한다.
+  - 한 배포에서 하는 것: 테이블·nullable 컬럼·인덱스 추가, 기본값 있는 컬럼 추가.
+  - 다음 배포로 미루는 것: 컬럼·테이블 삭제, 이름 변경, NOT NULL 추가, 타입 축소. 그 컬럼을 안 쓰는 코드가
+    먼저 운영에 나간 뒤에 한다.
+- **새 버전이 이미 올린 DB에서 옛 코드가 떠도 된다.** 옛 코드는 모르는 revision을 "더 새 버전"으로 보고 migration을
+  건너뛰며(`migrations/env.py`), readiness도 통과한다. 그래서 롤링 배포 중의 옛 Pod와 이미지 롤백이 막히지 않는다.
+  이 동작은 위 호환 규칙이 지켜진다는 전제다.
 - 운영 전이라 migration은 `0001_initial` 하나로 합쳐 두었다. 기존 개발 DB는 `batch` 스키마를 지우고 다시 만든다.
-- migration이 끝나기 전에는 readiness가 실패한다.
+- migration이 끝나기 전에는 readiness가 실패한다. DB가 이 코드가 아는 옛 revision이거나 비어 있을 때만 실패한다.
 
 ## 7. 헬스체크
 
 | 엔드포인트 | 용도 | 검사 |
 | --- | --- | --- |
 | `/healthz` | liveness | 프로세스 응답 + 백그라운드 루프 heartbeat가 최근(예: 60초 이내)인지. 루프가 죽었으면 재시작되게 함 |
-| `/readyz` | readiness | DB 연결, migration head, PV 마운트, 종료 중 아님 |
+| `/readyz` | readiness | DB 연결, DB revision이 이 코드의 head이거나 그보다 새 버전(모르는 revision), PV 마운트, 종료 중 아님 |
 
 ## 8. 외부 연동
 
@@ -202,10 +208,10 @@ Task 하나는 "짧은 claim 트랜잭션 → 커넥션 반납 → 원격 호출
 
 | 항목 | 제안값 | 근거 |
 | --- | --- | --- |
-| Pod당 SQLAlchemy 풀 | `pool_size=3`, `max_overflow=3` (최대 6) | API 요청 + 스케줄러 1 + dispatcher의 짧은 트랜잭션 |
+| Pod당 SQLAlchemy 풀 | `pool_size=5`, `max_overflow=5` (최대 10) | API 요청 + 백그라운드 루프 6개(스케줄러 1, dispatcher 4, 보존 정리 1) |
 | Pod당 dispatcher 동시성 | 4 | 원격 호출 대기 중에는 커넥션 미사용 |
 | 레플리카 | 평소 2, 최대 4 | HPA 제안값 |
-| **pr-batch 전체 상한** | **24** (4 × 6), 평소 실사용 2~6 | DB role에 `CONNECTION LIMIT 24` 설정 권장 |
+| **pr-batch 전체 상한** | **40** (4 × 10), 평소 실사용 2~10 | DB role에 `CONNECTION LIMIT 40` 설정 권장 |
 
 효율을 위한 장치:
 - 유휴 시 스케줄러는 "다음 예약 시각까지" 또는 최대 5초까지 잠들고, dispatcher는 다음 Task
