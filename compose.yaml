@@ -15,6 +15,11 @@ x-batch-env: &batch-env
   SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
   SYNC_MAX_SECONDS: ${PR_BATCH_SYNC_MAX_SECONDS:-10}
   DB_AUTO_MIGRATE: "true"
+  # Defaults match config.yml; override to compare under load_check.
+  DB_POOL_SIZE: ${PR_BATCH_DB_POOL_SIZE:-5}
+  DB_MAX_OVERFLOW: ${PR_BATCH_DB_MAX_OVERFLOW:-5}
+  TASK_CONCURRENCY: ${PR_BATCH_TASK_CONCURRENCY:-4}
+  IDLE_MAX_SECONDS: ${PR_BATCH_IDLE_MAX_SECONDS:-5}
 
 x-batch-app: &batch-app
   image: pr-batch:local
@@ -76,6 +81,19 @@ services:
       <<: *batch-env
       SMOKE_API_URL: http://app:8000
     profiles: ["smoke"]
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: "no"
+
+  # Load check: make docker-load LOAD_ARGS="BATCHES SLEEP THREADS UPLOADS"
+  load:
+    <<: *batch-app
+    entrypoint: ["python", "-m", "scripts.load_check"]
+    environment:
+      <<: *batch-env
+      LOAD_API_URL: http://app:8000
+    profiles: ["load"]
     depends_on:
       app:
         condition: service_healthy
