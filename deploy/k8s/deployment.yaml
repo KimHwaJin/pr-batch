@@ -7,8 +7,8 @@ metadata:
   labels:
     app.kubernetes.io/name: pr-batch
 spec:
-  # HPA owns the replica count; keep >= 2 so schedules survive a pod loss.
-  replicas: 2
+  # HPA owns the replica count (min 1, max 4); keep this in step.
+  replicas: 1
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
