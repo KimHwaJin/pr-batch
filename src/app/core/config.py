@@ -107,8 +107,8 @@ class Settings(BaseSettings):
     max_notebook_cells: int = Field(default=1000, ge=1, le=20000)
     cell_max_bytes: int = Field(default=1024 * 1024, ge=1)
     # Remote calls never hold a connection, so a small pool suffices.
-    db_pool_size: int = Field(default=5, ge=1, le=100)
-    db_max_overflow: int = Field(default=5, ge=0, le=100)
+    db_pool_size: int = Field(default=2, ge=1, le=100)
+    db_max_overflow: int = Field(default=4, ge=0, le=100)
     # Kubernetes allows neither Jobs nor init containers for this service:
     # the first pod upgrades the schema under a PostgreSQL advisory lock.
     db_auto_migrate: bool = True
@@ -125,9 +125,9 @@ class Settings(BaseSettings):
 
     # In-process background runtime (scheduler + task dispatcher).
     background_enabled: bool = True
-    task_concurrency: int = Field(default=4, ge=1, le=64)
+    task_concurrency: int = Field(default=2, ge=1, le=64)
     task_lease_seconds: int = Field(default=90, ge=30, le=3600)
-    idle_max_seconds: float = Field(default=5, gt=0, le=60)
+    idle_max_seconds: float = Field(default=1, gt=0, le=60)
     sync_initial_seconds: int = Field(default=5, ge=1, le=300)
     sync_max_seconds: int = Field(default=60, ge=1, le=3600)
     shutdown_grace_seconds: float = Field(default=40, ge=1, le=600)

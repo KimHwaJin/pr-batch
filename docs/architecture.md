@@ -61,7 +61,7 @@ flowchart LR
 | --- | --- |
 | HTTP API | 등록·조회·수동 실행 접수. 원격 서비스를 직접 호출하지 않고 DB에 기록만 함 |
 | Scheduler loop | 1초 주기. 도래한 배치 하나를 `FOR UPDATE SKIP LOCKED`로 잡아 Run과 첫 Task를 같은 트랜잭션으로 생성. 여러 레플리카가 동시에 돌아도 같은 예약을 두 번 만들지 않음 |
-| Task dispatcher | 스레드 풀(Pod당 동시성 `TASK_CONCURRENCY`, 기본 4). Task를 lease로 claim → DB 트랜잭션 밖에서 원격 호출 1회 → lease token 확인 후 결과 반영 + 다음 Task 예약 |
+| Task dispatcher | 스레드 풀(Pod당 동시성 `TASK_CONCURRENCY`, 기본 2). Task를 lease로 claim → DB 트랜잭션 밖에서 원격 호출 1회 → lease token 확인 후 결과 반영 + 다음 Task 예약 |
 | Retention loop | 한 시간마다 만료된 멱등성 기록과 끝난 Task를 삭제 (4.1) |
 | Heartbeat | 루프마다 마지막 활동 시각을 메모리에 기록. liveness가 이 값을 봄 |
 
@@ -212,14 +212,14 @@ Task 하나는 "짧은 claim 트랜잭션 → 커넥션 반납 → 원격 호출
 
 | 항목 | 제안값 | 근거 |
 | --- | --- | --- |
-| Pod당 SQLAlchemy 풀 | `pool_size=5`, `max_overflow=5` (최대 10) | API 요청 + 백그라운드 루프 6개(스케줄러 1, dispatcher 4, 보존 정리 1) |
-| Pod당 dispatcher 동시성 | 4 | 원격 호출 대기 중에는 커넥션 미사용 |
+| Pod당 SQLAlchemy 풀 | `pool_size=2`, `max_overflow=4` (최대 6, 평소 유지 2) | API 요청 + 백그라운드 루프 4개(스케줄러 1, dispatcher 2, 보존 정리 1) |
+| Pod당 dispatcher 동시성 | 2 | 원격 호출 대기 중에는 커넥션 미사용. 처리량은 Executor 슬롯이 정하므로 늘려도 빨라지지 않음(부하 측정 결과) |
 | 레플리카 | 평소 1, 최대 4 | HPA 값 |
-| **pr-batch 전체 상한** | **40** (4 × 10), 평소 실사용 2~10 | DB role에 `CONNECTION LIMIT 40` 설정 권장 |
+| **pr-batch 전체 상한** | **24** (4 × 6), 평소 실사용 2~6 | DB role에 `CONNECTION LIMIT 24` 설정 권장 |
 
 효율을 위한 장치:
-- 유휴 시 스케줄러는 "다음 예약 시각까지" 또는 최대 5초까지 잠들고, dispatcher는 다음 Task
-  예정 시각(`min(run_at)`)까지 잠든다. 할 일이 없을 때 초당 쿼리가 거의 없다.
+- 유휴 시 스케줄러는 "다음 예약 시각까지" 또는 최대 1초(`IDLE_MAX_SECONDS`)까지 잠들고, dispatcher는 다음 Task
+  예정 시각(`min(run_at)`)까지 잠든다. 할 일이 없을 때도 Pod당 초당 몇 건의 가벼운 조회뿐이다(예약 지연을 1초 안팎으로 줄이는 대가).
 - claim은 한 번에 Task 여러 개(동시성 여유만큼)를 가져와 쿼리 수를 줄인다.
 - `LISTEN/NOTIFY`처럼 Pod마다 커넥션을 계속 점유하는 방식은 쓰지 않는다.
 - 풀 크기·동시성은 환경변수로 바꿀 수 있게 하고, 부하 측정 후 조정한다.

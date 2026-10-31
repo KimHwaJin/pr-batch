@@ -20,10 +20,11 @@ make serve   # http://127.0.0.1:8100
 | `EXECUTOR_BASE_URL` | 없음 | 없으면 실행 접수와 배치 활성화는 503 `EXECUTOR_NOT_CONFIGURED`(백그라운드 런타임이 시작하지 않아 실행될 수 없음). 배치 등록·수정은 Executor 없이도 된다 |
 | `BACKGROUND_ENABLED` | true | 이 프로세스에서 백그라운드 런타임 실행 |
 | `DB_AUTO_MIGRATE` | true | 시작 시 advisory lock 아래 `alembic upgrade head` |
-| `TASK_CONCURRENCY` | 4 | Pod당 동시에 처리하는 Task 수 (= Executor 동시 요청 상한) |
+| `TASK_CONCURRENCY` | 2 | Pod당 동시에 처리하는 Task 수 (= Executor 동시 요청 상한) |
 | `SYNC_INITIAL_SECONDS` / `SYNC_MAX_SECONDS` | 5 / 60 | 상태 조회 간격. 두 배씩 늘려 최대값까지 |
 | `TASK_LEASE_SECONDS` | 90 | Task lease. 만료되면 다른 Pod가 이어받음 |
-| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 5 / 5 | Pod당 최대 DB 커넥션 10 (백그라운드 루프 6개 + API 요청) |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 2 / 4 | Pod당 최대 DB 커넥션 6, 평소 유지 2 (백그라운드 루프 4개 + API 요청) |
+| `IDLE_MAX_SECONDS` | 1 | 할 일이 없을 때 스케줄러·dispatcher가 잠드는 최대 시간 |
 | `SHUTDOWN_GRACE_SECONDS` | 40 | SIGTERM 후 진행 중인 원격 호출을 끝내는 최대 시간 |
 | `TASK_GIVE_UP_SECONDS` | 86400 | 원격 호출이 이만큼 계속 실패하면 Run을 FAILED(`ABANDONED`)로 끝냄 |
 | `IDEMPOTENCY_RETENTION_DAYS` | 7 | 멱등성 기록 보존 기간. 지나면 같은 키도 새 요청으로 처리 |

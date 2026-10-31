@@ -15,15 +15,16 @@ DB_AUTO_MIGRATE: true
 # Swagger (/docs, /redoc, /openapi.json). Internal network rules: off in
 # dev, stg and prd; turn on only locally (.env).
 DOCS_ENABLED: false
-# Per pod: 6 background loops plus API requests share this pool.
-# Connection budget: (5 + 5) per pod x maxReplicas 4 = 40.
-DB_POOL_SIZE: 5
-DB_MAX_OVERFLOW: 5
+# Per pod: 4 background loops plus API requests share this pool.
+# Connection budget: (2 + 4) per pod x maxReplicas 4 = 24.
+DB_POOL_SIZE: 2
+DB_MAX_OVERFLOW: 4
 # Kernels of the Executor BATCH pool that batches may choose.
 BATCH_RUNTIMES:
   - {type: JUPYTER, profile: default}
   - {type: JUPYTER, profile: "3102311"}
-TASK_CONCURRENCY: 4
+TASK_CONCURRENCY: 2
+IDLE_MAX_SECONDS: 1
 TASK_LEASE_SECONDS: 90
 SYNC_INITIAL_SECONDS: 5
 SYNC_MAX_SECONDS: 60
