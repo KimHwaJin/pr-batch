@@ -175,7 +175,7 @@ def test_elapsed_once_and_expired_window_cannot_enable(client, scheduling):
         ).json()
         response = activation(client, batch["id"])
         assert response.status_code == 422
-        assert response.json()["code"] == "NO_FUTURE_OCCURRENCE"
+        assert response.json()["error"]["code"] == "NO_FUTURE_OCCURRENCE"
         assert get_batch(client, batch)["enabled"] is False
 
 
@@ -473,7 +473,7 @@ def test_schedule_is_optional_but_required_to_enable(client, scheduling):
     assert batch["preview_runs"] == []
     response = activation(client, batch["id"])
     assert response.status_code == 409
-    assert response.json()["code"] == "SCHEDULE_REQUIRED"
+    assert response.json()["error"]["code"] == "SCHEDULE_REQUIRED"
     enabled = enabled_batch(client)
     removed = client.patch(
         f"{API}/{enabled['id']}",
@@ -481,7 +481,7 @@ def test_schedule_is_optional_but_required_to_enable(client, scheduling):
         json={"schedule": None},
     )
     assert removed.status_code == 409
-    assert removed.json()["code"] == "SCHEDULE_REQUIRED"
+    assert removed.json()["error"]["code"] == "SCHEDULE_REQUIRED"
     disabled = activation(client, enabled["id"], False, 2).json()
     removed = client.patch(
         f"{API}/{enabled['id']}",

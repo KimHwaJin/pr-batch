@@ -328,7 +328,7 @@ def test_manual_requires_executor_configuration(client):
     batch = create_batch(client).json()
     response = run_request(client, batch["id"])
     assert response.status_code == 503
-    assert response.json()["code"] == "EXECUTOR_NOT_CONFIGURED"
+    assert response.json()["error"]["code"] == "EXECUTOR_NOT_CONFIGURED"
 
 
 def test_enable_requires_executor_but_drafts_do_not(client):
@@ -342,7 +342,7 @@ def test_enable_requires_executor_but_drafts_do_not(client):
         },
     )
     assert response.status_code == 503
-    assert response.json()["code"] == "EXECUTOR_NOT_CONFIGURED"
+    assert response.json()["error"]["code"] == "EXECUTOR_NOT_CONFIGURED"
     stored = client.get(f"{API}/{batch['id']}", headers=token()).json()
     assert stored["enabled"] is False
 
@@ -803,7 +803,7 @@ def test_cancel_waiting_queued_and_running(client, execution):
     }
     again = command(client, running, "cancel", "c4")
     assert again.status_code == 409
-    assert again.json()["code"] == "NOT_CANCELLABLE"
+    assert again.json()["error"]["code"] == "NOT_CANCELLABLE"
 
 
 def test_background_runtime_drives_runs_and_stops(client, execution):
@@ -991,7 +991,7 @@ def test_disable_by_owner_stops_schedules_and_waiting_runs(client, execution):
     assert run_get(client, running).json()["status"] in {"QUEUED", "RUNNING"}
     manual = run_request(client, batch["id"], key="run-3")
     assert manual.status_code == 409
-    assert manual.json()["code"] == "OWNER_DEACTIVATED"
+    assert manual.json()["error"]["code"] == "OWNER_DEACTIVATED"
     assert disable_owner(client).json() == {"disabled": 0}
     untouched = client.get(f"{API}/{bobs['id']}", headers=token("bob"))
     assert untouched.json()["disabled_reason"] is None

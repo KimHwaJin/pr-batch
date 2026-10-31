@@ -11,12 +11,16 @@ from jsonschema import ValidationError
 from nbformat.validator import normalize
 
 from app.core.config import Settings
-from app.core.exceptions import ServiceError
+from app.core.exceptions import ServiceError, detail
 from app.domain.scripts import CodeCell, ParsedScript, ScriptType
 
 
 def reject_constant(value: str) -> None:
     raise ValueError(f"Non-JSON constant: {value}")
+
+
+# Uploads arrive as the multipart field "file".
+FILE: list[str | int] = ["body", "file"]
 
 
 def parse_notebook(
@@ -25,7 +29,19 @@ def parse_notebook(
     if not filename.lower().endswith(".ipynb"):
         raise ServiceError(422, "INVALID_NOTEBOOK", "Upload an .ipynb file.")
     if len(raw) > settings.upload_max_bytes:
-        raise ServiceError(413, "UPLOAD_TOO_LARGE", "Notebook is too large.")
+        raise ServiceError(
+            413,
+            "UPLOAD_TOO_LARGE",
+            "Notebook is too large.",
+            [
+                detail(
+                    FILE,
+                    "upload_too_large",
+                    limit=settings.upload_max_bytes,
+                    size=len(raw),
+                )
+            ],
+        )
     try:
         document = json.loads(raw, parse_constant=reject_constant)
         if not isinstance(document, dict) or document.get("nbformat") != 4:
@@ -36,7 +52,17 @@ def parse_notebook(
             and len(listed) > settings.max_notebook_cells
         ):
             raise ServiceError(
-                422, "TOO_MANY_CELLS", "Notebook cell limit exceeded."
+                422,
+                "TOO_MANY_CELLS",
+                "Notebook cell limit exceeded.",
+                [
+                    detail(
+                        [*FILE, "cells"],
+                        "notebook_cell_limit_exceeded",
+                        limit=settings.max_notebook_cells,
+                        requested=len(listed),
+                    )
+                ],
             )
         # Validate a normalized copy (e.g. missing cell ids) so ordinary
         # notebooks are accepted; the stored original bytes stay untouched.
@@ -73,13 +99,37 @@ def parse_notebook(
         if isinstance(source, list):
             source = "".join(source)
         if len(source.encode("utf-8")) > settings.cell_max_bytes:
-            raise ServiceError(422, "CELL_TOO_LARGE", "Cell is too large.")
+            raise ServiceError(
+                422,
+                "CELL_TOO_LARGE",
+                "Cell is too large.",
+                [
+                    detail(
+                        [*FILE, "cells", index],
+                        "cell_too_large",
+                        limit=settings.cell_max_bytes,
+                        size=len(source.encode("utf-8")),
+                    )
+                ],
+            )
         if source.strip():
             entry["executed"] = True
             entry["sequence"] = len(cells)
             cells.append(CodeCell(index, source))
     if len(cells) > settings.max_code_cells:
-        raise ServiceError(422, "TOO_MANY_CELLS", "Cell limit exceeded.")
+        raise ServiceError(
+            422,
+            "TOO_MANY_CELLS",
+            "Cell limit exceeded.",
+            [
+                detail(
+                    [*FILE, "cells"],
+                    "code_cell_limit_exceeded",
+                    limit=settings.max_code_cells,
+                    requested=len(cells),
+                )
+            ],
+        )
     if not cells:
         raise ServiceError(422, "EMPTY_NOTEBOOK", "No executable code cells.")
     language = node.metadata.get("language_info", {}).get("name")

@@ -116,7 +116,7 @@ def test_batch_with_active_run_cannot_be_deleted(client, scheduling):
     url = f"{API}/{batch['id']}"
     response = delete(client, url, batch["revision"])
     assert response.status_code == 409
-    assert response.json()["code"] == "BATCH_HAS_ACTIVE_RUNS"
+    assert response.json()["error"]["code"] == "BATCH_HAS_ACTIVE_RUNS"
     finish_runs(client)
     assert delete(client, url, batch["revision"]).status_code == 204
     # History stays in the database for audit.
@@ -131,7 +131,7 @@ def test_script_delete_requires_no_live_batch(client, settings):
 
     response = delete(client, script_url, script["revision"])
     assert response.status_code == 409
-    assert response.json()["code"] == "SCRIPT_IN_USE"
+    assert response.json()["error"]["code"] == "SCRIPT_IN_USE"
 
     assert delete(client, f"{API}/{batch['id']}", 1).status_code == 204
     response = delete(client, script_url, script["revision"], key="s")
@@ -178,7 +178,7 @@ def test_script_with_active_run_cannot_be_deleted(client, scheduling):
     url = f"{SCRIPTS}/{old_script}"
     response = delete(client, url, revision(client, url))
     assert response.status_code == 409
-    assert response.json()["code"] == "SCRIPT_HAS_ACTIVE_RUNS"
+    assert response.json()["error"]["code"] == "SCRIPT_HAS_ACTIVE_RUNS"
     finish_runs(client)
     assert delete(client, url, revision(client, url)).status_code == 204
 
