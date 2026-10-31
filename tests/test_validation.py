@@ -79,6 +79,20 @@ def test_code_cell_limit_ignores_skipped_cells(settings):
         parse_notebook(json.dumps(doc).encode(), "x.ipynb", limited)
 
 
+def test_total_cell_limit_counts_every_cell(settings):
+    doc = json.loads(notebook_bytes())
+    markdown = {"cell_type": "markdown", "metadata": {}, "source": "m"}
+    doc["cells"] += [{**markdown, "id": f"m{n}"} for n in range(4)]
+    limited = settings.model_copy(
+        update={"max_code_cells": 1, "max_notebook_cells": 5}
+    )
+    assert parse_notebook(json.dumps(doc).encode(), "x.ipynb", limited)
+    doc["cells"].append({**markdown, "id": "one-more"})
+    with pytest.raises(ServiceError, match="Notebook cell limit") as exc:
+        parse_notebook(json.dumps(doc).encode(), "x.ipynb", limited)
+    assert (exc.value.status, exc.value.code) == (422, "TOO_MANY_CELLS")
+
+
 def test_display_filename_is_sanitized(settings):
     raw = notebook_bytes()
     assert parse_notebook(raw, "../a/b\\c.ipynb", settings).filename == (
