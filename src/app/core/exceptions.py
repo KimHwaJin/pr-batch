@@ -1,9 +1,45 @@
 """Errors safe to return at the API boundary and their handlers."""
 
+import logging
+from typing import Any
+from uuid import uuid4
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import (
+    DBAPIError,
+    DisconnectionError,
+    OperationalError,
+    SQLAlchemyError,
+)
+from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+logger = logging.getLogger(__name__)
+# Connection-level failures: retrying later can succeed.
+UNAVAILABLE = (OperationalError, DisconnectionError, PoolTimeout)
+
+
+def database_detail(exc: SQLAlchemyError) -> dict[str, Any]:
+    """Schema-level facts about a DB error: no SQL text or bound values.
+
+    error_id ties the response to its log line; sqlstate and the object
+    names come from PostgreSQL's diagnostics when the driver has them.
+    """
+    detail: dict[str, Any] = {
+        "error_id": uuid4().hex,
+        "type": type(exc).__name__,
+    }
+    original = exc.orig if isinstance(exc, DBAPIError) else None
+    if original is not None:
+        detail["driver_error"] = type(original).__name__
+        if sqlstate := getattr(original, "sqlstate", None):
+            detail["sqlstate"] = sqlstate
+        diag = getattr(original, "diag", None)
+        for field in ("table_name", "column_name", "constraint_name"):
+            if value := getattr(diag, field, None):
+                detail[field.removesuffix("_name")] = value
+    return detail
 
 
 class ServiceError(Exception):
@@ -48,10 +84,31 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def database_error(
         request: Request, exc: SQLAlchemyError
     ) -> JSONResponse:
+        detail = database_detail(exc)
+        unavailable = isinstance(exc, UNAVAILABLE) or (
+            isinstance(exc, DBAPIError) and exc.connection_invalidated
+        )
+        logger.error(
+            "Database error on %s %s: %s",
+            request.method,
+            request.url.path,
+            " ".join(f"{k}={v}" for k, v in detail.items()),
+            exc_info=exc,
+        )
+        if unavailable:
+            return JSONResponse(
+                {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": "Database unavailable; retry later.",
+                    "detail": detail,
+                },
+                status_code=503,
+            )
         return JSONResponse(
             {
-                "code": "DATABASE_UNAVAILABLE",
-                "message": "Database unavailable.",
+                "code": "INTERNAL_ERROR",
+                "message": "Database error; retrying will not help.",
+                "detail": detail,
             },
-            status_code=503,
+            status_code=500,
         )
