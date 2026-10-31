@@ -34,8 +34,8 @@ from app.services.run_service import (
     promote_waiting,
     submission_request,
 )
-from app.tasks.handlers import Clients
-from app.tasks.queue import claim, locked_lease
+from app.tasks.handlers import HANDLERS, UNCERTAIN, Clients
+from app.tasks.queue import TaskKind, claim, locked_lease
 
 
 class FakeExecutor:
@@ -1222,6 +1222,57 @@ def test_task_failing_past_the_limit_abandons_the_run(client, execution):
     assert detail["last_error"] == "EXECUTOR_HTTP_503"
     assert pending_tasks(worker, first) == []
     assert run_get(client, second).json()["status"] == "QUEUED"
+
+
+@pytest.mark.parametrize("stage", ["prepare", "call", "apply"])
+def test_unexpected_errors_back_off_and_give_up(
+    client, execution, monkeypatch, stage
+):
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    handler = HANDLERS[TaskKind.SUBMIT_EXECUTION]
+
+    def broken(*args, **kwargs):
+        raise KeyError("bug")
+
+    monkeypatch.setattr(handler, stage, broken)
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert (detail["status"], detail["last_error"]) == (
+        "QUEUED",
+        "UNEXPECTED_ERROR: KeyError",
+    )
+    with worker.sessions() as session:
+        task = session.scalars(
+            select(Task).where(Task.run_id == UUID(run["id"]))
+        ).one()
+        assert task.failing_since is not None  # counts toward give-up
+        assert task.run_at > utcnow()  # backed off, not retried at once
+        assert task.payload.get(UNCERTAIN) is True
+    give_up(worker, run)
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert (detail["status"], detail["failure_type"]) == (
+        "FAILED",
+        "ABANDONED",
+    )
+
+
+def test_unexpected_error_recovers_once_fixed(client, execution, monkeypatch):
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    handler = HANDLERS[TaskKind.SUBMIT_EXECUTION]
+    original = handler.apply
+
+    def broken(*args, **kwargs):
+        raise KeyError("bug")
+
+    monkeypatch.setattr(handler, "apply", broken)
+    tick(worker, run)
+    monkeypatch.setattr(handler, "apply", original)
+    tick(worker, run)  # same idempotency key: one execution
+    assert run_get(client, run).json()["status"] == "RUNNING"
+    assert len(fake.receipts) == 1
 
 
 def give_up(worker, run):
