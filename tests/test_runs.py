@@ -331,6 +331,22 @@ def test_manual_requires_executor_configuration(client):
     assert response.json()["code"] == "EXECUTOR_NOT_CONFIGURED"
 
 
+def test_enable_requires_executor_but_drafts_do_not(client):
+    batch = create_batch(client).json()  # registered without an Executor
+    response = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={
+            **token(),
+            "Idempotency-Key": "enable",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "EXECUTOR_NOT_CONFIGURED"
+    stored = client.get(f"{API}/{batch['id']}", headers=token()).json()
+    assert stored["enabled"] is False
+
+
 def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     fake, worker = execution
     batch = create_batch(client).json()
