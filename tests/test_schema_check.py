@@ -2,7 +2,9 @@
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+import pytest
+from pydantic import SecretStr
+from sqlalchemy import create_engine, make_url, text
 
 from app.db.migrate import upgrade_to_head
 from app.main import SchemaCheck
@@ -58,4 +60,46 @@ def test_rolled_back_code_starts_on_a_newer_schema(client, database_url):
                 text("UPDATE batch.alembic_version SET version_num = :v"),
                 {"v": head},
             )
+        engine.dispose()
+
+
+def test_existing_schema_needs_no_database_create_privilege(
+    database_url, settings
+):
+    """A DBA-made schema: the app role cannot CREATE on the database."""
+    engine = create_engine(database_url)
+    role = "batch_no_create_test"
+    with engine.begin() as connection:
+        if not connection.execute(
+            text(
+                "SELECT rolsuper OR rolcreaterole FROM pg_roles"
+                " WHERE rolname = current_user"
+            )
+        ).scalar():
+            pytest.skip("The test role cannot create roles.")
+        database = connection.execute(text("SELECT current_database()"))
+        database = database.scalar()
+        connection.execute(text(f"DROP ROLE IF EXISTS {role}"))
+        connection.execute(text(f"CREATE ROLE {role} LOGIN PASSWORD 'x'"))
+        connection.execute(
+            text(f'REVOKE CREATE ON DATABASE "{database}" FROM PUBLIC')
+        )
+        connection.execute(text(f"GRANT USAGE ON SCHEMA batch TO {role}"))
+        connection.execute(
+            text(f"GRANT SELECT ON batch.alembic_version TO {role}")
+        )
+    url = make_url(database_url).set(username=role, password="x")
+    limited = settings.model_copy(
+        update={
+            "database_url": SecretStr(
+                url.render_as_string(hide_password=False)
+            )
+        }
+    )
+    try:
+        upgrade_to_head(limited)
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text(f"DROP OWNED BY {role}"))
+            connection.execute(text(f"DROP ROLE {role}"))
         engine.dispose()
