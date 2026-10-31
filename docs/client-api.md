@@ -74,6 +74,9 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 | 413 | `REQUEST_TOO_LARGE`, `UPLOAD_TOO_LARGE` | 업로드 크기 초과 (기본 10 MiB) |
 | 422 | `VALIDATION_ERROR` 등 | 입력 오류. 같은 요청을 재시도해도 실패한다 |
 | 503 | `DATABASE_UNAVAILABLE`, `STORAGE_UNAVAILABLE`, `EXECUTOR_NOT_CONFIGURED`, `RUNTIMES_NOT_CONFIGURED` 등 | 일시 장애·설정 누락. 같은 `Idempotency-Key`로 잠시 뒤 재시도 |
+| 500 | `INTERNAL_ERROR` | DB 제약 위반 등 서버 쪽 오류. 재시도해도 같다. 응답 `detail`(`error_id`, `type`, `sqlstate`, `table`, `constraint`)을 pr-batch 담당자에게 전달한다. `error_id`로 서버 로그를 찾는다 |
+
+DB 오류 응답(503 `DATABASE_UNAVAILABLE`, 500 `INTERNAL_ERROR`)에는 `detail` 객체가 붙는다. SQL 문이나 요청 값은 들어가지 않는다.
 
 ### 공통 응답 필드
 
