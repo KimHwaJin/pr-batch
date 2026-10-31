@@ -141,8 +141,9 @@ prj_re가 pr-batch로 소유권을 확인한 뒤 중계한다.
 - 통신·계약 오류는 실행 실패가 아니다. `last_error`에 남기고 2초부터 최대 300초까지 지수 backoff +
   jitter로 다시 시도한다. 제출 응답이 유실돼도 같은 멱등성 키로 재확인하므로 새 Execution이 생기지 않는다.
 - 첫 실패부터 `TASK_GIVE_UP_SECONDS`(기본 24시간) 동안 한 번도 성공하지 못하면 Task를 끝내고 Run을
-  FAILED(`failure_type=ABANDONED`)로 바꿔 자리를 푼다. Executor 쪽 실행은 남아 있을 수 있으므로
-  `execution_id`로 확인한다. 취소 Task가 포기되면 Run은 그대로 두고 상태 조회가 계속된다.
+  FAILED(`failure_type=ABANDONED`)로 바꿔 자리를 푼다. 이때 Executor 실행이 아직 끝나지 않았으면
+  (`execution_id`가 있고 종료 상태가 아님) 키 `batch-run:{id}:abandon-cancel`로 취소를 한 번만 보낸다.
+  이 취소는 실패해도 재시도하지 않으므로 Executor 쪽 실행이 남아 있을 수 있고, `execution_id`로 확인한다. 취소 Task가 포기되면 Run은 그대로 두고 상태 조회가 계속된다.
 - Executor의 `SUCCEEDED`, `FAILED`, `CANCELLED`는 코드 실행 종료이며, 이때 다음 실행 자리가 풀린다.
   Executor는 결과 노트북 projection과 Artifact 등록이 끝난 뒤에만 `SUCCEEDED`를 보고하므로 결과는 한 번만
   조회한다.

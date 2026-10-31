@@ -46,6 +46,9 @@ logger = logging.getLogger(__name__)
 
 # Task payload flag: a SUBMIT attempt failed without a definite answer.
 UNCERTAIN = "uncertain"
+# Task payload flag: one best-effort cancel for a run given up on.
+ABANDONED = "abandoned"
+ABANDON_CANCEL_REASON = "pr-batch gave up tracking this run."
 
 
 @dataclass
@@ -100,11 +103,19 @@ def abandon(
     if run.status not in ACTIVE or run.status == RunStatus.WAITING:
         return
     occupying = run.status in OCCUPYING
+    # Code may still be running there; its slot is freed here, so ask the
+    # Executor to stop it (once: it has been unreachable for a day).
+    still_running = (
+        run.execution_id is not None
+        and run.execution_status not in EXECUTOR_TERMINAL
+    )
     finish(run, RunStatus.FAILED, now)
     run.failure_type = "ABANDONED"
     run.last_error = error
     if occupying:
         promote_waiting(session, run.batch_id)
+    if still_running:
+        enqueue(session, TaskKind.CANCEL_EXECUTION, run.id, {ABANDONED: True})
 
 
 def next_interval(task: Task, clients: Clients) -> tuple[int, dict[str, Any]]:
@@ -289,6 +300,16 @@ class CollectResult:
 
 class CancelExecution:
     def prepare(self, session, run, task):
+        if task.payload.get(ABANDONED):
+            if run.failure_type != "ABANDONED" or run.execution_id is None:
+                return None
+            return (
+                run.execution_id,
+                f"batch-run:{run.id}:abandon-cancel",
+                {"type": "BATCH", "id": str(run.batch_id)},
+                ABANDON_CANCEL_REASON,
+                identity_headers(run),
+            )
         if (
             run.status != RunStatus.RUNNING
             or run.execution_id is None

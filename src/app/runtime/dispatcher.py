@@ -10,7 +10,13 @@ from app.db.base import DISPATCHER
 from app.db.session import database_now
 from app.integrations.executor import ExecutorError
 from app.models import Batch, BatchRun
-from app.tasks.handlers import HANDLERS, UNCERTAIN, Clients, abandon
+from app.tasks.handlers import (
+    ABANDONED,
+    HANDLERS,
+    UNCERTAIN,
+    Clients,
+    abandon,
+)
 from app.tasks.queue import (
     ClaimedTask,
     TaskKind,
@@ -133,7 +139,10 @@ class Dispatcher:
             run = lock_run(session, claimed.run_id)
             now = database_now(session)
             before = progress(run) if run is not None else None
-            if failing_for(task, now) >= self.give_up:
+            if claimed.payload.get(ABANDONED):
+                # Best effort for a run already given up on: no retries.
+                complete(task)
+            elif failing_for(task, now) >= self.give_up:
                 # Retrying the same call has not worked for this long:
                 # stop tracking the run so it frees its slot.
                 logger.error(
