@@ -131,10 +131,12 @@ prj_re가 pr-batch로 소유권을 확인한 뒤 중계한다.
   DB 커넥션을 잡지 않는다.
 - Handler는 실행 직전에 Run 상태를 확인하고, 이미 지난 단계의 Task면 아무것도 하지 않고 끝낸다.
 - 반영 시 lease 토큰이 바뀌었거나 만료됐으면 버린다(늦게 끝난 옛 Pod의 쓰기 차단).
-- Executor가 제출을 확실히 거절하면(422 전부, 409 `INVALID_STATE_TRANSITION`) 같은 본문으로는 성공할
-  수 없으므로 FAILED(`failure_type=SUBMIT_REJECTED`, `last_error=EXECUTOR_HTTP_{status}:{code}`)로
-  끝내고 자리를 푼다. 단 앞선 제출 시도가 응답 없이 끝난 적이 있으면 그 실행이 이미 만들어졌을 수 있어
-  (Executor는 멱등성 조회 전에 검증한다) 거절도 재시도한다. 409 `IDEMPOTENCY_CONFLICT`(같은 키의 실행이
+- Executor가 제출을 확실히 거절하면(422 전부, 409 `INVALID_STATE_TRANSITION`, 400·401·403 전부) 같은
+  요청으로는 성공할 수 없으므로 FAILED(`failure_type=SUBMIT_REJECTED`, `last_error=EXECUTOR_HTTP_{status}:{code}`)로
+  끝내고 자리를 푼다. 400·401·403은 key·tenant 설정 문제라 ERROR 로그로 남긴다. 단 앞선 제출 시도가 응답 없이
+  끝났거나, 그 작업을 맡았던 Pod가 반영 전에 죽어 lease가 만료됐으면(시도 횟수 2 이상) 그 실행이 이미
+  만들어졌을 수 있어(Executor는 멱등성 조회 전에 검증한다) 거절도 재시도하고, 그사이 취소 요청이 오면 같은
+  키로 다시 제출한 뒤 취소한다. 409 `IDEMPOTENCY_CONFLICT`(같은 키의 실행이
   있음)·`PERSISTENCE_CONFLICT`도 재시도한다. 취소의 409는 `INVALID_STATE_TRANSITION`일 때만 "이미 종료"다.
 - 통신·계약 오류는 실행 실패가 아니다. `last_error`에 남기고 2초부터 최대 300초까지 지수 backoff +
   jitter로 다시 시도한다. 제출 응답이 유실돼도 같은 멱등성 키로 재확인하므로 새 Execution이 생기지 않는다.
