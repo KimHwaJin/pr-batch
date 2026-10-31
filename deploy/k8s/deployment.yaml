@@ -24,7 +24,8 @@ spec:
         app.kubernetes.io/name: pr-batch
     spec:
       automountServiceAccountToken: false
-      # SIGTERM: stop claiming, finish in-flight calls (<= 40s), exit.
+      # preStop 5s (endpoints drop the pod), then SIGTERM: stop claiming,
+      # finish in-flight calls (<= 40s), exit. 5 + 40 < 60.
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
@@ -42,6 +43,12 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          lifecycle:
+            preStop:
+              # Keep serving until Services stop routing here; SIGTERM
+              # follows. exec sleep: works on clusters before 1.30 too.
+              exec:
+                command: ["sleep", "5"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
