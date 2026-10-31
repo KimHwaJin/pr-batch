@@ -100,7 +100,11 @@ class Settings(BaseSettings):
     auth_mode: Literal["api_key", "header"] = "api_key"
     auth_clients: list[AuthClient] = Field(default_factory=list)
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
-    max_code_cells: int = Field(default=100, ge=1, le=10000)
+    # Executor accepts at most 100 steps per operation (422 beyond).
+    max_code_cells: int = Field(default=100, ge=1, le=100)
+    # All cells, markdown and raw included; checked before nbformat
+    # validation, whose memory grows ~30x the file for many tiny cells.
+    max_notebook_cells: int = Field(default=1000, ge=1, le=20000)
     cell_max_bytes: int = Field(default=1024 * 1024, ge=1)
     # Remote calls never hold a connection, so a small pool suffices.
     db_pool_size: int = Field(default=5, ge=1, le=100)
@@ -163,6 +167,8 @@ class Settings(BaseSettings):
             and os.environ.get("APP_ENV") not in HEADER_AUTH_ENVS
         ):
             raise ValueError("auth_mode header is only allowed locally/dev.")
+        if self.max_notebook_cells < self.max_code_cells:
+            raise ValueError("max_notebook_cells must be >= max_code_cells.")
         hashes = [h for c in self.auth_clients for h in c.key_sha256]
         if len(hashes) != len(set(hashes)):
             raise ValueError("auth_clients: a key hash is listed twice.")

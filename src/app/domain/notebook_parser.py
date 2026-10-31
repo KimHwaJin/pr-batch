@@ -30,6 +30,14 @@ def parse_notebook(
         document = json.loads(raw, parse_constant=reject_constant)
         if not isinstance(document, dict) or document.get("nbformat") != 4:
             raise ValueError("Only notebook format 4 is supported.")
+        listed = document.get("cells")
+        if (
+            isinstance(listed, list)
+            and len(listed) > settings.max_notebook_cells
+        ):
+            raise ServiceError(
+                422, "TOO_MANY_CELLS", "Notebook cell limit exceeded."
+            )
         # Validate a normalized copy (e.g. missing cell ids) so ordinary
         # notebooks are accepted; the stored original bytes stay untouched.
         with warnings.catch_warnings():

@@ -189,7 +189,7 @@ curl "$BATCH_URL/api/v1/scripts" \
 | 413 `UPLOAD_TOO_LARGE`, `REQUEST_TOO_LARGE` | 파일 10 MiB 초과(기본) |
 | 422 `INVALID_NOTEBOOK` | 노트북 JSON 형식 오류 |
 | 422 `EMPTY_NOTEBOOK` | 실행할 코드 셀이 없음 |
-| 422 `TOO_MANY_CELLS`, `CELL_TOO_LARGE` | 코드 셀 100개, 셀당 1 MiB 초과(기본) |
+| 422 `TOO_MANY_CELLS`, `CELL_TOO_LARGE` | 코드 셀 100개, 전체 셀(마크다운·raw 포함) 1,000개, 셀당 1 MiB 초과(기본) |
 | 422 `UNSUPPORTED_LANGUAGE` | Python이 아닌 노트북 |
 | 503 `STORAGE_UNAVAILABLE` | 저장소 장애 |
 
