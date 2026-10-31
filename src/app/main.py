@@ -75,8 +75,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await run_in_threadpool(runtime.stop)
             engine.dispose()
 
+    docs = settings.docs_enabled
     app = FastAPI(
-        title="Notebook Batch Service", version="0.1.0", lifespan=lifespan
+        title="Notebook Batch Service",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
     )
     app.state.settings = settings
     app.state.sessions = sessions

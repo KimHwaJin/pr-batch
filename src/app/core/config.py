@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     # Runtimes batches may choose; kernels of the Executor's BATCH pool.
     batch_runtimes: list[RuntimeSpec] = Field(default_factory=list)
 
+    # /docs, /redoc and /openapi.json; off unless turned on (internal
+    # network rules forbid them in every shared environment).
+    docs_enabled: bool = False
+
     # In-process background runtime (scheduler + task dispatcher).
     background_enabled: bool = True
     task_concurrency: int = Field(default=4, ge=1, le=64)

@@ -45,7 +45,7 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 내구성을 보장하지는 않으므로 배포 전 동일 PV에서 확인한다.
 
 `/healthz`는 프로세스 생존, `/readyz`는 DB migration 버전과 저장 루트 존재를
-확인한다. `/docs`와 `/openapi.json`에서 현재 HTTP 명세를 볼 수 있다.
+확인한다. `DOCS_ENABLED=true`(로컬)일 때 `/docs`와 `/openapi.json`에서 현재 HTTP 명세를 볼 수 있다.
 
 ## 호출 서비스 인증 계약
 

@@ -400,7 +400,14 @@ def test_monthly_nth_weekday_and_interval_anchor_default():
     assert following.astimezone(SEOUL).hour == 1
 
 
+def test_docs_are_off_unless_enabled(settings):
+    with TestClient(create_app(settings)) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 404, path
+
+
 def test_openapi_declares_auth_headers(settings):
+    settings = settings.model_copy(update={"docs_enabled": True})
     with TestClient(create_app(settings)) as client:
         spec = client.get("/openapi.json").json()
     scheme = spec["components"]["securitySchemes"]["APIKeyHeader"]
