@@ -420,3 +420,33 @@ def test_openapi_declares_auth_headers(settings):
     assert not spec["paths"][RUNTIMES]["get"].get("parameters")
     admin = spec["paths"][f"{API}:disable-by-owner"]["post"]
     assert [p["name"] for p in admin["parameters"]] == ["X-Tenant-Id"]
+
+
+def test_healthz_fails_when_a_background_loop_stalls(settings):
+    import threading
+    import time
+
+    from app.runtime.runtime import BackgroundRuntime
+
+    runtime = BackgroundRuntime.__new__(BackgroundRuntime)
+    stop = threading.Event()
+    thread = threading.Thread(target=stop.wait, name="tasks-0", daemon=True)
+    thread.start()
+    runtime.threads = [thread]
+    runtime.heartbeats = {"tasks-0": time.monotonic()}
+    try:
+        app = create_app(settings)
+        app.state.runtime = runtime
+        client = TestClient(app)
+        assert client.get("/healthz").json() == {"status": "ok"}
+        runtime.heartbeats["tasks-0"] -= 121  # no beat for over 2 minutes
+        stalled = client.get("/healthz")
+        assert (stalled.status_code, stalled.json()) == (
+            503,
+            {"status": "stalled"},
+        )
+    finally:
+        stop.set()
+        thread.join()
+    runtime.heartbeats["tasks-0"] = time.monotonic()
+    assert not runtime.healthy()  # a dead loop thread is unhealthy too

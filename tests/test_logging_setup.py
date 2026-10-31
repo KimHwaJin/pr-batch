@@ -25,3 +25,27 @@ def test_uses_hcp_when_installed(tmp_path: Path, monkeypatch):
     monkeypatch.setitem(sys.modules, "hcp.framework.logger", module)
     logging_setup.configure_logging(tmp_path / "unused.yml")
     assert calls == [True]
+
+
+def test_probe_access_lines_and_http_client_info_are_dropped(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setitem(sys.modules, "hcp.framework.logger", None)
+    logging_setup.configure_logging(tmp_path / "missing.yml")
+    assert logging.getLogger("httpx2").getEffectiveLevel() == logging.WARNING
+    access = logging.getLogger("uvicorn.access")
+
+    def line(path):
+        return logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            __file__,
+            1,
+            '%s - "%s %s HTTP/%s" %d',
+            ("10.0.0.1:1", "GET", path, "1.1", 200),
+            None,
+        )
+
+    assert not access.filter(line("/healthz"))
+    assert not access.filter(line("/readyz"))
+    assert access.filter(line("/api/v1/batches?limit=1"))
