@@ -7,7 +7,7 @@
 | --- | --- |
 | deployment.yaml | 컨테이너 1개가 API·스케줄러·Task dispatcher를 함께 실행 |
 | service.yaml | 내부 Service (`prj_re`가 호출) |
-| hpa.yaml | CPU 70%, min 2, max 4 |
+| hpa.yaml | CPU 70%, min 1, max 4 |
 | pdb.yaml | 노드 drain 등 자발적 중단 시 한 번에 Pod 하나만 내림 (`maxUnavailable: 1`, Pod 1개여도 drain을 막지 않음) |
 
 - DB 역할 준비(한 번): `CREATE ROLE batch LOGIN PASSWORD '…' CONNECTION LIMIT 24;`

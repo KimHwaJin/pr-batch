@@ -10,7 +10,9 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: pr-batch
-  minReplicas: 2
+  # One pod by default; a restart briefly pauses the API and delays
+  # schedules (missed slots follow the misfire rules), losing nothing.
+  minReplicas: 1
   maxReplicas: 4
   metrics:
     - type: Resource
