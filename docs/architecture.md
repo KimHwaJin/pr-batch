@@ -172,7 +172,8 @@ Pod 쉘에서 `alembic upgrade head`를 수동 실행하는 것은 장애 복구
 - **새 버전이 이미 올린 DB에서 옛 코드가 떠도 된다.** 옛 코드는 모르는 revision을 "더 새 버전"으로 보고 migration을
   건너뛰며(`migrations/env.py`), readiness도 통과한다. 그래서 롤링 배포 중의 옛 Pod와 이미지 롤백이 막히지 않는다.
   이 동작은 위 호환 규칙이 지켜진다는 전제다.
-- 운영 전이라 migration은 `0001_initial` 하나로 합쳐 두었다. 기존 개발 DB는 `batch` 스키마를 지우고 다시 만든다.
+- 운영 전에 migration을 `0001_initial` 하나로 합쳤고, 그 뒤 변경은 `0002`부터 이어 붙인다(이미 적용된 DB가 있으므로
+  `0001`은 고치지 않는다).
 - migration이 끝나기 전에는 readiness가 실패한다. DB가 이 코드가 아는 옛 revision이거나 비어 있을 때만 실패한다.
 
 ## 7. 헬스체크

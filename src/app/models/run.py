@@ -45,6 +45,8 @@ class BatchRun(AuditMixin, Base):
         ),
         Index("ix_runs_batch_created", "batch_id", "created_at", "id"),
         Index("ix_runs_batch_status", "batch_id", "status"),
+        # Script deletion checks and the script-version foreign key.
+        Index("ix_runs_script_status", "script_id", "status"),
         UniqueConstraint(
             "batch_id",
             "config_number",
