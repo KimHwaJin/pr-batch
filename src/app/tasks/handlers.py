@@ -5,6 +5,7 @@ stale tasks finish without side effects. Status transitions and the tasks
 they require are written in the same transaction.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
@@ -40,6 +41,8 @@ from app.tasks.queue import (
     enqueue,
     reschedule,
 )
+
+logger = logging.getLogger(__name__)
 
 # Task payload flag: a SUBMIT attempt failed without a definite answer.
 UNCERTAIN = "uncertain"
@@ -133,7 +136,9 @@ class SubmitExecution:
     def prepare(self, session, run, task):
         if run.status != RunStatus.QUEUED or run.execution_id is not None:
             return None
-        uncertain = bool(task.payload.get(UNCERTAIN))
+        # A failed call sets the flag; a pod that died or lost its lease
+        # mid-call never got that far, so any earlier claim counts too.
+        uncertain = bool(task.payload.get(UNCERTAIN)) or task.attempts > 1
         if run.cancel_requested and not uncertain:
             # Cancelled before anything reached the Executor.
             finish(run, RunStatus.CANCELLED, database_now(session))
@@ -155,6 +160,8 @@ class SubmitExecution:
 
     def apply(self, session, task, run, context, response, now, clients):
         if isinstance(response, Rejected):
+            log = logger.error if response.error.auth_rejected else logger.info
+            log("Run %s submission rejected: %s", run.id, response.error)
             complete(task)
             if run.status != RunStatus.QUEUED:
                 return

@@ -24,6 +24,10 @@ SUBMIT_REJECTIONS = {
     422: None,  # any code
     409: {"INVALID_STATE_TRANSITION"},
 }
+# Refused before anything is created (identity, key, tenant override),
+# with or without a well-formed error body: a configuration problem that
+# retrying the same request cannot fix.
+AUTH_REJECTIONS = frozenset({400, 401, 403})
 
 
 class ExecutorError(Exception):
@@ -40,8 +44,14 @@ class ExecutorError(Exception):
         self.status, self.code = status, code
 
     @property
+    def auth_rejected(self) -> bool:
+        return self.status in AUTH_REJECTIONS
+
+    @property
     def submit_rejected(self) -> bool:
         """A definite refusal of a submission, not a lost or failed call."""
+        if self.status in AUTH_REJECTIONS:
+            return True
         if self.status not in SUBMIT_REJECTIONS or self.code is None:
             return False
         codes = SUBMIT_REJECTIONS[self.status]

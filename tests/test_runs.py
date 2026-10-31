@@ -29,7 +29,11 @@ from app.models import BatchRun, IdempotencyRecord, RunStepBinding, Task
 from app.runtime.dispatcher import Dispatcher
 from app.runtime.retention import Retention
 from app.runtime.runtime import BackgroundRuntime
-from app.services.run_service import promote_waiting
+from app.services.run_service import (
+    identity_headers,
+    promote_waiting,
+    submission_request,
+)
 from app.tasks.handlers import Clients
 from app.tasks.queue import claim, locked_lease
 
@@ -703,7 +707,7 @@ def test_acceptance_rolls_back_with_task_failure(client, execution):
     assert run_request(client, batch["id"]).status_code == 202
 
 
-@pytest.mark.parametrize("status", [301, 401, 409, 422, 429, 503])
+@pytest.mark.parametrize("status", [301, 409, 422, 429, 503])
 def test_http_errors_do_not_release_unknown_submission(
     client, execution, status
 ):
@@ -1044,6 +1048,9 @@ def test_owner_disabled_batch_still_runs_manually(client, execution):
         (422, "INVALID_EXECUTION_SPEC"),
         (422, "UNSUPPORTED_RUNTIME_PROFILE"),
         (409, "INVALID_STATE_TRANSITION"),
+        (400, "INVALID_IDENTITY"),
+        (401, "UNAUTHENTICATED"),
+        (403, "TENANT_OVERRIDE_FORBIDDEN"),
     ],
 )
 def test_rejected_submission_fails_and_frees_the_slot(
@@ -1086,6 +1093,36 @@ def test_conflicts_keep_retrying(client, execution, status, code):
     assert pending_tasks(worker, run) == ["SUBMIT_EXECUTION"]
 
 
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_refusal_without_error_body_is_final(client, execution, status):
+    """A gateway may refuse before the Executor; nothing was created."""
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    fake.http_error = status
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert detail["status"] == "FAILED"
+    assert detail["failure_type"] == "SUBMIT_REJECTED"
+    assert detail["last_error"] == f"EXECUTOR_HTTP_{status}"
+    assert pending_tasks(worker, run) == []
+
+
+def test_auth_refusal_after_an_uncertain_attempt_keeps_retrying(
+    client, execution
+):
+    """An earlier attempt may have created the execution."""
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    fake.lose_response = True
+    tick(worker, run)
+    fake.lose_response = False
+    fake.http_error, fake.error_code = 403, "TENANT_OVERRIDE_FORBIDDEN"
+    tick(worker, run)
+    detail = run_get(client, run).json()
+    assert detail["status"] == "QUEUED"
+    assert pending_tasks(worker, run) == ["SUBMIT_EXECUTION"]
+
+
 def test_rejection_after_an_uncertain_attempt_is_not_final(client, execution):
     """The lost submission may exist; validation runs before the lookup."""
     fake, worker = execution
@@ -1114,6 +1151,30 @@ def test_cancel_after_uncertain_submit_cancels_the_execution(
     tick(worker, run)
     flagged = command(client, run, "cancel", "c1").json()
     assert flagged["status"] == "QUEUED" and flagged["cancel_requested"]
+    drain(worker, run)
+    assert run_get(client, run).json()["status"] == "CANCELLED"
+    assert len(fake.receipts) == 1
+    assert len(fake.cancels) == 1
+
+
+def test_cancel_after_a_lost_lease_cancels_the_execution(client, execution):
+    """A pod that died mid-submit may have created the execution."""
+    fake, worker = execution
+    run = run_request(client, create_batch(client).json()["id"]).json()
+    with worker.sessions.begin() as session:
+        claimed = claim(session, 90)
+        assert claimed is not None
+    # The submission reaches the Executor, then the pod dies before apply.
+    with worker.sessions() as session:
+        current = session.get(BatchRun, UUID(run["id"]))
+        request = submission_request(session, current)
+        identity = identity_headers(current)
+    worker.clients.executor.submit(request, identity)
+    with worker.sessions.begin() as session:
+        session.get(Task, claimed.id).lease_until = utcnow() - timedelta(
+            seconds=1
+        )
+    assert command(client, run, "cancel", "c1").json()["status"] == "QUEUED"
     drain(worker, run)
     assert run_get(client, run).json()["status"] == "CANCELLED"
     assert len(fake.receipts) == 1

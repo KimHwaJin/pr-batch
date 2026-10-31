@@ -123,7 +123,9 @@ class Dispatcher:
 
     def fail(self, claimed: ClaimedTask, error: ExecutorError) -> None:
         code = str(error)
-        logger.warning("Task %s %s failed: %s", claimed.kind, claimed.id, code)
+        # Key or tenant settings, not an outage: make it stand out.
+        log = logger.error if error.auth_rejected else logger.warning
+        log("Task %s %s failed: %s", claimed.kind, claimed.id, code)
         with self.sessions.begin() as session:
             task = locked_lease(session, claimed)
             if task is None:
