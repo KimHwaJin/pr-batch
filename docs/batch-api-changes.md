@@ -6,6 +6,20 @@
 엔드포인트별 상세는 [API별 호출 가이드](client-api.md), key 발급·설정은 [호출 서비스 인증 가이드](client-auth.md)를 본다.
 실행 중인 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
 
+## 오류 응답 형식 변경 (Executor와 통일)
+
+모든 오류 응답이 `{"error": {"code", "message", "details": [...]}}` 한 가지 모양으로 바뀌었다.
+자세한 내용은 [API별 호출 가이드의 오류 형식](client-api.md#오류-형식).
+
+| 이전 | 이후 |
+|---|---|
+| `body.code`, `body.message` | `body.error.code`, `body.error.message` |
+| 422 `body.errors[].loc` / `type` / `msg` | `body.error.details[].location` / `type` / `message` |
+| DB 오류 `body.detail` | `body.error.details[0].context` |
+| 없는 경로 404, 405 `{"detail": "Not Found"}` | `error.code` `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
+
+`error.code` 값 자체는 바뀌지 않았다. 한도 초과, revision 충돌 등에는 `details[].context`에 한도와 실제 값이 붙는다.
+
 ## 한눈에 보기: 환경별 차이
 
 | 항목 | local / dev | stg / prd |

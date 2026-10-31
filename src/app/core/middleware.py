@@ -1,7 +1,8 @@
 """Bounded request ingestion before body parsers run."""
 
-from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from app.core.exceptions import detail, error_response
 
 
 class RequestSizeLimit:
@@ -24,12 +25,11 @@ class RequestSizeLimit:
                 return
             chunk = message.get("body", b"")
             if len(body) + len(chunk) > self.max_bytes:
-                response = JSONResponse(
-                    {
-                        "code": "REQUEST_TOO_LARGE",
-                        "message": "Body too large.",
-                    },
-                    status_code=413,
+                response = error_response(
+                    413,
+                    "REQUEST_TOO_LARGE",
+                    "Body too large.",
+                    [detail(["body"], "too_large", limit=self.max_bytes)],
                 )
                 await response(scope, receive, send)
                 return

@@ -206,7 +206,7 @@ def test_caller_and_identity_checks(settings, headers, status, code):
         response = client.get(API, headers=headers)
     assert response.status_code == status
     if code:
-        assert response.json()["code"] == code
+        assert response.json()["error"]["code"] == code
 
 
 def test_runtimes_need_a_key_but_no_user(settings):
@@ -226,7 +226,7 @@ def test_runtimes_need_a_key_but_no_user(settings):
     with TestClient(create_app(empty)) as client:
         response = client.get(RUNTIMES, headers={"X-Api-Key": CALLER_KEY})
         assert response.status_code == 503
-        assert response.json()["code"] == "RUNTIMES_NOT_CONFIGURED"
+        assert response.json()["error"]["code"] == "RUNTIMES_NOT_CONFIGURED"
 
 
 def test_disable_by_owner_needs_an_admin_key(settings):
@@ -254,7 +254,7 @@ def test_header_mode_trusts_identity_without_a_key(settings):
             client.get(RUNTIMES, headers={"X-Api-Key": "bat_x"}).status_code
             == 401
         )
-        assert client.get(API).json()["code"] == "INVALID_IDENTITY"
+        assert client.get(API).json()["error"]["code"] == "INVALID_IDENTITY"
 
 
 def test_user_ids_are_lower_cased():

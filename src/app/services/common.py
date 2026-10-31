@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
-from app.core.exceptions import ServiceError
+from app.core.exceptions import ServiceError, detail
 from app.core.security import Principal
 from app.models import Batch, BatchConfig, Script, ScriptVersion
 from app.schemas.schedule import Policy, Schedule
@@ -100,7 +100,19 @@ def config_version(session: Session, config: BatchConfig) -> ScriptVersion:
 
 def check_revision(revision: int, expected: int) -> None:
     if revision != expected:
-        raise ServiceError(409, "REVISION_CONFLICT", "Reload the resource.")
+        raise ServiceError(
+            409,
+            "REVISION_CONFLICT",
+            "Reload the resource.",
+            [
+                detail(
+                    ["header", "If-Match"],
+                    "revision_conflict",
+                    expected=expected,
+                    current=revision,
+                )
+            ],
+        )
 
 
 # Every list returns an opaque `next_cursor` (AIP-158 page tokens): the

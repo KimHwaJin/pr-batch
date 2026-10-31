@@ -54,15 +54,28 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 ### 오류 형식
 
-```json
-{"code": "REVISION_CONFLICT", "message": "..."}
-```
-
-요청 형식 오류(422)만 다음 모양이며, 보낸 값은 되돌려주지 않는다.
+모든 오류는 Executor API와 같은 한 가지 모양이다. `details`는 비어 있을 수 있다.
 
 ```json
-{"code": "VALIDATION_ERROR", "errors": [{"loc": ["body", "name"], "type": "missing", "msg": "Field required"}]}
+{"error": {"code": "REVISION_CONFLICT", "message": "Reload the resource.",
+  "details": [{"location": ["header", "If-Match"], "type": "revision_conflict",
+               "context": {"expected": 1, "current": 2}}]}}
 ```
+
+- `error.code`: 기계가 읽는 오류 코드. 분기는 이 값으로 한다.
+- `details[].location`: 어느 값인지(`["body", "schedule", ...]`, `["body", "file", "cells"]` 등).
+- `details[].type`: 왜인지(`missing`, `notebook_cell_limit_exceeded` 등).
+- `details[].context`: 근거 값(한도, 개수 등). 보낸 값(코드, key, 입력값)은 되돌려주지 않는다.
+
+요청 형식 오류(422 `VALIDATION_ERROR`)는 항목마다 사람이 읽는 `message`도 붙는다.
+
+```json
+{"error": {"code": "VALIDATION_ERROR", "message": "Request validation failed.",
+  "details": [{"location": ["body", "name"], "type": "missing", "context": {}, "message": "Field required"}]}}
+```
+
+한도 초과 예: 노트북 전체 셀 초과는 `{"location": ["body", "file", "cells"], "type": "notebook_cell_limit_exceeded",
+"context": {"limit": 1000, "requested": 1200}}`.
 
 | HTTP | 대표 code | 의미·대응 |
 | --- | --- | --- |
@@ -74,9 +87,9 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 | 413 | `REQUEST_TOO_LARGE`, `UPLOAD_TOO_LARGE` | 업로드 크기 초과 (기본 10 MiB) |
 | 422 | `VALIDATION_ERROR` 등 | 입력 오류. 같은 요청을 재시도해도 실패한다 |
 | 503 | `DATABASE_UNAVAILABLE`, `STORAGE_UNAVAILABLE`, `EXECUTOR_NOT_CONFIGURED`, `RUNTIMES_NOT_CONFIGURED` 등 | 일시 장애·설정 누락. 같은 `Idempotency-Key`로 잠시 뒤 재시도 |
-| 500 | `INTERNAL_ERROR` | DB 제약 위반 등 서버 쪽 오류. 재시도해도 같다. 응답 `detail`(`error_id`, `type`, `sqlstate`, `table`, `constraint`)을 pr-batch 담당자에게 전달한다. `error_id`로 서버 로그를 찾는다 |
+| 500 | `INTERNAL_ERROR` | DB 제약 위반 등 서버 쪽 오류. 재시도해도 같다. 응답 `details[0].context`(`error_id`, `type`, `sqlstate`, `table`, `constraint`)를 pr-batch 담당자에게 전달한다. `error_id`로 서버 로그를 찾는다 |
 
-DB 오류 응답(503 `DATABASE_UNAVAILABLE`, 500 `INTERNAL_ERROR`)에는 `detail` 객체가 붙는다. SQL 문이나 요청 값은 들어가지 않는다.
+DB 오류 응답(503 `DATABASE_UNAVAILABLE`, 500 `INTERNAL_ERROR`)은 `details`에 `location: ["database"]` 항목 하나가 붙는다. SQL 문이나 요청 값은 들어가지 않는다.
 
 ### 공통 응답 필드
 

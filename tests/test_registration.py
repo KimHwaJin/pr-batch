@@ -303,28 +303,30 @@ def test_batch_validation_reports_fields(client):
         "kernel", runtime={"type": "JUPYTER", "profile": "not-registered"}
     )
     assert unknown.status_code == 422
-    assert unknown.json()["code"] == "UNKNOWN_RUNTIME"
+    assert unknown.json()["error"]["code"] == "UNKNOWN_RUNTIME"
     for key, updates in [
         ("owner", {"owner_id": "someone-else"}),
         ("enabled", {"enabled": True}),
     ]:
         response = register(key, **updates)
         assert response.status_code == 422
-        assert response.json()["errors"][0]["type"] == "extra_forbidden"
+        assert (
+            response.json()["error"]["details"][0]["type"] == "extra_forbidden"
+        )
     cron = register(
         "cron",
         schedule={"definition": {"kind": "CRON", "expression": "0 0 L * *"}},
     )
     assert cron.status_code == 422
-    error = cron.json()["errors"][0]
-    assert error["loc"][:3] == ["body", "schedule", "definition"]
-    assert "Cron" in error["msg"]
+    error = cron.json()["error"]["details"][0]
+    assert error["location"][:3] == ["body", "schedule", "definition"]
+    assert "Cron" in error["message"]
     policy = register(
         "policy",
         policy={"overlap": {"mode": "SKIP", "max_concurrent": 2}},
     )
     assert policy.status_code == 422
-    assert policy.json()["errors"][0]["type"] == "extra_forbidden"
+    assert policy.json()["error"]["details"][0]["type"] == "extra_forbidden"
     queue = register(
         "queue",
         policy={"overlap": {"mode": "QUEUE"}, "misfire": {"mode": "LATEST"}},
@@ -370,7 +372,7 @@ def test_patch_rules_and_policy_merge(client):
         {"policy": {"overlap": {"max_concurrent": 1, "mode": "QUEUE"}}},
     )
     assert invalid.status_code == 422
-    assert invalid.json()["code"] == "INVALID_POLICY"
+    assert invalid.json()["error"]["code"] == "INVALID_POLICY"
     assert client.get(f"{API}/{batch['id']}", headers=token()).json()[
         "name"
     ] == ("renamed")
@@ -420,7 +422,7 @@ def test_original_integrity_and_activation_requires_configuration(
         f"{notebook_url}/versions/{version}/content", headers=token()
     )
     assert response.status_code == 503
-    assert response.json()["code"] == "STORAGE_INTEGRITY_ERROR"
+    assert response.json()["error"]["code"] == "STORAGE_INTEGRITY_ERROR"
     # An empty BATCH_RUNTIMES setting blocks activation.
     client.app.state.runtime_catalog = RuntimeCatalog([])
     assert (
@@ -474,7 +476,10 @@ def test_script_type_is_required_and_fixed(client):
         files={"file": ("a.ipynb", notebook_bytes())},
     )
     assert missing.status_code == 422
-    assert missing.json()["errors"][0]["loc"] == ["body", "type"]
+    assert missing.json()["error"]["details"][0]["location"] == [
+        "body",
+        "type",
+    ]
     python = upload_script(
         client,
         key="python",
@@ -483,7 +488,7 @@ def test_script_type_is_required_and_fixed(client):
         script_type="PYTHON",
     )
     assert python.status_code == 422
-    assert python.json()["code"] == "VALIDATION_ERROR"
+    assert python.json()["error"]["code"] == "VALIDATION_ERROR"
     unknown = upload_script(client, key="sql", script_type="SQL")
     assert unknown.status_code == 422
     script = upload_script(client).json()
@@ -525,7 +530,7 @@ def test_runtime_choices_and_unconfigured_catalog(client):
     client.app.state.runtime_catalog = RuntimeCatalog([])
     rejected = create_batch(client, key="no-runtimes")
     assert rejected.status_code == 503
-    assert rejected.json()["code"] == "RUNTIMES_NOT_CONFIGURED"
+    assert rejected.json()["error"]["code"] == "RUNTIMES_NOT_CONFIGURED"
     renamed = patch_batch(client, batch, "rename", {"name": "still ok"})
     assert renamed.status_code == 200
     moved = patch_batch(
@@ -544,7 +549,7 @@ def test_runtime_choices_and_unconfigured_catalog(client):
 def test_tenant_header_follows_executor_rule(client, tenant):
     response = create_batch(client, tenant=tenant)
     assert response.status_code == 400, tenant
-    assert response.json()["code"] == "INVALID_IDENTITY"
+    assert response.json()["error"]["code"] == "INVALID_IDENTITY"
 
 
 def test_body_tenant_id_is_rejected(client):
