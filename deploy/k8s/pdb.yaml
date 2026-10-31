@@ -1,0 +1,12 @@
+# Voluntary disruptions (node drain, upgrades) take down one pod at a
+# time. maxUnavailable, not minAvailable: with a single replica a drain
+# still proceeds instead of being blocked.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pr-batch
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pr-batch
