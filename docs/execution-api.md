@@ -74,7 +74,8 @@ Executor 호출(제출·조회·결과·취소)에는 `X-Api-Key: <EXECUTOR_API_
 | CANCELLED | 사용자 취소 또는 REPLACE 정책 취소 (`cancel_source`) | — |
 | SKIPPED | 겹침·대기열 초과로 실행 안 함 | — |
 
-응답의 다른 필드: `execution_status`(Executor 원본 상태), `failure_type`, `notebook_status`,
+응답의 다른 필드: `execution_status`(Executor 원본 상태), `failure_type`, `notebook_status`(Executor 노트북
+결과 작업 상태. 실행 중에는 중간값이라 Run이 끝난 뒤의 값만 의미가 있다),
 `last_error`(통신·계약 오류. 코드 실패와 별개), `cancel_requested`, `cancel_source`(USER·POLICY),
 `cancel_reason`, `artifacts`, `attempts`, `retry_info`, `result`, `steps`(상세만). 출력 원문·표·이미지는
 복제하지 않고 `result_ref`와 artifact ID로만 가리킨다.

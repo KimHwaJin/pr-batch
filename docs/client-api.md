@@ -565,6 +565,10 @@ RunView에 셀별 `steps`가 추가된다. 실행이 끝날 때까지 이 API를
 }
 ```
 
+`notebook_status`는 Executor가 결과 노트북을 만드는 작업의 상태를 그대로 옮긴 값이다. 실행 중에는 앞선 셀까지의
+중간 결과 기준이라 `SUCCEEDED`였다가 나중에 바뀔 수 있으므로, Run이 끝난 뒤(`COMPLETED`·`FAILED`·`CANCELLED`)의
+값만 본다. 취소된 실행은 노트북 결과가 마무리되지 않아 보통 `FAILED`다.
+
 (일부 필드 `operation_id`, `observed_version`, `artifacts`, `attempts`, `retry_info`, `observed_at` 생략)
 
 | `status` | 의미 | 끝난 상태 |
