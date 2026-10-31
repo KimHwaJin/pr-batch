@@ -108,7 +108,8 @@ API·스케줄러·Task dispatcher가 한 프로세스로 뜨고, 시작 시 mig
 포트는 설정의 `PORT`(`config.yml`/`config.{APP_ENV}.yml`, 환경변수로는 `PORT`)를 따르고
 기본값은 8000입니다. `make` 없이 실행할 때는 `uv run --locked pr-batch`입니다. `.env.example`은
 `PORT=8100`이라 로컬 주소는 `http://127.0.0.1:8100`(로컬 Executor의 8000과 겹치지 않게),
-API 문서는 `/docs`입니다.
+API 문서는 `/docs`입니다. 문서 화면은 `DOCS_ENABLED`로 켜고 끄며, 내부망 규정에 따라 dev·stg·prd에서는
+꺼져 있습니다(`config.yml`). 로컬은 `.env.example`대로 켭니다.
 
 ## Docker로 Executor 연계 테스트
 

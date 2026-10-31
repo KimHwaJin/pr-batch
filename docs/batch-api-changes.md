@@ -4,7 +4,8 @@
 `1ee668e` (tenant + 사용자 소유 범위)
 
 엔드포인트별 상세는 [API별 호출 가이드](client-api.md), key 발급·설정은 [호출 서비스 인증 가이드](client-auth.md)를 본다.
-실행 중인 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
+로컬에서 `DOCS_ENABLED=true`로 띄운 서버의 `/docs`(Swagger)와 `/openapi.json`이 항상 최신 명세다.
+공유 환경(dev·stg·prd)에서는 내부망 규정으로 꺼져 있다.
 
 ## 오류 응답 형식 변경 (Executor와 통일)
 
@@ -102,8 +103,8 @@ Content-Type: application/json
 
 ## 7. Swagger
 
-`/docs`에서 **Authorize**에 key를 넣고, 각 API의 `X-User-Id`(필요하면 `X-Project-Id`, `X-Tenant-Id`) 칸을 채운다.
-dev는 key 없이 `X-User-Id`만 채워도 된다.
+로컬에서 `DOCS_ENABLED=true`로 띄운 서버의 `/docs`에서 **Authorize**에 key를 넣고, 각 API의 `X-User-Id`(필요하면 `X-Project-Id`, `X-Tenant-Id`) 칸을 채운다.
+dev는 key 없이 `X-User-Id`만 채워도 된다. 공유 환경(dev·stg·prd)에서는 내부망 규정으로 `/docs`가 꺼져 있다.
 
 ## 8. 배포 시 주의
 

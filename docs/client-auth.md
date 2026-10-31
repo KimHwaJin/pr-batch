@@ -93,7 +93,7 @@ response = httpx.get(
 response.raise_for_status()
 ```
 
-Swagger(`/docs`)에서는 **Authorize**에 key를 넣고, 각 API의 `X-User-Id` 칸을 채운다.
+로컬에서 `DOCS_ENABLED=true`로 띄운 Swagger(`/docs`)에서는 **Authorize**에 key를 넣고, 각 API의 `X-User-Id` 칸을 채운다.
 
 dev(`AUTH_MODE: header`)에서는 `X-Api-Key` 없이 `X-User-Id`만 보내도 된다. 이때 tenant는 `X-Tenant-Id`, 없으면 `dev`다.
 

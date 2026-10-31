@@ -12,6 +12,9 @@ MAX_CODE_CELLS: 100
 MAX_NOTEBOOK_CELLS: 1000
 CELL_MAX_BYTES: 1048576
 DB_AUTO_MIGRATE: true
+# Swagger (/docs, /redoc, /openapi.json). Internal network rules: off in
+# dev, stg and prd; turn on only locally (.env).
+DOCS_ENABLED: false
 # Per pod: 6 background loops plus API requests share this pool.
 # Connection budget: (5 + 5) per pod x maxReplicas 4 = 40.
 DB_POOL_SIZE: 5
