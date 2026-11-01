@@ -562,7 +562,7 @@ def test_body_tenant_id_is_rejected(client):
 
 def test_tenant_comes_from_the_key_and_scopes_the_batch(client):
     plain = create_batch(client).json()
-    assert plain["tenant_id"] == "pr-agentic-service"
+    assert plain["tenant_id"] == "dtest-agent-service"
     batch = create_batch(client, key="relayed", tenant="agent3").json()
     assert batch["tenant_id"] == "agent3"
     fetched = client.get(
@@ -587,7 +587,7 @@ def test_tenant_comes_from_the_key_and_scopes_the_batch(client):
     other = client.patch(
         f"{API}/{batch['id']}",
         headers={
-            **token(tenant="pr-agentic-service"),
+            **token(tenant="dtest-agent-service"),
             "Idempotency-Key": "other",
             "If-Match": f'"{same.json()["revision"]}"',
         },
@@ -653,7 +653,7 @@ def test_storage_path_includes_the_tenant(client, settings):
     script = upload_script(client, key="pathed").json()
     prefix = (
         settings.storage_root
-        / f"batch/inputs/tenants/pr-agentic-service/users/{ALICE}"
+        / f"batch/inputs/tenants/dtest-agent-service/users/{ALICE}"
         / f"scripts/{script['id']}"
     )
     assert prefix.is_dir()
@@ -737,6 +737,6 @@ def test_upload_files_are_removed_when_the_write_rolls_back(
     monkeypatch.setattr(script_service, "script_view", broken)
     with pytest.raises(RuntimeError):
         service.create_script(
-            Principal("pr-agentic-service", ALICE), "k", None, parsed
+            Principal("dtest-agent-service", ALICE), "k", None, parsed
         )
     assert not any(settings.storage_root.rglob("original.ipynb"))

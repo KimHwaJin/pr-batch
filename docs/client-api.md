@@ -349,7 +349,7 @@ curl "$BATCH_URL/api/v1/batches" \
     "overlap": {"mode": "QUEUE", "max_queued": 100},
     "misfire": {"mode": "LATEST", "grace_seconds": 300}
   },
-  "tenant_id": "pr-agentic-service",
+  "tenant_id": "dtest-agent-service",
   "project_id": null,
   "enabled": false,
   "disabled_reason": null,

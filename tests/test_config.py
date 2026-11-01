@@ -125,9 +125,9 @@ def test_auth_clients_come_from_yaml(project, monkeypatch):
         "AUTH_CLIENTS:\n"
         "  - name: pr-agentic-service\n"
         f'    key_sha256: ["{sha("old")}", "{sha("new")}"]\n'
-        "    tenant: pr-agentic-service\n"
+        "    tenant: dtest-agent-service\n"
         "    relay: true\n"
-        "    allowed_tenants: [pr-agentic-service, agent3]\n"
+        "    allowed_tenants: [dtest-agent-service, agent3]\n"
         "    admin: true\n"
         "BATCH_RUNTIMES:\n"
         "  - {type: JUPYTER, profile: python3}\n"
