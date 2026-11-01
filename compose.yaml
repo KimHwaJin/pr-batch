@@ -9,8 +9,15 @@ x-batch-env: &batch-env
   DATABASE_URL: postgresql+psycopg://${PR_BATCH_DB_USER:-batch}:${PR_BATCH_DB_PASSWORD:-batch-local-only}@postgres:5432/${PR_BATCH_DB_NAME:-batch}
   # Same host directory the Executor mounts as INPUT_STORAGE_ROOT.
   STORAGE_ROOT: /workspace/shared
-  # Local stack: identity headers without a key (refused outside dev).
-  AUTH_MODE: header
+  # Local stack: header (default) trusts identity headers without a key;
+  # api_key (PR_BATCH_AUTH_MODE=api_key, or make docker-up-key) requires
+  # X-Api-Key as in stg/prd. The one local caller below mirrors the
+  # agent's entry; its key is local-only and not a secret:
+  #   X-Api-Key: bat_local_agent_0123456789abcdef0123456789ab
+  AUTH_MODE: ${PR_BATCH_AUTH_MODE:-header}
+  AUTH_CLIENTS: '[{"name": "pr-agentic-service", "key_sha256": ["3c6daf387c58d74d1ce645976dc47d5beaaa17c04cb875c663ef13c73e919321"], "tenant": "dtest-agent-service", "relay": true, "allowed_tenants": ["*"], "admin": true}]'
+  # Smoke and load checks send it, so they pass in either mode.
+  LOCAL_API_KEY: bat_local_agent_0123456789abcdef0123456789ab
   EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
   SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
   SYNC_MAX_SECONDS: ${PR_BATCH_SYNC_MAX_SECONDS:-10}

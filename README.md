@@ -133,7 +133,11 @@ make docker-down
   두 이미지 모두 UID 1000으로 실행합니다.
 - 런타임 선택지는 설정 `BATCH_RUNTIMES`에서 읽습니다(`GET /api/v1/runtimes`). Executor BATCH 풀에 profile을
   추가하면 이 목록도 같이 고칩니다.
-- Compose는 `AUTH_MODE: header`로 뜨므로 key 없이 `X-User-Id`만 보내면 됩니다. 배포 환경의 key 해시는
+- Compose는 기본으로 `AUTH_MODE: header`로 뜨므로 key 없이 `X-User-Id`만 보내면 됩니다.
+  stg·prd처럼 key 인증으로 띄우려면 `make docker-up-key`(또는 `PR_BATCH_AUTH_MODE=api_key make docker-up`)를 씁니다.
+  이때는 로컬 전용 key `X-Api-Key: bat_local_agent_0123456789abcdef0123456789ab`를 보냅니다. 이 key는 에이전트 항목과 같은
+  설정(tenant `dtest-agent-service`, relay, `allowed_tenants: ["*"]`, admin)이고, 다시 `make docker-up`이면 header 모드로 돌아갑니다.
+  smoke·load 검사는 이 key를 함께 보내므로 두 모드에서 모두 돕니다. 배포 환경의 key 해시는
   `config.{env}.yml`의 `AUTH_CLIENTS`, Executor 호출 key는 `EXECUTOR_API_KEY`에 둡니다.
 
 변수는 셸이나 Compose 변수 파일로 지정합니다. 컨테이너는 저장소의 `.env`를

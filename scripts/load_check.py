@@ -34,6 +34,8 @@ API = os.environ.get("LOAD_API_URL", "http://app:8000") + "/api/v1"
 FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
 OWNER = f"load-{uuid.uuid4().hex[:8]}"
 AUTH = {"X-User-Id": OWNER}
+if local_key := os.environ.get("LOCAL_API_KEY"):  # see docker_smoke.AUTH
+    AUTH["X-Api-Key"] = local_key
 
 
 def request(method, url, headers=None, body=None, timeout=60):
