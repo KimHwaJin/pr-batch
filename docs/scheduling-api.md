@@ -48,6 +48,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
 disable은 `disabled_reason: OWNER`를 남기고, enable은 `disabled_reason`·`disabled_at`을 지운다. 사용자 비활성으로
 운영자가 끈 배치(`USER_DEACTIVATED`, `POST /batches:disable-by-owner`)는 대기 중인 run을 `SKIPPED`로 돌리고,
 수동 실행도 409 `OWNER_DEACTIVATED`로 막는다. 자동으로 되살리지 않는다.
+tenant 폐기(`TENANT_REVOKED`, `POST /batches:disable-by-tenant`)도 같고, 수동 실행은 409 `TENANT_REVOKED`다.
 
 중지는 이미 접수·대기·실행 중인 작업을 취소하지 않는다. 중지할 때 아직 접수하지
 못한 과거 예약은 `DISABLED` 생략 구간으로 보존한다. 중지 이후의 예약은 생성하지
@@ -146,7 +147,7 @@ REPLACE에서는 한 번에 여러 일정이 도래해도(누락 복구, 짧은 
 장기간 생략된 예약을 실행 행으로 모두 만들지 않는다. skipped-windows 응답은
 `from_at` 포함·`until_at` 미포함 범위와 정확한 `occurrences`, `config_number`,
 reason을 반환한다. 사유는 MISFIRE_SKIP, MISFIRE_LATEST, MISFIRE_CATCH_UP,
-REPLACED_BY_LATEST, DISABLED, SCHEDULE_REPLACED, DELETED, SCHEDULER_ERROR다. limit 1~100, 불투명 문자열 cursor(이전 응답의 `next_cursor`)로 페이지를 넘긴다.
+REPLACED_BY_LATEST, DISABLED, SCHEDULE_REPLACED, DELETED, SCHEDULER_ERROR, OWNER_DEACTIVATED, TENANT_REVOKED다. limit 1~100, 불투명 문자열 cursor(이전 응답의 `next_cursor`)로 페이지를 넘긴다.
 tenant나 소유자가 다른 배치와 구간은 조회할 수 없다. 기존 실행 목록과 생략 구간 목록은
 별도 API다.
 

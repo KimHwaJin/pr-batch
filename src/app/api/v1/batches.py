@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import (
     AdminCaller,
+    AdminNamedTenant,
     AdminTenants,
     Batches,
     Cursor,
@@ -22,6 +23,7 @@ from app.schemas.batch import (
     BatchView,
     CreateBatch,
     DisableByOwner,
+    DisableByTenant,
     DisabledCount,
     SkippedPage,
     UpdateBatch,
@@ -57,6 +59,23 @@ def disable_by_owner(
     other key its own tenant. `disabled` counts across those tenants.
     """
     return service.disable_by_owner(data.owner_id, tenants, caller.client)
+
+
+@router.post(":disable-by-tenant", response_model=DisabledCount)
+def disable_by_tenant(
+    caller: AdminCaller,
+    tenant: AdminNamedTenant,
+    service: Batches,
+    data: DisableByTenant,
+) -> DisabledCount:
+    """Called when a tenant is revoked; repeating it is harmless.
+
+    X-Tenant-Id names the tenant (required). Every batch of it is turned
+    off with disabled_reason TENANT_REVOKED, waiting runs are skipped and
+    manual runs refused (409) until a batch is enabled again; executions
+    already submitted keep running. `disabled` counts batches that were on.
+    """
+    return service.disable_by_tenant(tenant, caller.client)
 
 
 @router.get("", response_model=BatchPage)

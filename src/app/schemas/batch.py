@@ -84,7 +84,8 @@ class BatchView(Audited, Contract):
     # EXECUTOR_NOT_CONFIGURED, SCHEDULE_REQUIRED, RUNTIMES_NOT_CONFIGURED,
     # RUNTIME_NOT_SUPPORTED, UNKNOWN_RUNTIME or NO_FUTURE_OCCURRENCE.
     enable_blocked_reason: str | None
-    # OWNER | USER_DEACTIVATED; null when enabled or never enabled.
+    # OWNER | USER_DEACTIVATED | TENANT_REVOKED; null when enabled or
+    # never enabled.
     disabled_reason: str | None
     disabled_at: datetime | None
     next_run_at: datetime | None
@@ -117,6 +118,10 @@ class SkippedPage(BaseModel):
 class DisableByOwner(Contract):
     owner_id: UserId
     reason: Literal["USER_DEACTIVATED"]
+
+
+class DisableByTenant(Contract):
+    reason: Literal["TENANT_REVOKED"]
 
 
 class DisabledCount(Contract):

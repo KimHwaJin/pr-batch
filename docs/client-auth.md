@@ -7,7 +7,7 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 ## 요약
 
 - 모든 `/api/v1/*` 요청에 `X-Api-Key`(호출 서비스 key)와 `X-User-Id`(대신하는 사용자)를 넣는다.
-  `/healthz`, `/readyz`만 예외다. `GET /runtimes`와 `POST /batches:disable-by-owner`는 `X-User-Id`가 필요 없다.
+  `/healthz`, `/readyz`만 예외다. `GET /runtimes`, `POST /batches:disable-by-owner`, `POST /batches:disable-by-tenant`는 `X-User-Id`가 필요 없다.
 - pr-batch는 key 원문을 갖지 않는다. 설정 `AUTH_CLIENTS`에 key의 **SHA-256 해시**만 두고 상수 시간으로 비교한다.
 - tenant는 key로 정해진다(중계자 key는 `X-Tenant-Id`로 고른다). 모든 자원은 Executor처럼 **tenant + 사용자** 소유이고,
   tenant는 배치 실행 이벤트를 받을 Executor tenant이기도 하다. 본문에 `tenant_id`를 보내면 422다.
@@ -19,7 +19,7 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 | 헤더 | 필수 | 형식 | 설명 |
 | --- | --- | --- | --- |
 | `X-Api-Key` | stg·prd 필수 | 512자 이하 | 호출 서비스 key. 모르는 key는 401 |
-| `X-User-Id` | 필수 (위 두 API 제외) | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자. UUID·사번 등 형식은 묻지 않는다. `ABC`와 `abc`는 같은 사용자다 |
+| `X-User-Id` | 필수 (위 두 API 제외) | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자의 **SSO 사번**(세 서비스 공통). 사람이 아닌 호출은 사번과 겹치지 않는 접두어(예: `svc-…`)를 쓴다. `E12345`와 `e12345`는 같은 사용자다 |
 | `X-Project-Id` | 선택 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 | 배치 등록 때만 저장한다. 수정 요청에서는 무시한다 |
 | `X-Tenant-Id` | 선택 | Executor tenant 규칙 | 중계자(`relay`) key만, `allowed_tenants` 안의 값만 쓸 수 있다 |
 | `X-Session-Id` | — | — | 보내도 무시한다 |
@@ -115,6 +115,25 @@ curl -X POST "$BATCH_URL/api/v1/batches:disable-by-owner" \
 - 이미 Executor에 제출된 실행은 계속 돈다. 슬롯을 기다리던 run은 `SKIPPED`(`OWNER_DEACTIVATED`)가 된다.
 - 이렇게 꺼진 배치는 수동 실행도 409 `OWNER_DEACTIVATED`다. 자동으로 되살리지 않으며, 사용자가 직접 켜면
   `disabled_reason`이 지워진다.
+- `owner_id`는 SSO 사번이다. tenant가 달라도 사번이 같으면 같은 사람으로 보고 함께 끈다(조회·변경은 tenant별로 격리된다).
+
+## tenant 폐기
+
+tenant를 폐기하면 admin key로 그 tenant의 배치를 모두 멈춘다. pr-batch는 자기 key로 Executor에 제출하므로,
+호출 서비스가 tenant key를 폐기하는 것만으로는 예약 실행이 멈추지 않는다.
+
+```sh
+curl -X POST "$BATCH_URL/api/v1/batches:disable-by-tenant" \
+  -H "X-Api-Key: $ADMIN_KEY" -H "X-Tenant-Id: upper-agent" -H "Content-Type: application/json" \
+  -d '{"reason": "TENANT_REVOKED"}'
+# {"disabled": 5}
+```
+
+- `X-Tenant-Id`는 필수다(없으면 400). 그 key가 쓸 수 있는 tenant여야 한다(밖이면 403).
+- 그 tenant의 모든 배치를 `disabled_reason=TENANT_REVOKED`로 끈다. 이미 꺼져 있던 배치도 이 사유로 바뀐다. `disabled`는 켜져 있다가 꺼진 배치 수다.
+  다시 불러도 결과가 같다(`{"disabled": 0}`).
+- 이미 Executor에 제출된 실행은 계속 돈다. 슬롯을 기다리던 run은 `SKIPPED`(`TENANT_REVOKED`)가 된다.
+- 이렇게 꺼진 배치는 수동 실행도 409 `TENANT_REVOKED`다. 자동으로 되살리지 않으며, 배치를 직접 켜면 `disabled_reason`이 지워진다.
 
 ## 인증 오류
 

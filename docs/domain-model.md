@@ -84,7 +84,7 @@ erDiagram
 | 생성 | `POST /api/v1/batches` (JSON). 항상 **비활성**으로 생성 |
 | 주요 속성 | 이름, 활성 여부, 다음 예약 시각, 현재 설정 번호, revision |
 | 현재 설정 | 스크립트 버전, 런타임, 일정(선택), 정책 → 실제 값은 최신 BatchConfig에 있음 |
-| 바뀌는 것 | 이름, 설정(PATCH), 활성/비활성(`disabled_reason`: `OWNER`·`USER_DEACTIVATED`). `tenant_id`·`project_id`는 등록 때 고정 |
+| 바뀌는 것 | 이름, 설정(PATCH), 활성/비활성(`disabled_reason`: `OWNER`·`USER_DEACTIVATED`·`TENANT_REVOKED`). `tenant_id`·`project_id`는 등록 때 고정 |
 | API | `/api/v1/batches`, `/batches/{batch_id}`, `/enable`, `/disable` |
 
 수명주기:
@@ -191,6 +191,7 @@ Run을 진행시키는 **외부 호출 1건**. 사용자 API에는 나오지 않
 | REPLACED_BY_LATEST | REPLACE 정책에서 한 번에 여러 일정이 도래했을 때 마지막 하나를 뺀 나머지 |
 | SCHEDULE_REPLACED | 활성 중 일정을 바꿀 때 옛 일정의 미접수분 |
 | DELETED | 활성 배치를 삭제할 때 아직 접수 못 한 과거 예약 |
+| OWNER_DEACTIVATED / TENANT_REVOKED | 사용자 비활성·tenant 폐기로 배치를 끌 때 아직 접수 못 한 과거 예약 |
 | SCHEDULER_ERROR | 예약 접수가 오류로 계속 실패해 재시도 한도(`SCHEDULE_RETRY_LIMIT`)를 넘긴 회차 |
 
 API: `GET /batches/{id}/skipped-windows`
