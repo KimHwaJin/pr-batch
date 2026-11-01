@@ -556,7 +556,7 @@ class BatchService:
         self,
         owner_id: str,
         tenants: frozenset[str] | None,
-        caller: str | None,
+        caller: str,
     ) -> DisabledCount:
         """Stop a deactivated user's schedules (repeatable) in `tenants`
         (None: every tenant).
@@ -578,16 +578,14 @@ class BatchService:
         logger.info(
             "Batches disabled by owner client=%s tenants=%s owner=%s "
             "disabled=%d",
-            caller or "header-mode",
+            caller,
             "*" if tenants is None else ",".join(sorted(tenants)),
             owner_id,
             result.disabled,
         )
         return result
 
-    def disable_by_tenant(
-        self, tenant: str, caller: str | None
-    ) -> DisabledCount:
+    def disable_by_tenant(self, tenant: str, caller: str) -> DisabledCount:
         """Stop every schedule of a revoked tenant (repeatable).
 
         Like disable_by_owner, and batches already off are marked too, so
@@ -603,7 +601,7 @@ class BatchService:
         )
         logger.info(
             "Batches disabled by tenant client=%s tenant=%s disabled=%d",
-            caller or "header-mode",
+            caller,
             tenant,
             result.disabled,
         )
@@ -614,11 +612,11 @@ class BatchService:
         scope: list[Any],
         disabled_reason: str,
         skip_reason: str,
-        caller: str | None,
+        caller: str,
         *,
         mark_disabled: bool,
     ) -> DisabledCount:
-        actor = Actor("SYSTEM", caller or "header-mode")
+        actor = Actor("SYSTEM", caller)
         with self.sessions.begin() as session:
             # Lock order everywhere: batch rows, then run rows.
             batches = list(

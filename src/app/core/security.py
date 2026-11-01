@@ -23,8 +23,6 @@ from app.schemas.common import TenantId
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 API_KEY_MAX_LENGTH = 512
-# Tenant of batches registered in header mode without X-Tenant-Id.
-HEADER_MODE_TENANT = "dev"
 TENANT = TypeAdapter(TenantId)
 
 # Declared (not read from request.headers) so OpenAPI and Swagger show
@@ -32,7 +30,7 @@ TENANT = TypeAdapter(TenantId)
 API_KEY_HEADER = APIKeyHeader(
     name="X-Api-Key",
     auto_error=False,
-    description="Calling service key. Optional only with AUTH_MODE=header.",
+    description="Calling service key.",
 )
 UserHeader = Annotated[
     str | None,
@@ -56,12 +54,11 @@ TenantHeader = Annotated[
 
 @dataclass(frozen=True)
 class Caller:
-    # auth_clients name; None in header mode without a key.
-    client: str | None
+    # auth_clients name.
+    client: str
     tenant: str
     relay: bool
-    # Tenants a relay may name; None: any (allowed_tenants ["*"], or
-    # header mode without a key).
+    # Tenants a relay may name; None: any (allowed_tenants ["*"]).
     allowed_tenants: frozenset[str] | None
     admin: bool
 
@@ -120,16 +117,12 @@ def current_caller(
     request: Request, key: Annotated[str | None, Security(API_KEY_HEADER)]
 ) -> Caller:
     caller = authenticate(request, key)
-    audit(request, client=caller.client or "header-mode", tenant=caller.tenant)
+    audit(request, client=caller.client, tenant=caller.tenant)
     return caller
 
 
 def authenticate(request: Request, key: str | None) -> Caller:
     settings = cast(Settings, request.app.state.settings)
-    if key is None:
-        if settings.auth_mode == "header":
-            return Caller(None, HEADER_MODE_TENANT, True, None, True)
-        raise unauthenticated()
     if not key or len(key) > API_KEY_MAX_LENGTH:
         raise unauthenticated()
     client = settings.match_client(key)

@@ -242,21 +242,15 @@ def test_disable_by_owner_needs_an_admin_key(settings):
         assert response.status_code == 403
 
 
-def test_header_mode_trusts_identity_without_a_key(settings):
-    header = settings.model_copy(
-        update={
-            "auth_mode": "header",
-            "batch_runtimes": [RuntimeSpec(type="JUPYTER", profile="python3")],
-        }
-    )
-    with TestClient(create_app(header)) as client:
-        assert client.get(RUNTIMES).status_code == 200
-        # A key, when sent, must still be a known one.
+def test_every_call_needs_a_known_key(settings):
+    with TestClient(create_app(settings)) as client:
+        assert client.get(RUNTIMES).status_code == 401
         assert (
             client.get(RUNTIMES, headers={"X-Api-Key": "bat_x"}).status_code
             == 401
         )
-        assert client.get(API).json()["error"]["code"] == "INVALID_IDENTITY"
+        user = {"X-User-Id": "alice"}
+        assert client.get(API, headers=user).status_code == 401
 
 
 def test_user_ids_are_lower_cased():

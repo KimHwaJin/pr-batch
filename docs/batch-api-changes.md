@@ -21,15 +21,16 @@
 
 `error.code` 값 자체는 바뀌지 않았다. 한도 초과, revision 충돌 등에는 `details[].context`에 한도와 실제 값이 붙는다.
 
-## 한눈에 보기: 환경별 차이
+## 한눈에 보기: 인증
 
-| 항목 | local | dev / stg / prd |
-|---|---|---|
-| 인증 모드 | `AUTH_MODE: header` | `AUTH_MODE: api_key` (header 모드로는 기동하지 않음) |
-| `X-Api-Key` | 없어도 됨. **보내면 검사하고, 틀리면 `401`** | 필수. 없거나 틀리면 `401` |
-| tenant 결정 | `X-Tenant-Id` 값을 그대로 쓰고, 없으면 `dev` | key의 기본 tenant. relay key만 허용 목록 안에서 `X-Tenant-Id`로 지정할 수 있고, 허용 밖이면 `403` |
-| 운영 API (`POST /batches:disable-by-owner`) | 누구나 호출 가능 | admin key만 호출 가능. 아니면 `403` |
-| Base URL | 환경별 주소 (클러스터 안 `http://pr-batch:8000`, 로컬 `http://127.0.0.1:8100`) | 환경별 주소 |
+인증은 모든 환경(local, dev, stg, prd)에서 같다. 신원 헤더만으로 호출하던 header 모드는 없어졌다.
+
+| 항목 | 규칙 |
+|---|---|
+| `X-Api-Key` | 필수. 없거나 틀리면 `401` |
+| tenant 결정 | key의 기본 tenant. relay key만 허용 목록 안에서 `X-Tenant-Id`로 지정할 수 있고, 허용 밖이면 `403` |
+| 운영 API (`POST /batches:disable-by-owner`) | admin key만 호출 가능. 아니면 `403` |
+| Base URL | 환경별 주소 (클러스터 안 `http://pr-batch:8000`, 로컬 `http://127.0.0.1:8100`) |
 
 key는 환경(dev·stg·prd)마다 따로 발급한다. 아래 1~6절의 규칙은 **모든 환경에 똑같이** 적용된다.
 
@@ -70,7 +71,7 @@ key는 환경(dev·stg·prd)마다 따로 발급한다. 아래 1~6절의 규칙�
 - **요청의 tenant 안의 배치에만** 적용한다. tenant는 admin key의 기본 tenant이고, relay admin key는 `X-Tenant-Id`로
   지정한다. 다른 tenant의 같은 사용자는 tenant마다 따로 부른다. `X-User-Id`는 필요 없다.
 
-**stg/prd 예시**
+**예시**
 
 ```http
 POST /api/v1/batches:disable-by-owner
@@ -95,8 +96,8 @@ Content-Type: application/json
 
 | 코드 | HTTP | 경우 | 발생 환경 |
 |---|---|---|---|
-| `UNAUTHENTICATED` | 401 | API key가 없거나 틀림 (로컬 header 모드는 key를 보냈는데 틀린 경우만) | 모든 환경 |
-| `FORBIDDEN` | 403 | 허용되지 않은 `X-Tenant-Id`, admin이 아닌 key의 운영 API | dev/stg/prd |
+| `UNAUTHENTICATED` | 401 | API key가 없거나 틀림 | 모든 환경 |
+| `FORBIDDEN` | 403 | 허용되지 않은 `X-Tenant-Id`, admin이 아닌 key의 운영 API | 모든 환경 |
 | `INVALID_IDENTITY` | 400 | 헤더 형식이 틀림, `X-User-Id` 없음 | 모든 환경 |
 | `NOT_FOUND` | 404 | 없는 자원, **다른 tenant·사용자의 자원**, 삭제된 자원, 다른 tenant의 스크립트로 배치 등록 | 모든 환경 |
 | ~~`TENANT_MISMATCH`~~ | ~~403~~ | 삭제됨. 다른 tenant로 수정하면 `404` | — |

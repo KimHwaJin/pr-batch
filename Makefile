@@ -29,14 +29,10 @@ serve:
 
 # Docker stack; requires the Executor repo's shared-infra, executor-runtimes
 # and executor Compose projects to be running first.
-.PHONY: docker-up docker-up-key docker-down docker-smoke docker-load docker-logs docker-multi
+.PHONY: docker-up docker-down docker-smoke docker-load docker-logs docker-multi
 
 docker-up:
 	docker compose up -d --build --wait --remove-orphans app
-
-# Same stack, but callers need X-Api-Key (the local key in compose.yaml).
-docker-up-key:
-	PR_BATCH_AUTH_MODE=api_key docker compose up -d --build --wait --remove-orphans app
 
 docker-down:
 	docker compose down
