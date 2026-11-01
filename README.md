@@ -18,6 +18,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 인터뷰에서 합의한 범위와 현재 구현 구조를 정리합니다.
 
 - [확정 요구사항](docs/requirements.md)
+- [통합테스트 시나리오 (에이전트 → pr-batch → Executor)](docs/integration-test/scenarios.md)
 - [실행 이력 저장 계약](docs/execution-history.md)
 - [아키텍처 (배포 제약 반영)](docs/architecture.md)
 - [서비스 체계 (도메인 모델)](docs/domain-model.md)
