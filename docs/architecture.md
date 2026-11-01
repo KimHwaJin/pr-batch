@@ -140,8 +140,12 @@ pr-batch의 백그라운드 일은 대부분 네트워크 대기라 CPU가 거�
 - 처리량은 레플리카 수가 아니라 **Pod당 동시성 설정과 Executor 쪽 한도**로 관리한다.
   레플리카가 늘면 처리량도 같이 늘지만, 늘지 않아도 정상 동작하도록 설계한다.
 - HPA 값: `minReplicas: 1`(기본 Pod 1개. 재시작하는 수십 초 동안 API가 멈추고 예약이 늦어지지만, 놓친 예약은
-  misfire 규칙대로 처리돼 유실은 없다), `maxReplicas: 4`,
+  misfire 규칙대로 처리돼 유실은 없다), `maxReplicas: 2`(재배포·노드 교체 때의 여유분),
   CPU 목표 70%. 업로드 검증처럼 CPU를 쓰는 API 요청이 몰릴 때만 늘어나는 것이 정상이다.
+- Pod 리소스: CPU 요청 500m / 한도 1.5코어, 메모리 요청 256Mi / 한도 512Mi. 파이썬 프로세스 하나는 GIL 때문에
+  약 1.3코어 이상을 쓰지 못하므로(부하 측정 최대치) 한도는 그 위로 조금만 둔다. HPA는 요청값 대비 사용률을 보므로
+  요청을 크게 잡으면 스케일이 일어나지 않는다. 500m이면 0.35코어(측정상 초당 약 80건 조회)부터 늘어난다.
+  메모리는 부하 중에도 약 100MiB였다.
 - 레플리카가 늘어도 DB 부하가 폭주하지 않게 루프는 유휴 시 sleep, 조회는 backoff·jitter를 쓰고,
   커넥션 수는 아래 9장 예산을 넘지 않게 한다.
 
@@ -192,7 +196,7 @@ Pod 쉘에서 `alembic upgrade head`를 수동 실행하는 것은 장애 복구
     최악의 경우에도 Run당 조회는 약 13회, 평균 초당 11건 수준이다.
   - Executor 상태 조회(`GET /executions/{id}`)는 기본키 한 행을 필요한 컬럼만 읽는 비동기 핸들러다
     (`executor/src/executor_service/infrastructure/_execution_queries/executions.py`). 초당 수십 건은 부하가 아니다.
-  - pr-batch가 Executor에 동시에 보내는 요청은 `Pod 수 × dispatcher 동시성`(최대 4 × 4 = 16)을 넘지 않는다.
+  - pr-batch가 Executor에 동시에 보내는 요청은 `Pod 수 × dispatcher 동시성`(최대 2 × 2 = 4)을 넘지 않는다.
     Run이 아무리 많아도 Executor가 받는 동시 요청은 이 상한으로 묶인다.
   - 종료 감지 지연은 최대 조회 간격(60초) + 큐 대기다. 처리 용량(Pod당 초당 수십 건)이 필요량보다 훨씬 커서
     수십 분씩 밀리는 일은 없다.
@@ -214,8 +218,8 @@ Task 하나는 "짧은 claim 트랜잭션 → 커넥션 반납 → 원격 호출
 | --- | --- | --- |
 | Pod당 SQLAlchemy 풀 | `pool_size=2`, `max_overflow=4` (최대 6, 평소 유지 2) | API 요청 + 백그라운드 루프 4개(스케줄러 1, dispatcher 2, 보존 정리 1) |
 | Pod당 dispatcher 동시성 | 2 | 원격 호출 대기 중에는 커넥션 미사용. 처리량은 Executor 슬롯이 정하므로 늘려도 빨라지지 않음(부하 측정 결과) |
-| 레플리카 | 평소 1, 최대 4 | HPA 값 |
-| **pr-batch 전체 상한** | **24** (4 × 6), 평소 실사용 2~6 | DB role에 `CONNECTION LIMIT 24` 설정 권장 |
+| 레플리카 | 평소 1, 최대 2 | HPA 값 |
+| **pr-batch 전체 상한** | **12** (2 × 6), 평소 실사용 2~6 | DB role에 `CONNECTION LIMIT 12` 설정 권장 |
 
 효율을 위한 장치:
 - 유휴 시 스케줄러는 "다음 예약 시각까지" 또는 최대 1초(`IDLE_MAX_SECONDS`)까지 잠들고, dispatcher는 다음 Task
@@ -252,7 +256,7 @@ tenant와 project는 등록할 때 정해지고 바꿀 수 없다. 실행을 만
 | --- | --- | --- |
 | init container | 금지. Pod 쉘 수동 스크립트는 가능하지만 지양 | 앱 시작 시 advisory lock 자동 migration (6장) |
 | Executor Redis | 접근 가능. 구독하려면 별도 consumer group + 분명한 사유 필요 | 초기엔 구독 안 함, 도입 기준 명시 (8장) |
-| HPA min/max | 지정 가능 | min 1, max 4, CPU 70% (5장) |
+| HPA min/max | 지정 가능 | min 1, max 2, CPU 70% (5장) |
 | PVC 공유 | 가능 | Executor와 RWX PVC 공유 (8장) |
 | DB 커넥션 | 직접 설정 가능, 자원 넉넉하지 않음 | 전체 상한 24, 원격 호출 중 커넥션 미점유 (9장) |
 | 서비스 인증 | Executor 없음. prj_re는 SSO 필수, 나머지는 변경 요청 가능 | 서비스 간 단기 JWT → 2026-10-29 API key + 신원 헤더로 변경 (10장) |

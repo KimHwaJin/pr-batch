@@ -7,7 +7,7 @@ metadata:
   labels:
     app.kubernetes.io/name: pr-batch
 spec:
-  # HPA owns the replica count (min 1, max 4); keep this in step.
+  # HPA owns the replica count (min 1, max 2); keep this in step.
   replicas: 1
   revisionHistoryLimit: 3
   strategy:
@@ -59,12 +59,15 @@ spec:
             # offers no ConfigMaps or Secrets. Same-named env vars still override.
             - name: APP_ENV
               value: prd
+          # One Python process tops out near 1.3 cores (GIL), so the limit
+          # leaves a little headroom above that. HPA reads usage against the
+          # request: 70% of 500m = 0.35 core, about 80 API reads/s measured.
           resources:
             requests:
-              cpu: 250m
+              cpu: 500m
               memory: 256Mi
             limits:
-              cpu: "1"
+              cpu: 1500m
               memory: 512Mi
           startupProbe:
             httpGet:
