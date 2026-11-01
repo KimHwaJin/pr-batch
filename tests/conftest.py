@@ -23,12 +23,22 @@ from app.services.runtime_catalog import RuntimeCatalog
 # The calling service's key; Settings keeps only its SHA-256.
 CALLER_KEY = "bat_test_0123456789abcdef0123456789abcdef"
 PLAIN_KEY = "bat_test_plain_0123456789abcdef0123456789"
+WILD_KEY = "bat_test_wild_0123456789abcdef01234567890"
 CALLER = AuthClient(
     name="pr-agentic-service",
     key_sha256=[hashlib.sha256(CALLER_KEY.encode()).hexdigest()],
     tenant="dtest-agent-service",
     relay=True,
     allowed_tenants=["dtest-agent-service", "agent3"],
+    admin=True,
+)
+# A relay admin that may name any tenant (allowed_tenants ["*"]).
+WILD = AuthClient(
+    name="wild-service",
+    key_sha256=[hashlib.sha256(WILD_KEY.encode()).hexdigest()],
+    tenant="wild-service",
+    relay=True,
+    allowed_tenants=["*"],
     admin=True,
 )
 # A non-relay, non-admin caller.
@@ -59,6 +69,7 @@ def token(
 
     token(project="p1", tenant="agent3") adds X-Project-Id/X-Tenant-Id.
     """
+    key = headers.pop("api_key", key)  # via create_batch(**identity)
     result = {"X-Api-Key": key, "X-User-Id": user_id(owner)}
     for name, value in headers.items():
         result[f"X-{name.title()}-Id"] = value
@@ -115,7 +126,7 @@ def settings(tmp_path: Path) -> Settings:
             "postgresql+psycopg://unused:unused@127.0.0.1:1/unit_test"
         ),
         storage_root=tmp_path,
-        auth_clients=[CALLER, PLAIN],
+        auth_clients=[CALLER, PLAIN, WILD],
         db_auto_migrate=False,
         background_enabled=False,
     )

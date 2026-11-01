@@ -23,5 +23,5 @@ AUTH_CLIENTS:
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]
     tenant: dtest-agent-service
     relay: true
-    allowed_tenants: [dtest-agent-service]
+    allowed_tenants: ["*"]  # any tenant; the agent approves callers
     admin: true

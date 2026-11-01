@@ -194,6 +194,29 @@ def test_header_mode_is_local_or_dev_only(
             [{"name": "aaa", "key_sha256": ["not-hex"], "tenant": "aaa"}],
             "key_sha256",
         ),
+        (
+            [
+                {
+                    "name": "aaa",
+                    "key_sha256": ["0" * 64],
+                    "tenant": "aaa",
+                    "allowed_tenants": ["*"],
+                }
+            ],
+            "needs relay",
+        ),
+        (
+            [
+                {
+                    "name": "aaa",
+                    "key_sha256": ["0" * 64],
+                    "tenant": "aaa",
+                    "relay": True,
+                    "allowed_tenants": ["*", "bbb"],
+                }
+            ],
+            "cannot be combined",
+        ),
     ],
 )
 def test_auth_clients_are_checked(project, clients, message):

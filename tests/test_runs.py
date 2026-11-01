@@ -15,6 +15,7 @@ from conftest import (
     CALLER_KEY,
     PLAIN_KEY,
     SCRIPTS,
+    WILD_KEY,
     create_batch,
     metadata,
     notebook_bytes,
@@ -1024,6 +1025,66 @@ def test_disable_by_owner_stops_schedules_and_waiting_runs(client, execution):
     assert again.json()["disabled_at"] is None
 
 
+def test_any_tenant_key_registers_and_runs_in_a_new_tenant(client, execution):
+    fake, worker = execution
+    batch = create_batch(client, api_key=WILD_KEY, tenant="new-tenant")
+    assert batch.status_code == 201, batch.text
+    assert batch.json()["tenant_id"] == "new-tenant"
+    run = run_request(
+        client, batch.json()["id"], api_key=WILD_KEY, tenant="new-tenant"
+    ).json()
+    tick(worker, run)
+    assert fake.headers[-1]["x-tenant-id"] == "new-tenant"
+    for bad, status in (("dlq", 400), ("Not_A_Tenant", 400)):
+        response = client.get(API, headers=token(key=WILD_KEY, tenant=bad))
+        assert response.status_code == status
+    # A key with a list still may not leave it.
+    outside = client.get(API, headers=token(tenant="new-tenant"))
+    assert outside.status_code == 403
+
+
+def test_disable_by_owner_without_tenant_covers_the_keys_tenants(
+    client, execution
+):
+    ids = {}
+    for tenant, key in (
+        ("a-tenant", WILD_KEY),
+        ("b-tenant", WILD_KEY),
+        ("agent3", CALLER_KEY),
+    ):
+        created = create_batch(
+            client, key=tenant, api_key=key, tenant=tenant
+        ).json()
+        enabled = client.post(
+            f"{API}/{created['id']}/enable",
+            headers={
+                **token(key=key, tenant=tenant),
+                "Idempotency-Key": f"enable-{tenant}",
+                "If-Match": f'"{created["revision"]}"',
+            },
+        )
+        assert enabled.status_code == 200, enabled.text
+        ids[tenant] = created["id"]
+
+    def enabled(tenant):
+        return client.get(
+            f"{API}/{ids[tenant]}", headers=token(key=WILD_KEY, tenant=tenant)
+        ).json()["enabled"]
+
+    # A listed key covers its own tenants only: b-tenant is not one.
+    assert disable_owner(client).json() == {"disabled": 1}
+    assert (enabled("agent3"), enabled("a-tenant")) == (False, True)
+    # X-Tenant-Id narrows an any-tenant key to one tenant.
+    assert disable_owner(client, key=WILD_KEY, tenant="a-tenant").json() == {
+        "disabled": 1
+    }
+    assert enabled("b-tenant") is True
+    # Without it, every tenant.
+    assert disable_owner(client, key=WILD_KEY).json() == {"disabled": 1}
+    assert enabled("b-tenant") is False
+    assert disable_owner(client, key=WILD_KEY).json() == {"disabled": 0}
+
+
 def test_disable_by_owner_applies_to_one_tenant(client, execution):
     batches = {}
     for tenant in ("dtest-agent-service", "agent3"):
@@ -1043,9 +1104,9 @@ def test_disable_by_owner_applies_to_one_tenant(client, execution):
         f"{API}/{batches['agent3']}", headers=token(tenant="agent3")
     ).json()
     assert off["disabled_reason"] == "USER_DEACTIVATED"
-    # Without X-Tenant-Id: the key's default tenant only.
     on = client.get(f"{API}/{batches['dtest-agent-service']}", headers=token())
     assert on.json()["enabled"] is True
+    # Without X-Tenant-Id: every tenant the key may name.
     assert disable_owner(client).json() == {"disabled": 1}
     assert disable_owner(client, tenant="someone-else").status_code == 403
 
