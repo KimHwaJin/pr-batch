@@ -550,9 +550,13 @@ class BatchService:
         return self.idempotency.run(owner, operation, key, payload, action)
 
     def disable_by_owner(
-        self, owner: Principal, caller: str | None
+        self,
+        owner_id: str,
+        tenants: frozenset[str] | None,
+        caller: str | None,
     ) -> DisabledCount:
-        """Stop a deactivated user's schedules in one tenant (repeatable).
+        """Stop a deactivated user's schedules (repeatable) in `tenants`
+        (None: every tenant).
 
         Running executions finish; runs still waiting for a slot are
         skipped, since nothing of them reached the Executor yet.
@@ -564,9 +568,13 @@ class BatchService:
                 session.scalars(
                     select(Batch)
                     .where(
-                        Batch.tenant_id == owner.tenant,
-                        Batch.owner_id == owner.user_id,
+                        Batch.owner_id == owner_id,
                         Batch.deleted_at.is_(None),
+                        *(
+                            ()
+                            if tenants is None
+                            else (Batch.tenant_id.in_(sorted(tenants)),)
+                        ),
                     )
                     .order_by(Batch.id)
                     .with_for_update()

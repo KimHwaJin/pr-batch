@@ -60,7 +60,8 @@ class Caller:
     client: str | None
     tenant: str
     relay: bool
-    # None: any tenant (header mode without a key).
+    # Tenants a relay may name; None: any (allowed_tenants ["*"], or
+    # header mode without a key).
     allowed_tenants: frozenset[str] | None
     admin: bool
 
@@ -125,7 +126,9 @@ def current_caller(
         client=client.name,
         tenant=client.tenant,
         relay=client.relay,
-        allowed_tenants=frozenset(client.allowed_tenants),
+        allowed_tenants=(
+            None if client.any_tenant else frozenset(client.allowed_tenants)
+        ),
         admin=client.admin,
     )
 
@@ -181,9 +184,20 @@ def current_owner(
     return identity.owner
 
 
-def admin_tenant(
+def admin_tenants(
     caller: Annotated[Caller, Depends(admin_caller)],
     tenant: TenantHeader = None,
-) -> str:
-    """The tenant an admin operation applies to, chosen like any other."""
-    return requested_tenant(tenant, caller) or caller.tenant
+) -> frozenset[str] | None:
+    """Tenants an admin operation applies to; None: every tenant.
+
+    X-Tenant-Id (checked like any other) picks one. Without it a relay
+    key covers every tenant it may name (its own and allowed_tenants,
+    all of them for ["*"]); any other key, its own tenant.
+    """
+    if chosen := requested_tenant(tenant, caller):
+        return frozenset({chosen})
+    if not caller.relay:
+        return frozenset({caller.tenant})
+    if caller.allowed_tenants is None:
+        return None
+    return caller.allowed_tenants | {caller.tenant}

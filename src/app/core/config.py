@@ -55,6 +55,9 @@ def config_files() -> list[Path]:
     return files
 
 
+# allowed_tenants value meaning every valid tenant (relay keys only).
+ANY_TENANT = "*"
+
 # Environments where identity headers may be trusted without a key.
 HEADER_AUTH_ENVS = (None, "dev")
 
@@ -75,8 +78,12 @@ class AuthClient(BaseModel):
     # Event Stream for batches this caller registers.
     tenant: TenantId
     # A relay may name another tenant (X-Tenant-Id), within allowed_tenants.
+    # ["*"] (alone, relay only) allows every valid, non-reserved tenant,
+    # as in the Executor: callers' tenants are approved upstream.
     relay: bool = False
-    allowed_tenants: list[TenantId] = Field(default_factory=list)
+    allowed_tenants: list[TenantId | Literal["*"]] = Field(
+        default_factory=list
+    )
     # May call owner-wide operations such as disable-by-owner.
     admin: bool = False
 
@@ -84,7 +91,17 @@ class AuthClient(BaseModel):
     def validate_relay(self) -> Self:
         if self.allowed_tenants and not self.relay:
             raise ValueError(f"{self.name}: allowed_tenants needs relay.")
+        if ANY_TENANT in self.allowed_tenants and self.allowed_tenants != [
+            ANY_TENANT
+        ]:
+            raise ValueError(
+                f"{self.name}: allowed_tenants '*' cannot be combined."
+            )
         return self
+
+    @property
+    def any_tenant(self) -> bool:
+        return self.allowed_tenants == [ANY_TENANT]
 
 
 class Settings(BaseSettings):

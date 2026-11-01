@@ -41,7 +41,7 @@ AUTH_CLIENTS:
       - "9f2c…"
     tenant: dtest-agent-service  # 기본 tenant
     relay: true               # X-Tenant-Id로 다른 tenant를 대신할 수 있음
-    allowed_tenants: [dtest-agent-service, upper-agent]
+    allowed_tenants: ["*"]       # 모든 tenant (호출자 승인은 pr-agentic-service가 한다)
     admin: true               # POST /batches:disable-by-owner 허용
 ```
 
@@ -51,8 +51,8 @@ AUTH_CLIENTS:
 | `key_sha256` | — | 64자리 소문자 hex 목록(1개 이상). 다른 호출자와 겹치면 기동 실패 |
 | `tenant` | — | `X-Tenant-Id`가 없을 때 쓰는 tenant |
 | `relay` | `false` | 중계자 여부. `allowed_tenants`는 `relay: true`일 때만 쓸 수 있다 |
-| `allowed_tenants` | `[]` | relay key가 `X-Tenant-Id`로 쓸 수 있는 tenant. 자기 기본 tenant도 명시해 보내려면 목록에 넣는다. 비우면 `X-Tenant-Id`를 쓸 수 없다 |
-| `admin` | `false` | 운영 API 허용. 운영 API도 요청의 tenant 안에서만 동작한다 |
+| `allowed_tenants` | `[]` | relay key가 `X-Tenant-Id`로 쓸 수 있는 tenant. 자기 기본 tenant도 명시해 보내려면 목록에 넣는다. 비우면 `X-Tenant-Id`를 쓸 수 없다. `["*"]`는 형식에 맞고 예약어(`dlq`, `work`)가 아닌 모든 tenant(Executor와 같은 규칙). `"*"`는 relay key에만, 단독으로만 쓸 수 있고 어기면 기동 실패 |
+| `admin` | `false` | 운영 API 허용. 적용 범위는 [사용자 비활성](#사용자-비활성) 참고 |
 
 ## key 발급과 교체
 
@@ -109,7 +109,8 @@ curl -X POST "$BATCH_URL/api/v1/batches:disable-by-owner" \
 # {"disabled": 3}
 ```
 
-- 요청의 tenant 안의 배치에만 적용한다. 다른 tenant의 같은 사용자는 relay admin key가 `X-Tenant-Id`로 지정해 따로 부른다.
+- `X-Tenant-Id`를 보내면 그 tenant 안의 배치에만 적용한다.
+- 보내지 않으면 그 key가 쓸 수 있는 tenant 전체에 적용한다. relay key는 기본 tenant와 `allowed_tenants`(`["*"]`면 모든 tenant), relay가 아닌 key는 기본 tenant다. `disabled`는 그 범위 전체의 합계다.
 - 켜져 있던 배치를 끄고 `disabled_reason=USER_DEACTIVATED`를 남긴다. 다시 불러도 결과가 같다(`{"disabled": 0}`).
 - 이미 Executor에 제출된 실행은 계속 돈다. 슬롯을 기다리던 run은 `SKIPPED`(`OWNER_DEACTIVATED`)가 된다.
 - 이렇게 꺼진 배치는 수동 실행도 409 `OWNER_DEACTIVATED`다. 자동으로 되살리지 않으며, 사용자가 직접 켜면
