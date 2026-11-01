@@ -16,7 +16,7 @@ from app.api.router import api_router
 from app.core.config import PROJECT_ROOT, Settings
 from app.core.exceptions import ServiceError, register_exception_handlers
 from app.core.logging_setup import configure_logging
-from app.core.middleware import RequestSizeLimit
+from app.core.middleware import AuditWrites, RequestSizeLimit
 from app.db.migrate import upgrade_to_head
 from app.db.session import create_db_engine, create_sessions
 from app.runtime.runtime import BackgroundRuntime, build_clients
@@ -93,6 +93,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         RequestSizeLimit, max_bytes=settings.upload_max_bytes + 64 * 1024
     )
+    # Added last, so outermost: it sees the status of every response.
+    app.add_middleware(AuditWrites)
     register_exception_handlers(app)
 
     @app.get("/healthz", include_in_schema=False)

@@ -65,15 +65,28 @@ def lock_run(session: Session, run_id) -> BatchRun | None:
     )
 
 
+def task_fields(
+    claimed: ClaimedTask, run: BatchRun | None
+) -> tuple[object, ...]:
+    """kind, task_id, run_id and batch_id for a task's log lines."""
+    return (
+        claimed.kind,
+        claimed.id,
+        claimed.run_id or "-",
+        run.batch_id if run is not None else "-",
+    )
+
+
 def unexpected(
     claimed: ClaimedTask, stage: str, exc: Exception
 ) -> ExecutorError:
     """A bug or unforeseen error: retried with backoff and the give-up
     limit like an outage, instead of on every lease expiry forever."""
     logger.error(
-        "Task %s %s: unexpected error in %s.",
+        "Task unexpected error kind=%s task_id=%s run_id=%s stage=%s",
         claimed.kind,
         claimed.id,
+        claimed.run_id,
         stage,
         exc_info=exc,
     )
@@ -165,14 +178,22 @@ class Dispatcher:
 
     def fail(self, claimed: ClaimedTask, error: ExecutorError) -> None:
         code = str(error)
-        # Key or tenant settings, not an outage: make it stand out.
-        log = logger.error if error.auth_rejected else logger.warning
-        log("Task %s %s failed: %s", claimed.kind, claimed.id, code)
         with self.sessions.begin() as session:
             task = locked_lease(session, claimed)
+            run = lock_run(session, claimed.run_id) if task else None
+            # Key or tenant settings, not an outage: make it stand out.
+            log = logger.error if error.auth_rejected else logger.warning
+            log(
+                "Task failed kind=%s task_id=%s run_id=%s batch_id=%s "
+                "attempt=%d status=%s code=%s error=%s",
+                *task_fields(claimed, run),
+                claimed.attempts,
+                error.status or "-",
+                error.code or "-",
+                code,
+            )
             if task is None:
                 return
-            run = lock_run(session, claimed.run_id)
             now = database_now(session)
             before = progress(run) if run is not None else None
             if claimed.payload.get(ABANDONED):
@@ -182,7 +203,10 @@ class Dispatcher:
                 # Retrying the same call has not worked for this long:
                 # stop tracking the run so it frees its slot.
                 logger.error(
-                    "Task %s %s abandoned: %s", claimed.kind, claimed.id, code
+                    "Task abandoned kind=%s task_id=%s run_id=%s "
+                    "batch_id=%s error=%s",
+                    *task_fields(claimed, run),
+                    code,
                 )
                 complete(task)
                 if (

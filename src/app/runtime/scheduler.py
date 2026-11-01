@@ -104,16 +104,16 @@ class Scheduler:
                     seconds=self.retry_seconds
                 )
                 logger.warning(
-                    "Schedule admission failed for batch %s "
-                    "(attempt %d); retrying in %d s.",
+                    "Schedule admission failed batch_id=%s attempt=%d "
+                    "retry_in_seconds=%d",
                     batch_id,
                     batch.schedule_failures,
                     self.retry_seconds,
                 )
                 return
             logger.error(
-                "Schedule admission failed for batch %s %d times; "
-                "skipping its due occurrences.",
+                "Schedule admission given up batch_id=%s attempts=%d "
+                "action=skip_due_occurrences",
                 batch_id,
                 batch.schedule_failures,
             )
@@ -145,8 +145,8 @@ class Scheduler:
             # No next occurrence can be computed: stop scheduling the
             # batch (as for a missing schedule) rather than spin on it.
             logger.exception(
-                "Batch %s: cannot compute its next occurrence; "
-                "its schedule is stopped.",
+                "Schedule stopped batch_id=%s "
+                "reason=next_occurrence_unavailable",
                 batch.id,
             )
             following = None

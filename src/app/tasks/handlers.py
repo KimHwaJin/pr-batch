@@ -172,7 +172,15 @@ class SubmitExecution:
     def apply(self, session, task, run, context, response, now, clients):
         if isinstance(response, Rejected):
             log = logger.error if response.error.auth_rejected else logger.info
-            log("Run %s submission rejected: %s", run.id, response.error)
+            log(
+                "Run submission rejected run_id=%s batch_id=%s status=%s "
+                "code=%s error=%s",
+                run.id,
+                run.batch_id,
+                response.error.status or "-",
+                response.error.code or "-",
+                response.error,
+            )
             complete(task)
             if run.status != RunStatus.QUEUED:
                 return

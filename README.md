@@ -97,6 +97,8 @@ Executor 주소를 설정합니다. 로컬은 `AUTH_MODE: header`라 key 없이 
 맡고, 없으면 루트의 `logger.yml`을 표준 `logging.dictConfig`로 적용합니다
 (`src/app/core/logging_setup.py`). 외부에서는 HCP 없이 그대로 동작하고, 사내로 옮길
 때는 HCP 의존성과 사내용 `logger.yml`만 바꾸면 됩니다.
+HCP 형식은 메시지 문장만 출력하므로, 로그에 남길 값은 `extra`가 아니라 메시지 안에
+`key=value`(`%s` 인자)로 넣습니다. 예: `Task failed kind=… task_id=… run_id=… batch_id=… status=409 code=…`.
 
 ```sh
 make serve
