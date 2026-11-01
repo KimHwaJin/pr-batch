@@ -109,9 +109,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     database_url: SecretStr
     storage_root: Path
-    # api_key: callers send X-Api-Key, matched against auth_clients.
-    # header: identity headers are trusted without a key (local runs only).
-    auth_mode: Literal["api_key", "header"] = "api_key"
+    # Callers send X-Api-Key, matched against these.
     auth_clients: list[AuthClient] = Field(default_factory=list)
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
     # Executor accepts at most 100 steps per operation (422 beyond).
@@ -185,11 +183,6 @@ class Settings(BaseSettings):
             raise ValueError("Use a postgresql+psycopg database URL.")
         if not self.storage_root.is_absolute():
             raise ValueError("storage_root must be an absolute path.")
-        if (
-            self.auth_mode == "header"
-            and os.environ.get("APP_ENV") is not None
-        ):
-            raise ValueError("auth_mode header is only allowed locally.")
         if self.max_notebook_cells < self.max_code_cells:
             raise ValueError("max_notebook_cells must be >= max_code_cells.")
         hashes = [h for c in self.auth_clients for h in c.key_sha256]

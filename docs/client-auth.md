@@ -11,14 +11,14 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 - pr-batch는 key 원문을 갖지 않는다. 설정 `AUTH_CLIENTS`에 key의 **SHA-256 해시**만 두고 상수 시간으로 비교한다.
 - tenant는 key로 정해진다(중계자 key는 `X-Tenant-Id`로 고른다). 모든 자원은 Executor처럼 **tenant + 사용자** 소유이고,
   tenant는 배치 실행 이벤트를 받을 Executor tenant이기도 하다. 본문에 `tenant_id`를 보내면 422다.
-- dev·stg·prd는 모두 `AUTH_MODE: api_key`다. 로컬 실행(`APP_ENV` 없음)만 `AUTH_MODE: header`로 key 없이 `X-User-Id`만 보낼 수 있고, `APP_ENV`가 있으면 이 모드로 기동하지 않는다.
-- Executor로 보내는 key는 `EXECUTOR_API_KEY`다. 비어 있으면 보내지 않는다(로컬의 Executor가 header 모드일 때).
+- 로컬을 포함한 모든 환경에서 key가 필요하다. 신원 헤더만으로 호출하는 방식은 없다.
+- Executor로 보내는 key는 `EXECUTOR_API_KEY`다. 비어 있으면 보내지 않는다(Executor가 header 모드일 때).
 
 ## 헤더
 
 | 헤더 | 필수 | 형식 | 설명 |
 | --- | --- | --- | --- |
-| `X-Api-Key` | dev·stg·prd 필수 | 512자 이하 | 호출 서비스 key. 모르는 key는 401 |
+| `X-Api-Key` | 필수 | 512자 이하 | 호출 서비스 key. 모르는 key는 401 |
 | `X-User-Id` | 필수 (위 두 API 제외) | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자의 **SSO 사번**(세 서비스 공통). 사람이 아닌 호출은 사번과 겹치지 않는 접두어(예: `svc-…`)를 쓴다. `E12345`와 `e12345`는 같은 사용자다 |
 | `X-Project-Id` | 선택 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 | 배치 등록 때만 저장한다. 수정 요청에서는 무시한다 |
 | `X-Tenant-Id` | 선택 | Executor tenant 규칙 | 중계자(`relay`) key만, `allowed_tenants` 안의 값만 쓸 수 있다 |
@@ -34,7 +34,6 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 ## 설정 (`config.{APP_ENV}.yml`)
 
 ```yaml
-AUTH_MODE: api_key            # 로컬 실행만 header 가능
 AUTH_CLIENTS:
   - name: pr-agentic-service  # 로그·감사(disabled_by 등)에 남는 이름
     key_sha256:               # 교체 기간에는 여러 개
@@ -73,7 +72,7 @@ key가 확인된 쓰기 요청(POST·PUT·PATCH·DELETE)마다 응답 뒤에 한
 Caller write request client=pr-agentic-service tenant=agent3 user=e12345 method=POST path=/api/v1/batches status=201
 ```
 
-- `client`: `AUTH_CLIENTS`의 `name`(header 모드는 `header-mode`). `tenant`: 요청에 적용된 tenant(X-Tenant-Id가 있으면 그 값). `user`: 소문자 사번, 없으면 `-`.
+- `client`: `AUTH_CLIENTS`의 `name`. `tenant`: 요청에 적용된 tenant(X-Tenant-Id가 있으면 그 값). `user`: 소문자 사번, 없으면 `-`.
 - 거부된 쓰기(403·404·409 등)도 상태 코드와 함께 남는다. key가 맞지 않아 401로 끝난 요청은 남지 않는다.
 - 본문, key, 쿼리 문자열은 남기지 않는다.
 - 일괄 비활성화는 건수를 한 줄 더 남긴다: `Batches disabled by owner client=… tenants=…|* owner=… disabled=N`, `Batches disabled by tenant client=… tenant=… disabled=N`.
@@ -110,8 +109,6 @@ response.raise_for_status()
 ```
 
 로컬에서 `DOCS_ENABLED=true`로 띄운 Swagger(`/docs`)에서는 **Authorize**에 key를 넣고, 각 API의 `X-User-Id` 칸을 채운다.
-
-로컬 `AUTH_MODE: header`에서는 `X-Api-Key` 없이 `X-User-Id`만 보내도 된다. 이때 tenant는 `X-Tenant-Id`, 없으면 `dev`다.
 
 ## 사용자 비활성
 
@@ -154,7 +151,7 @@ curl -X POST "$BATCH_URL/api/v1/batches:disable-by-tenant" \
 
 | HTTP | 코드 | 원인 |
 | --- | --- | --- |
-| 401 | `UNAUTHENTICATED` | `api_key` 모드에서 key 없음, 등록되지 않은 key, 512자 초과 |
+| 401 | `UNAUTHENTICATED` | key 없음, 등록되지 않은 key, 512자 초과 |
 | 400 | `INVALID_IDENTITY` | `X-User-Id` 없음·형식 오류, `X-Project-Id`·`X-Tenant-Id` 형식 오류 |
 | 403 | `FORBIDDEN` | relay가 아닌 key의 `X-Tenant-Id`, `allowed_tenants` 밖의 tenant, admin이 아닌 key의 운영 API |
 | 422 | `VALIDATION_ERROR` | 본문에 `tenant_id` 등 모르는 필드 |
@@ -163,4 +160,3 @@ curl -X POST "$BATCH_URL/api/v1/batches:disable-by-tenant" \
 
 - key 원문이 호출 서비스 레포에 있으므로, 그 레포를 읽을 수 있는 사람은 아무 사용자로든 배치를 등록할 수 있다.
   레포 접근 권한을 필요한 사람으로 좁힌다.
-- `AUTH_MODE: header`는 신원을 확인하지 않는다. 로컬 실행 외에는 켜지지 않게 막혀 있다.

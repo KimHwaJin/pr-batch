@@ -70,7 +70,7 @@ class Batch(SoftDeleteMixin, Base):
     config_number: Mapped[int] = mapped_column(default=1)
     # Fixed at registration (X-Project-Id); null: not project-scoped.
     project_id: Mapped[str | None] = mapped_column(String(255))
-    # auth_clients name of the registering key; null in header mode.
+    # auth_clients name of the registering key.
     client: Mapped[str | None] = mapped_column(String(64))
     # Why the batch is off: OWNER (disabled by its owner) or
     # USER_DEACTIVATED (disable-by-owner) or TENANT_REVOKED

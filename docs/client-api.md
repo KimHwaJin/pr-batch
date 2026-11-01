@@ -21,7 +21,7 @@ pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다.
 
 | 헤더 | 언제 | 값 |
 | --- | --- | --- |
-| `X-Api-Key` | 모든 `/api/v1` 요청 (로컬 header 모드 제외) | 호출 서비스 key |
+| `X-Api-Key` | 모든 `/api/v1` 요청 | 호출 서비스 key |
 | `X-User-Id` | `GET /runtimes`, `disable-by-owner` 외 모든 요청 | 대신하는 사용자. 소문자로 바꿔 저장·비교 |
 | `X-Project-Id`, `X-Tenant-Id` | 배치 등록 때 선택 | 등록 시점에 고정. [인증 가이드](client-auth.md#헤더) |
 | `Idempotency-Key` | 모든 쓰기(POST, PATCH, DELETE) | 1~255자, 공백 없는 ASCII 출력 문자. 요청마다 새 값(UUID 권장) |

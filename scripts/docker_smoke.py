@@ -39,8 +39,7 @@ NOTEBOOK = {
 }
 
 
-# Identity headers, plus the Compose stack's local key (LOCAL_API_KEY) so
-# the check passes in api_key mode too; header mode checks a sent key.
+# Identity headers, plus the Compose stack's local key (LOCAL_API_KEY).
 AUTH = {"X-User-Id": "smoke-user"}
 if local_key := os.environ.get("LOCAL_API_KEY"):
     AUTH["X-Api-Key"] = local_key

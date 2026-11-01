@@ -3,7 +3,6 @@
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -19,7 +18,6 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "APP_ENV",
         "DATABASE_URL",
         "STORAGE_ROOT",
-        "AUTH_MODE",
         "AUTH_CLIENTS",
         "DB_POOL_SIZE",
         "PORT",
@@ -134,37 +132,12 @@ def test_auth_clients_come_from_yaml(project, monkeypatch):
     )
     monkeypatch.setenv("APP_ENV", "stg")
     settings = Settings(_env_file=None)
-    assert settings.auth_mode == "api_key"
     # Both hashes work while a key is replaced.
     for key in ("old", "new"):
         client = settings.match_client(key)
         assert client is not None and client.name == "pr-agentic-service"
     assert settings.match_client("other") is None
     assert settings.batch_runtimes[0].profile == "python3"
-
-
-@pytest.mark.parametrize(
-    ("app_env", "allowed"),
-    [(None, True), ("dev", False), ("stg", False), ("prd", False)],
-)
-def test_header_mode_is_local_only(project, monkeypatch, app_env, allowed):
-    write_config(project, app_env or "dev")
-    if app_env:
-        monkeypatch.setenv("APP_ENV", app_env)
-    monkeypatch.setenv("AUTH_MODE", "header")
-    kwargs: dict[str, Any] = (
-        {}
-        if app_env
-        else {
-            "database_url": "postgresql+psycopg://u:p@db:5432/batch",
-            "storage_root": project,
-        }
-    )
-    if allowed:
-        assert Settings(_env_file=None, **kwargs).auth_mode == "header"
-    else:
-        with pytest.raises(ValidationError, match="auth_mode header"):
-            Settings(_env_file=None, **kwargs)
 
 
 @pytest.mark.parametrize(
