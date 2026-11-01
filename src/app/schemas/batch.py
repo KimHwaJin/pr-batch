@@ -74,6 +74,16 @@ class BatchView(Audited, Contract):
     tenant_id: str
     project_id: str | None
     enabled: bool
+    # Whether POST .../enable would turn the batch on now (false while
+    # enabled: enabling then changes nothing) and .../disable would turn
+    # it off. Enabling can still be refused if time passes (the last
+    # occurrence goes by) or the batch changes before the call.
+    can_enable: bool
+    can_disable: bool
+    # Error code enabling would return now, while disabled and blocked:
+    # EXECUTOR_NOT_CONFIGURED, SCHEDULE_REQUIRED, RUNTIMES_NOT_CONFIGURED,
+    # RUNTIME_NOT_SUPPORTED, UNKNOWN_RUNTIME or NO_FUTURE_OCCURRENCE.
+    enable_blocked_reason: str | None
     # OWNER | USER_DEACTIVATED; null when enabled or never enabled.
     disabled_reason: str | None
     disabled_at: datetime | None

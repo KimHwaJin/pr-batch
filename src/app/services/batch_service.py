@@ -58,9 +58,15 @@ def batch_view(
     config: BatchConfig,
     version: ScriptVersion,
     now: datetime,
+    enable_blocker: ServiceError | None,
 ) -> BatchView:
-    """`now` is the database clock, like every other schedule decision."""
+    """`now` is the database clock, like every other schedule decision.
+
+    `enable_blocker` is what enabling would be refused with now (see
+    BatchService.enable_blocker); it is reported only while disabled.
+    """
     schedule = schedule_of(config)
+    blocked = None if batch.enabled else enable_blocker
     return BatchView(
         id=batch.id,
         name=batch.name,
@@ -73,6 +79,9 @@ def batch_view(
         tenant_id=batch.tenant_id,
         project_id=batch.project_id,
         enabled=batch.enabled,
+        can_enable=not batch.enabled and blocked is None,
+        can_disable=batch.enabled,
+        enable_blocked_reason=blocked.code if blocked else None,
         disabled_reason=batch.disabled_reason,
         disabled_at=batch.disabled_at,
         next_run_at=batch.next_run_at,
@@ -245,9 +254,9 @@ class BatchService:
             config.stamp_created(actor, batch.created_at)
             session.add(config)
             session.flush()
-            return 201, batch_view(batch, config, version, now).model_dump(
-                mode="json"
-            )
+            return 201, self.view(
+                session, batch, config, version, now
+            ).model_dump(mode="json")
 
         return self.idempotency.run(
             owner, "batch:create", key, payload, action
@@ -282,8 +291,12 @@ class BatchService:
             now = database_now(session)
             changed = set(fields)
             if not changed:
-                return 200, batch_view(
-                    batch, config, config_version(session, config), now
+                return 200, self.view(
+                    session,
+                    batch,
+                    config,
+                    config_version(session, config),
+                    now,
                 ).model_dump(mode="json")
             if "name" in changed and data.name is not None:
                 batch.name = data.name
@@ -293,8 +306,8 @@ class BatchService:
                     check_config_runtime(session, config, available)
             batch.revision += 1
             batch.stamp_updated(Actor.user(owner.user_id), now)
-            return 200, batch_view(
-                batch, config, config_version(session, config), now
+            return 200, self.view(
+                session, batch, config, config_version(session, config), now
             ).model_dump(mode="json")
 
         return self.idempotency.run(owner, operation, key, payload, action)
@@ -371,11 +384,59 @@ class BatchService:
         session.flush()
         return config
 
+    def enable_blocker(
+        self, config: BatchConfig, script_type: ScriptType, now: datetime
+    ) -> ServiceError | None:
+        """The error enabling would be refused with now, else None.
+
+        Enabling raises it and batch views report its code
+        (enable_blocked_reason), so the two never disagree. All checks are
+        local: settings, the stored config and the database clock.
+        """
+        if not self.executor_configured:
+            return ServiceError(
+                503, "EXECUTOR_NOT_CONFIGURED", "Configure Executor first."
+            )
+        schedule = schedule_of(config)
+        if schedule is None:
+            return ServiceError(
+                409, "SCHEDULE_REQUIRED", "Set a schedule before enabling."
+            )
+        try:
+            check_runtime(
+                RuntimeSpec.model_validate(config.runtime),
+                script_type,
+                self.catalog.available(),
+            )
+        except ServiceError as error:
+            return error
+        if ScheduleClock(schedule).find(now) is None:
+            return ServiceError(
+                422,
+                "NO_FUTURE_OCCURRENCE",
+                "Choose a schedule with a future occurrence.",
+            )
+        return None
+
+    def view(
+        self,
+        session: Session,
+        batch: Batch,
+        config: BatchConfig,
+        version: ScriptVersion,
+        now: datetime,
+    ) -> BatchView:
+        blocker = self.enable_blocker(
+            config, script_type_of(session, version), now
+        )
+        return batch_view(batch, config, version, now, blocker)
+
     def get_batch(self, owner: Principal, batch_id: UUID) -> BatchView:
         with self.sessions() as session:
             batch = owned_batch(session, owner, batch_id)
             config = current_config(session, batch)
-            return batch_view(
+            return self.view(
+                session,
                 batch,
                 config,
                 config_version(session, config),
@@ -390,7 +451,7 @@ class BatchService:
         script_id: UUID | None,
     ) -> BatchPage:
         query = (
-            select(Batch, BatchConfig, ScriptVersion)
+            select(Batch, BatchConfig, ScriptVersion, Script.type)
             .join(
                 BatchConfig,
                 and_(
@@ -402,6 +463,7 @@ class BatchService:
                 ScriptVersion,
                 ScriptVersion.id == BatchConfig.script_version_id,
             )
+            .join(Script, Script.id == ScriptVersion.script_id)
             .where(
                 Batch.tenant_id == owner.tenant,
                 Batch.owner_id == owner.user_id,
@@ -418,7 +480,12 @@ class BatchService:
         with self.sessions() as session:
             rows = session.execute(query.limit(limit + 1)).all()
             now = database_now(session)
-            items = [batch_view(b, c, v, now) for b, c, v in rows[:limit]]
+            items = [
+                batch_view(
+                    b, c, v, now, self.enable_blocker(c, ScriptType(t), now)
+                )
+                for b, c, v, t in rows[:limit]
+            ]
         next_cursor = None
         if len(rows) > limit:
             next_cursor = encode_cursor(items[-1].created_at, items[-1].id)
@@ -437,7 +504,8 @@ class BatchService:
         payload = {"enabled": enabled, "expected_revision": expected}
         if replayed := self.idempotency.replay(owner, operation, key, payload):
             return replayed
-        available = self.catalog.available() if enabled else None
+        if enabled:
+            self.catalog.available()  # unconfigured: refuse before any lookup
 
         def action(session: Session) -> MutationResult:
             batch = owned_batch(session, owner, batch_id, lock=True)
@@ -450,22 +518,19 @@ class BatchService:
             now = database_now(session)
             if batch.enabled != enabled:
                 if enabled:
+                    blocker = self.enable_blocker(
+                        config,
+                        script_type_of(
+                            session, config_version(session, config)
+                        ),
+                        now,
+                    )
+                    if blocker is not None:
+                        raise blocker
                     schedule = schedule_of(config)
-                    if schedule is None:
-                        raise ServiceError(
-                            409,
-                            "SCHEDULE_REQUIRED",
-                            "Set a schedule before enabling.",
-                        )
-                    assert available is not None
-                    check_config_runtime(session, config, available)
+                    assert schedule is not None
                     following = ScheduleClock(schedule).find(now)
-                    if following is None:
-                        raise ServiceError(
-                            422,
-                            "NO_FUTURE_OCCURRENCE",
-                            "Choose a schedule with a future occurrence.",
-                        )
+                    assert following is not None
                     batch.next_run_at = following
                     reset_schedule_failures(batch)
                     batch.disabled_reason = None
@@ -478,8 +543,8 @@ class BatchService:
                 batch.enabled = enabled
                 batch.revision += 1
                 batch.stamp_updated(Actor.user(owner.user_id), now)
-            return 200, batch_view(
-                batch, config, config_version(session, config), now
+            return 200, self.view(
+                session, batch, config, config_version(session, config), now
             ).model_dump(mode="json")
 
         return self.idempotency.run(owner, operation, key, payload, action)
