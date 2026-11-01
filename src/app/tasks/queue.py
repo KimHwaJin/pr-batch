@@ -139,6 +139,10 @@ def failing_for(task: Task, now: datetime) -> timedelta:
 
 
 def next_due(session: Session) -> datetime | None:
+    """When claim() can next take a task: a leased task waits for its
+    lease to lapse (GREATEST ignores a NULL lease)."""
     return session.scalar(
-        select(func.min(Task.run_at)).where(Task.status == "PENDING")
+        select(func.min(func.greatest(Task.run_at, Task.lease_until))).where(
+            Task.status == "PENDING"
+        )
     )
