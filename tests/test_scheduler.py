@@ -103,8 +103,8 @@ def activation(
     )
 
 
-def enabled_batch(client, **options):
-    batch = create_batch(client, config=config(**options)).json()
+def enabled_batch(client, key="create-1", **options):
+    batch = create_batch(client, key, config=config(**options)).json()
     response = activation(client, batch["id"])
     assert response.status_code == 200, response.text
     return response.json()
@@ -335,8 +335,76 @@ def test_admission_and_pointer_roll_back_together(client, scheduling):
     assert get_batch(client, batch)["next_run_at"] == batch["next_run_at"]
     assert runs(client, batch) == []
     assert skipped(client, batch) == []
-    assert Scheduler(scheduling.sessions).tick(now=now)
-    assert len(runs(client, batch)) == 3
+    # The failed batch is set aside until its retry time.
+    assert not scheduling.tick(now=now)
+    assert scheduling.next_due() == now + timedelta(seconds=300)
+    retry = now + timedelta(seconds=300)
+    assert Scheduler(scheduling.sessions).tick(now=retry)
+    assert runs(client, batch)
+    with scheduling.sessions() as session:
+        row = session.get(Batch, UUID(batch["id"]))
+        assert row is not None
+        assert (row.schedule_failures, row.schedule_retry_at) == (0, None)
+
+
+def fail_admission_of(batch_id):
+    """Make admitting runs of one batch raise; returns the remover."""
+
+    def fail(mapper, connection, target):
+        if target.batch_id == UUID(batch_id):
+            raise RuntimeError("simulated broken batch")
+
+    event.listen(BatchRun, "before_insert", fail)
+    return lambda: event.remove(BatchRun, "before_insert", fail)
+
+
+def test_failing_batch_does_not_stall_other_batches(client, scheduling):
+    broken = enabled_batch(client)  # created first: the earlier pointer
+    healthy = enabled_batch(client, key="create-2")
+    assert first_at(broken) <= first_at(healthy)
+    now = first_at(healthy)
+    remove = fail_admission_of(broken["id"])
+    try:
+        with pytest.raises(RuntimeError):
+            scheduling.tick(now=now)
+        assert scheduling.tick(now=now)
+        assert not scheduling.tick(now=now)
+    finally:
+        remove()
+    assert len(runs(client, healthy)) == 1
+    assert runs(client, broken) == []
+    assert get_batch(client, broken)["next_run_at"] == broken["next_run_at"]
+
+
+def test_batch_is_skipped_after_retry_limit(client, scheduling):
+    scheduler = Scheduler(scheduling.sessions, retry_seconds=60, retry_limit=2)
+    batch = enabled_batch(client)
+    now = first_at(batch)
+    remove = fail_admission_of(batch["id"])
+    try:
+        for attempt in range(3):
+            with pytest.raises(RuntimeError):
+                scheduler.tick(now=now + timedelta(seconds=60 * attempt))
+            if attempt < 2:
+                assert (
+                    get_batch(client, batch)["next_run_at"]
+                    == (batch["next_run_at"])
+                )
+    finally:
+        remove()
+    # Third failure: the due occurrences are skipped, the next one is set.
+    gave_up = now + timedelta(seconds=120)
+    assert first_at(get_batch(client, batch)) > gave_up
+    windows = skipped(client, batch)
+    assert [w["reason"] for w in windows] == ["SCHEDULER_ERROR"]
+    assert runs(client, batch) == []
+    with scheduling.sessions() as session:
+        row = session.get(Batch, UUID(batch["id"]))
+        assert row is not None
+        assert (row.schedule_failures, row.schedule_retry_at) == (0, None)
+    # Admission works again at the next occurrence.
+    assert scheduler.tick(now=first_at(get_batch(client, batch)))
+    assert len(runs(client, batch)) == 1
 
 
 def test_occurrence_unique_constraint_protects_against_duplicate_admission(

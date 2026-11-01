@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     # A run whose Executor calls keep failing this long becomes FAILED
     # (failure_type ABANDONED) instead of holding its slot forever.
     task_give_up_seconds: int = Field(default=86400, ge=600, le=2592000)
+    # A batch whose schedule admission fails is retried this many times,
+    # this far apart, and then its due occurrences are skipped
+    # (SCHEDULER_ERROR) so one broken batch cannot stall the others.
+    schedule_retry_seconds: int = Field(default=300, ge=10, le=86400)
+    schedule_retry_limit: int = Field(default=3, ge=0, le=100)
     # Purge expired idempotency keys and settled tasks (history is kept).
     idempotency_retention_days: int = Field(default=7, ge=1, le=365)
     task_retention_days: int = Field(default=30, ge=1, le=365)
