@@ -56,6 +56,10 @@ services:
       context: .
     ports:
       - "${PR_BATCH_PORT:-8100}:8000"
+    # Same limits as the Kubernetes pod (deploy/k8s/deployment.yaml).
+    cpus: 1.5
+    mem_limit: 512m
+    mem_reservation: 256m
     stop_grace_period: 60s
     healthcheck:
       test:
