@@ -23,7 +23,7 @@
 
 ## 한눈에 보기: 환경별 차이
 
-| 항목 | local / dev | stg / prd |
+| 항목 | local | dev / stg / prd |
 |---|---|---|
 | 인증 모드 | `AUTH_MODE: header` | `AUTH_MODE: api_key` (header 모드로는 기동하지 않음) |
 | `X-Api-Key` | 없어도 됨. **보내면 검사하고, 틀리면 `401`** | 필수. 없거나 틀리면 `401` |
@@ -95,8 +95,8 @@ Content-Type: application/json
 
 | 코드 | HTTP | 경우 | 발생 환경 |
 |---|---|---|---|
-| `UNAUTHENTICATED` | 401 | API key가 없거나 틀림 (dev는 key를 보냈는데 틀린 경우만) | 모든 환경 |
-| `FORBIDDEN` | 403 | 허용되지 않은 `X-Tenant-Id`, admin이 아닌 key의 운영 API | stg/prd |
+| `UNAUTHENTICATED` | 401 | API key가 없거나 틀림 (로컬 header 모드는 key를 보냈는데 틀린 경우만) | 모든 환경 |
+| `FORBIDDEN` | 403 | 허용되지 않은 `X-Tenant-Id`, admin이 아닌 key의 운영 API | dev/stg/prd |
 | `INVALID_IDENTITY` | 400 | 헤더 형식이 틀림, `X-User-Id` 없음 | 모든 환경 |
 | `NOT_FOUND` | 404 | 없는 자원, **다른 tenant·사용자의 자원**, 삭제된 자원, 다른 tenant의 스크립트로 배치 등록 | 모든 환경 |
 | ~~`TENANT_MISMATCH`~~ | ~~403~~ | 삭제됨. 다른 tenant로 수정하면 `404` | — |
@@ -104,7 +104,7 @@ Content-Type: application/json
 ## 7. Swagger
 
 로컬에서 `DOCS_ENABLED=true`로 띄운 서버의 `/docs`에서 **Authorize**에 key를 넣고, 각 API의 `X-User-Id`(필요하면 `X-Project-Id`, `X-Tenant-Id`) 칸을 채운다.
-dev는 key 없이 `X-User-Id`만 채워도 된다. 공유 환경(dev·stg·prd)에서는 내부망 규정으로 `/docs`가 꺼져 있다.
+공유 환경(dev·stg·prd)에서는 내부망 규정으로 `/docs`가 꺼져 있다.
 
 ## 8. 배포 시 주의
 

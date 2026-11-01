@@ -145,11 +145,9 @@ def test_auth_clients_come_from_yaml(project, monkeypatch):
 
 @pytest.mark.parametrize(
     ("app_env", "allowed"),
-    [(None, True), ("dev", True), ("stg", False), ("prd", False)],
+    [(None, True), ("dev", False), ("stg", False), ("prd", False)],
 )
-def test_header_mode_is_local_or_dev_only(
-    project, monkeypatch, app_env, allowed
-):
+def test_header_mode_is_local_only(project, monkeypatch, app_env, allowed):
     write_config(project, app_env or "dev")
     if app_env:
         monkeypatch.setenv("APP_ENV", app_env)

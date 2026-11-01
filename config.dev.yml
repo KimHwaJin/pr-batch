@@ -4,18 +4,8 @@ DATABASE_URL: "postgresql+psycopg://batch:REPLACE_PASSWORD@postgresql.infra.svc.
 # Project root on the shared PV; files go under batch/inputs/.
 STORAGE_ROOT: /mnt/data/dtest
 EXECUTOR_BASE_URL: http://executor:8000
-# Key authentication in dev is a switch (an AUTH_MODE / EXECUTOR_API_KEY
-# environment variable on the Deployment overrides this file):
-# - Inbound, AUTH_MODE: header (off) lets testers call with identity
-#   headers alone (X-User-Id, ...; tenant from X-Tenant-Id, else "dev");
-#   a key, when sent, must still match AUTH_CLIENTS. api_key (on)
-#   requires a key, as in stg and prd.
-# - Outbound, EXECUTOR_API_KEY: empty (off) sends no key, which the
-#   Executor's dev header mode needs (any key sent there is refused
-#   without AUTH_CLIENTS). Put pr-batch's key here (on) only when the
-#   Executor's dev runs with AUTH_MODE api_key.
-AUTH_MODE: header
-EXECUTOR_API_KEY: ""
+# pr-batch's key for the Executor (issued by the Executor team).
+EXECUTOR_API_KEY: REPLACE_EXECUTOR_KEY
 # Calling services: SHA-256 of each key, never the key itself; see
 # docs/client-auth.md. Replace the zero hash with the issued key's hash.
 AUTH_CLIENTS:

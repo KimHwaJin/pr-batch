@@ -58,9 +58,6 @@ def config_files() -> list[Path]:
 # allowed_tenants value meaning every valid tenant (relay keys only).
 ANY_TENANT = "*"
 
-# Environments where identity headers may be trusted without a key.
-HEADER_AUTH_ENVS = (None, "dev")
-
 ClientName = Annotated[
     str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{1,62}[a-z0-9]$")
 ]
@@ -113,7 +110,7 @@ class Settings(BaseSettings):
     database_url: SecretStr
     storage_root: Path
     # api_key: callers send X-Api-Key, matched against auth_clients.
-    # header: identity headers are trusted without a key (local/dev only).
+    # header: identity headers are trusted without a key (local runs only).
     auth_mode: Literal["api_key", "header"] = "api_key"
     auth_clients: list[AuthClient] = Field(default_factory=list)
     upload_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
@@ -190,9 +187,9 @@ class Settings(BaseSettings):
             raise ValueError("storage_root must be an absolute path.")
         if (
             self.auth_mode == "header"
-            and os.environ.get("APP_ENV") not in HEADER_AUTH_ENVS
+            and os.environ.get("APP_ENV") is not None
         ):
-            raise ValueError("auth_mode header is only allowed locally/dev.")
+            raise ValueError("auth_mode header is only allowed locally.")
         if self.max_notebook_cells < self.max_code_cells:
             raise ValueError("max_notebook_cells must be >= max_code_cells.")
         hashes = [h for c in self.auth_clients for h in c.key_sha256]
