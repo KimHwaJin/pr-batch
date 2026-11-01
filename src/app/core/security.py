@@ -109,9 +109,22 @@ def normalize_user_id(value: str) -> str:
     return normalized
 
 
+def audit(request: Request, **values: str) -> None:
+    """Who made the request, for the write-request audit line
+    (app.core.middleware.AuditWrites)."""
+    for name, value in values.items():
+        setattr(request.state, f"audit_{name}", value)
+
+
 def current_caller(
     request: Request, key: Annotated[str | None, Security(API_KEY_HEADER)]
 ) -> Caller:
+    caller = authenticate(request, key)
+    audit(request, client=caller.client or "header-mode", tenant=caller.tenant)
+    return caller
+
+
+def authenticate(request: Request, key: str | None) -> Caller:
     settings = cast(Settings, request.app.state.settings)
     if key is None:
         if settings.auth_mode == "header":
@@ -155,6 +168,7 @@ def requested_tenant(value: str | None, caller: Caller) -> str | None:
 
 
 def current_identity(
+    request: Request,
     caller: Annotated[Caller, Depends(current_caller)],
     user: UserHeader = None,
     project: ProjectHeader = None,
@@ -170,12 +184,14 @@ def current_identity(
             "starting with [A-Za-z0-9]."
         )
     # X-Session-Id is ignored: batches are not session-scoped.
-    return Identity(
+    identity = Identity(
         caller=caller,
         user_id=normalize_user_id(user),
         project_id=project,
         requested_tenant=requested_tenant(tenant, caller),
     )
+    audit(request, tenant=identity.tenant, user=identity.user_id)
+    return identity
 
 
 def current_owner(
@@ -185,6 +201,7 @@ def current_owner(
 
 
 def admin_named_tenant(
+    request: Request,
     caller: Annotated[Caller, Depends(admin_caller)],
     tenant: TenantHeader = None,
 ) -> str:
@@ -192,10 +209,12 @@ def admin_named_tenant(
     chosen = requested_tenant(tenant, caller)
     if chosen is None:
         raise invalid_identity("X-Tenant-Id is required.")
+    audit(request, tenant=chosen)
     return chosen
 
 
 def admin_tenants(
+    request: Request,
     caller: Annotated[Caller, Depends(admin_caller)],
     tenant: TenantHeader = None,
 ) -> frozenset[str] | None:
@@ -206,6 +225,7 @@ def admin_tenants(
     all of them for ["*"]); any other key, its own tenant.
     """
     if chosen := requested_tenant(tenant, caller):
+        audit(request, tenant=chosen)
         return frozenset({chosen})
     if not caller.relay:
         return frozenset({caller.tenant})

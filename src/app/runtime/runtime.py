@@ -92,7 +92,7 @@ class BackgroundRuntime:
             self.heartbeats[name] = time.monotonic()
             thread.start()
             self.threads.append(thread)
-        logger.info("Background runtime started with %d loops.", len(loops))
+        logger.info("Background runtime started loops=%d", len(loops))
 
     def loop(
         self,
@@ -108,10 +108,10 @@ class BackgroundRuntime:
                 wait = self.idle_wait(next_due)
             except SQLAlchemyError:
                 # Committed state stays consistent; leases recover the rest.
-                logger.exception("%s: database unavailable; retrying.", name)
+                logger.exception("Loop database unavailable loop=%s", name)
                 wait = self.settings.idle_max_seconds
             except Exception:
-                logger.exception("%s: unexpected error; retrying.", name)
+                logger.exception("Loop unexpected error loop=%s", name)
                 wait = self.settings.idle_max_seconds
             self.stopping.wait(wait)
 

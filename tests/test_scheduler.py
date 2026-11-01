@@ -1,5 +1,6 @@
 """Real PostgreSQL schedule admission, activation and recovery regressions."""
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
@@ -668,3 +669,26 @@ def test_enable_flags_follow_the_enable_checks(client, scheduling):
         client, ready["id"], True, disabled.json()["revision"]
     )
     assert response.json()["error"]["code"] == "UNKNOWN_RUNTIME"
+
+
+def test_admission_failures_log_the_batch_in_the_message(
+    client, scheduling, caplog
+):
+    scheduler = Scheduler(scheduling.sessions, retry_seconds=60, retry_limit=1)
+    batch = enabled_batch(client)
+    caplog.set_level(logging.INFO, "app.runtime.scheduler")
+    caplog.clear()
+    now = first_at(batch)
+    remove = fail_admission_of(batch["id"])
+    try:
+        for attempt in range(2):
+            with pytest.raises(RuntimeError):
+                scheduler.tick(now=now + timedelta(seconds=60 * attempt))
+    finally:
+        remove()
+    assert caplog.messages == [
+        f"Schedule admission failed batch_id={batch['id']} attempt=1 "
+        "retry_in_seconds=60",
+        f"Schedule admission given up batch_id={batch['id']} attempts=2 "
+        "action=skip_due_occurrences",
+    ]

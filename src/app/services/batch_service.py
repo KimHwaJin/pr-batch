@@ -1,5 +1,6 @@
 """Batch registration, partial updates, activation and skip history."""
 
+import logging
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -51,6 +52,8 @@ from app.services.common import (
 from app.services.idempotency import Idempotency, MutationResult
 from app.services.runtime_catalog import RuntimeCatalog, check_runtime
 from app.services.schedule_history import record_skipped
+
+logger = logging.getLogger(__name__)
 
 
 def batch_view(
@@ -565,13 +568,22 @@ class BatchService:
         scope = [Batch.owner_id == owner_id]
         if tenants is not None:
             scope.append(Batch.tenant_id.in_(sorted(tenants)))
-        return self.stop_batches(
+        result = self.stop_batches(
             scope,
             "USER_DEACTIVATED",
             "OWNER_DEACTIVATED",
             caller,
             mark_disabled=False,
         )
+        logger.info(
+            "Batches disabled by owner client=%s tenants=%s owner=%s "
+            "disabled=%d",
+            caller or "header-mode",
+            "*" if tenants is None else ",".join(sorted(tenants)),
+            owner_id,
+            result.disabled,
+        )
+        return result
 
     def disable_by_tenant(
         self, tenant: str, caller: str | None
@@ -582,13 +594,20 @@ class BatchService:
         no batch of the tenant can be run manually until enabled again.
         `disabled` counts batches that were on.
         """
-        return self.stop_batches(
+        result = self.stop_batches(
             [Batch.tenant_id == tenant],
             "TENANT_REVOKED",
             "TENANT_REVOKED",
             caller,
             mark_disabled=True,
         )
+        logger.info(
+            "Batches disabled by tenant client=%s tenant=%s disabled=%d",
+            caller or "header-mode",
+            tenant,
+            result.disabled,
+        )
+        return result
 
     def stop_batches(
         self,

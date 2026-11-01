@@ -148,7 +148,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             isinstance(exc, DBAPIError) and exc.connection_invalidated
         )
         logger.error(
-            "Database error on %s %s: %s",
+            "Database error method=%s path=%s %s",
             request.method,
             request.url.path,
             " ".join(f"{k}={v}" for k, v in facts.items()),

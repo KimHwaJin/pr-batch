@@ -68,7 +68,7 @@ def test_integrity_error_is_500_with_schema_detail(app, caplog):
     assert "secret" not in response.text and "INSERT" not in response.text
     (record,) = caplog.records
     assert detail["error_id"] in record.getMessage()
-    assert "GET /unique" in record.getMessage()
+    assert "method=GET path=/unique" in record.getMessage()
     assert record.exc_info is not None
 
 

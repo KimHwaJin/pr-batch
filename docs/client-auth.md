@@ -65,6 +65,21 @@ AUTH_CLIENTS:
 
 로그에는 key 원문이 남지 않는다. `bat_…`·`exe_…` 형태의 값은 로그에서 `[REDACTED]`로 가린다.
 
+### 감사 로그
+
+key가 확인된 쓰기 요청(POST·PUT·PATCH·DELETE)마다 응답 뒤에 한 줄을 남긴다. 키 이름은 executor·pr-agentic-service와 같다.
+
+```
+Caller write request client=pr-agentic-service tenant=agent3 user=e12345 method=POST path=/api/v1/batches status=201
+```
+
+- `client`: `AUTH_CLIENTS`의 `name`(header 모드는 `header-mode`). `tenant`: 요청에 적용된 tenant(X-Tenant-Id가 있으면 그 값). `user`: 소문자 사번, 없으면 `-`.
+- 거부된 쓰기(403·404·409 등)도 상태 코드와 함께 남는다. key가 맞지 않아 401로 끝난 요청은 남지 않는다.
+- 본문, key, 쿼리 문자열은 남기지 않는다.
+- 일괄 비활성화는 건수를 한 줄 더 남긴다: `Batches disabled by owner client=… tenants=…|* owner=… disabled=N`, `Batches disabled by tenant client=… tenant=… disabled=N`.
+
+DB에 따로 저장하지 않고 stdout → Fluent → Kibana로 보관한다. 보존 기간은 플랫폼 설정을 따른다.
+
 ## 호출 예
 
 ```sh

@@ -1,6 +1,7 @@
 """Run admission and the task pipeline against real PostgreSQL."""
 
 import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -1541,3 +1542,104 @@ def test_retention_purges_old_records_only(client, execution):
         keys = session.scalars(select(IdempotencyRecord.key)).all()
     assert set(tasks) == {UUID(fresh["id"])}
     assert keys == ["fresh"]
+
+
+# Log values go in the message itself (key=value): the internal logger
+# prints the message only, so anything passed as `extra` would be lost.
+
+
+def logged(caplog, logger):
+    return [r.getMessage() for r in caplog.records if r.name == logger]
+
+
+def test_write_requests_log_the_caller_in_the_message(client, caplog):
+    caplog.set_level(logging.INFO)
+    batch = create_batch(client, user="E12345", tenant="agent3").json()
+    client.get(f"{API}/{batch['id']}", headers=token(tenant="agent3"))
+    assert caplog.messages == [
+        "Caller write request client=pr-agentic-service tenant=agent3 "
+        f"user=e12345 method=POST path={path} status=201"
+        for path in (SCRIPTS, API)
+    ]
+
+
+def test_refused_writes_are_logged_with_their_status(
+    client, execution, caplog
+):
+    caplog.set_level(logging.INFO)
+    absent = uuid4()
+    missing = client.post(
+        f"{API}/{absent}/runs",
+        headers={**token(user="e1"), "Idempotency-Key": "k"},
+    )
+    assert missing.status_code == 404
+    forbidden = client.post(
+        f"{API}:disable-by-owner",
+        headers={"X-Api-Key": PLAIN_KEY},
+        json={"owner_id": "e1", "reason": "USER_DEACTIVATED"},
+    )
+    assert forbidden.status_code == 403
+    unknown = client.post(API, headers={"X-Api-Key": "bat_unknown"})
+    assert unknown.status_code == 401
+    assert logged(caplog, "app.core.middleware") == [
+        "Caller write request client=pr-agentic-service "
+        "tenant=dtest-agent-service user=e1 method=POST "
+        f"path={API}/{absent}/runs status=404",
+        "Caller write request client=plain-service tenant=plain-service "
+        f"user=- method=POST path={API}:disable-by-owner status=403",
+    ]
+
+
+def test_mass_disable_logs_the_count(client, execution, caplog):
+    caplog.set_level(logging.INFO)
+    batch = create_batch(client, user="e1").json()
+    on = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={
+            **token(user="e1"),
+            "Idempotency-Key": "on",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+    )
+    assert on.status_code == 200, on.text
+    owner = client.post(
+        f"{API}:disable-by-owner",
+        headers={"X-Api-Key": WILD_KEY},
+        json={"owner_id": "e1", "reason": "USER_DEACTIVATED"},
+    )
+    assert owner.json() == {"disabled": 1}
+    assert disable_tenant(client, "agent3").json() == {"disabled": 0}
+    assert logged(caplog, "app.services.batch_service") == [
+        "Batches disabled by owner client=wild-service tenants=* owner=e1 "
+        "disabled=1",
+        "Batches disabled by tenant client=pr-agentic-service tenant=agent3 "
+        "disabled=0",
+    ]
+
+
+def test_submit_failures_log_batch_run_and_status(client, execution, caplog):
+    caplog.set_level(logging.INFO, "app")
+    fake, worker = execution
+    batch = create_batch(client).json()
+    retried = run_request(client, batch["id"]).json()
+    fake.http_error, fake.error_code = 409, "PERSISTENCE_CONFLICT"
+    caplog.clear()
+    tick(worker, retried)
+    (task,) = [r for r in caplog.records if r.name.endswith("dispatcher")]
+    assert task.getMessage() == (
+        "Task failed kind=SUBMIT_EXECUTION "
+        f"task_id={task.args[1]} run_id={retried['id']} "
+        f"batch_id={batch['id']} attempt=1 status=409 "
+        "code=PERSISTENCE_CONFLICT "
+        "error=EXECUTOR_HTTP_409:PERSISTENCE_CONFLICT"
+    )
+    other = create_batch(client, key="other").json()
+    refused = run_request(client, other["id"], key="run-2").json()
+    fake.http_error, fake.error_code = 422, "INVALID_EXECUTION_SPEC"
+    caplog.clear()
+    tick(worker, refused)
+    assert (
+        f"Run submission rejected run_id={refused['id']} "
+        f"batch_id={other['id']} status=422 code=INVALID_EXECUTION_SPEC "
+        "error=EXECUTOR_HTTP_422:INVALID_EXECUTION_SPEC"
+    ) in caplog.messages
