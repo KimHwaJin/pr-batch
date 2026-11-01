@@ -1,9 +1,11 @@
 """Input, auth, and storage checks do not require a database."""
 
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import yaml
 from conftest import (
     API,
     CALLER_KEY,
@@ -400,10 +402,20 @@ def test_monthly_nth_weekday_and_interval_anchor_default():
     assert following.astimezone(SEOUL).hour == 1
 
 
-def test_docs_are_off_unless_enabled(settings):
+def test_docs_are_on_by_default_and_can_be_turned_off(settings):
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/docs").status_code == 200
+    settings = settings.model_copy(update={"docs_enabled": False})
     with TestClient(create_app(settings)) as client:
         for path in ("/docs", "/redoc", "/openapi.json"):
             assert client.get(path).status_code == 404, path
+
+
+@pytest.mark.parametrize("env", ["dev", "stg", "prd"])
+def test_docs_are_off_in_shared_environments(env):
+    """Internal network rules: no Swagger in dev, stg or prd."""
+    path = Path(__file__).resolve().parents[1] / f"config.{env}.yml"
+    assert yaml.safe_load(path.read_text())["DOCS_ENABLED"] is False
 
 
 def test_openapi_declares_auth_headers(settings):
