@@ -39,9 +39,9 @@ AUTH_CLIENTS:
   - name: pr-agentic-service  # 로그·감사(disabled_by 등)에 남는 이름
     key_sha256:               # 교체 기간에는 여러 개
       - "9f2c…"
-    tenant: pr-agentic-service  # 기본 tenant
+    tenant: dtest-agent-service  # 기본 tenant
     relay: true               # X-Tenant-Id로 다른 tenant를 대신할 수 있음
-    allowed_tenants: [pr-agentic-service, upper-agent]
+    allowed_tenants: [dtest-agent-service, upper-agent]
     admin: true               # POST /batches:disable-by-owner 허용
 ```
 

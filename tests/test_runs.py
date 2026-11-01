@@ -925,7 +925,7 @@ def test_submission_carries_identity_headers_and_run_id(client, execution):
     other = create_batch(client, key="default").json()
     run = run_request(client, other["id"], key="run-2").json()
     tick(worker, run)
-    assert fake.headers[-1]["x-tenant-id"] == "pr-agentic-service"
+    assert fake.headers[-1]["x-tenant-id"] == "dtest-agent-service"
     assert "x-project-id" not in fake.headers[-1]
 
 
@@ -947,7 +947,7 @@ def test_runs_are_not_visible_from_another_tenant(client, execution):
     response = client.patch(
         f"{API}/{batch['id']}",
         headers={
-            **token(tenant="pr-agentic-service"),
+            **token(tenant="dtest-agent-service"),
             "Idempotency-Key": "move-tenant",
             "If-Match": f'"{batch["revision"]}"',
         },
@@ -1023,7 +1023,7 @@ def test_disable_by_owner_stops_schedules_and_waiting_runs(client, execution):
 
 def test_disable_by_owner_applies_to_one_tenant(client, execution):
     batches = {}
-    for tenant in ("pr-agentic-service", "agent3"):
+    for tenant in ("dtest-agent-service", "agent3"):
         created = create_batch(client, key=tenant, tenant=tenant).json()
         enabled = client.post(
             f"{API}/{created['id']}/enable",
@@ -1041,7 +1041,7 @@ def test_disable_by_owner_applies_to_one_tenant(client, execution):
     ).json()
     assert off["disabled_reason"] == "USER_DEACTIVATED"
     # Without X-Tenant-Id: the key's default tenant only.
-    on = client.get(f"{API}/{batches['pr-agentic-service']}", headers=token())
+    on = client.get(f"{API}/{batches['dtest-agent-service']}", headers=token())
     assert on.json()["enabled"] is True
     assert disable_owner(client).json() == {"disabled": 1}
     assert disable_owner(client, tenant="someone-else").status_code == 403

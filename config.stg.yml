@@ -11,7 +11,7 @@ EXECUTOR_API_KEY: REPLACE_EXECUTOR_KEY
 AUTH_CLIENTS:
   - name: pr-agentic-service
     key_sha256: ["0000000000000000000000000000000000000000000000000000000000000000"]
-    tenant: pr-agentic-service
+    tenant: dtest-agent-service
     relay: true
-    allowed_tenants: [pr-agentic-service]
+    allowed_tenants: [dtest-agent-service]
     admin: true

@@ -26,9 +26,9 @@ PLAIN_KEY = "bat_test_plain_0123456789abcdef0123456789"
 CALLER = AuthClient(
     name="pr-agentic-service",
     key_sha256=[hashlib.sha256(CALLER_KEY.encode()).hexdigest()],
-    tenant="pr-agentic-service",
+    tenant="dtest-agent-service",
     relay=True,
-    allowed_tenants=["pr-agentic-service", "agent3"],
+    allowed_tenants=["dtest-agent-service", "agent3"],
     admin=True,
 )
 # A non-relay, non-admin caller.
