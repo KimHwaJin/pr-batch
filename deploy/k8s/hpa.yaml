@@ -13,7 +13,9 @@ spec:
   # One pod by default; a restart briefly pauses the API and delays
   # schedules (missed slots follow the misfire rules), losing nothing.
   minReplicas: 1
-  maxReplicas: 4
+  # Spare room for redeploys and node drains; one pod already serves
+  # hundreds of reads/s. DB budget: maxReplicas x 6 connections.
+  maxReplicas: 2
   metrics:
     - type: Resource
       resource:

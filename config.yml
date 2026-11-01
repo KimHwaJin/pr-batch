@@ -16,7 +16,7 @@ DB_AUTO_MIGRATE: true
 # dev, stg and prd; turn on only locally (.env).
 DOCS_ENABLED: false
 # Per pod: 4 background loops plus API requests share this pool.
-# Connection budget: (2 + 4) per pod x maxReplicas 4 = 24.
+# Connection budget: (2 + 4) per pod x maxReplicas 2 = 12.
 DB_POOL_SIZE: 2
 DB_MAX_OVERFLOW: 4
 # Kernels of the Executor BATCH pool that batches may choose.

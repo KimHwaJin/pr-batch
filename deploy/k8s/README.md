@@ -7,10 +7,11 @@
 | --- | --- |
 | deployment.yaml | 컨테이너 1개가 API·스케줄러·Task dispatcher를 함께 실행 |
 | service.yaml | 내부 Service (`prj_re`가 호출) |
-| hpa.yaml | CPU 70%, min 1, max 4 |
+| hpa.yaml | CPU 70%, min 1, max 2 |
+| 리소스 | CPU 요청 500m / 한도 1.5코어, 메모리 요청 256Mi / 한도 512Mi |
 | pdb.yaml | 노드 drain 등 자발적 중단 시 한 번에 Pod 하나만 내림 (`maxUnavailable: 1`, Pod 1개여도 drain을 막지 않음) |
 
-- DB 역할 준비(한 번): `CREATE ROLE batch LOGIN PASSWORD '…' CONNECTION LIMIT 24;` (Pod당 풀 2 + 4, 최대 4 Pod)
+- DB 역할 준비(한 번): `CREATE ROLE batch LOGIN PASSWORD '…' CONNECTION LIMIT 12;` (Pod당 풀 2 + 4, 최대 2 Pod)
   `CREATE DATABASE batch OWNER batch;` 스키마와 테이블은 앱이 시작할 때 만든다.
 - 공유 PV는 Executor와 같은 RWX PVC(`executor-shared`)를 `/mnt/data`에 마운트한다. 이름은 환경에 맞게 바꾼다.
   `storage_root`는 프로젝트 루트(`/mnt/data/dtest`)이고 파일은 `batch/inputs/` 아래 저장한다.
