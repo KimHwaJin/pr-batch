@@ -559,23 +559,53 @@ class BatchService:
         (None: every tenant).
 
         Running executions finish; runs still waiting for a slot are
-        skipped, since nothing of them reached the Executor yet.
+        skipped, since nothing of them reached the Executor yet. Batches
+        already off are left as they are.
         """
+        scope = [Batch.owner_id == owner_id]
+        if tenants is not None:
+            scope.append(Batch.tenant_id.in_(sorted(tenants)))
+        return self.stop_batches(
+            scope,
+            "USER_DEACTIVATED",
+            "OWNER_DEACTIVATED",
+            caller,
+            mark_disabled=False,
+        )
+
+    def disable_by_tenant(
+        self, tenant: str, caller: str | None
+    ) -> DisabledCount:
+        """Stop every schedule of a revoked tenant (repeatable).
+
+        Like disable_by_owner, and batches already off are marked too, so
+        no batch of the tenant can be run manually until enabled again.
+        `disabled` counts batches that were on.
+        """
+        return self.stop_batches(
+            [Batch.tenant_id == tenant],
+            "TENANT_REVOKED",
+            "TENANT_REVOKED",
+            caller,
+            mark_disabled=True,
+        )
+
+    def stop_batches(
+        self,
+        scope: list[Any],
+        disabled_reason: str,
+        skip_reason: str,
+        caller: str | None,
+        *,
+        mark_disabled: bool,
+    ) -> DisabledCount:
         actor = Actor("SYSTEM", caller or "header-mode")
         with self.sessions.begin() as session:
             # Lock order everywhere: batch rows, then run rows.
             batches = list(
                 session.scalars(
                     select(Batch)
-                    .where(
-                        Batch.owner_id == owner_id,
-                        Batch.deleted_at.is_(None),
-                        *(
-                            ()
-                            if tenants is None
-                            else (Batch.tenant_id.in_(sorted(tenants)),)
-                        ),
-                    )
+                    .where(*scope, Batch.deleted_at.is_(None))
                     .order_by(Batch.id)
                     .with_for_update()
                 )
@@ -583,19 +613,26 @@ class BatchService:
             now = database_now(session)
             disabled = 0
             for batch in batches:
-                if not batch.enabled:
+                if batch.enabled:
+                    config = current_config(session, batch)
+                    stop_schedule(
+                        session, batch, config, now, skip_reason, actor
+                    )
+                    batch.enabled = False
+                    batch.disabled_at = now
+                    disabled += 1
+                elif (
+                    not mark_disabled
+                    or batch.disabled_reason == disabled_reason
+                ):
                     continue
-                config = current_config(session, batch)
-                stop_schedule(
-                    session, batch, config, now, "OWNER_DEACTIVATED", actor
-                )
-                batch.enabled = False
-                batch.disabled_reason = "USER_DEACTIVATED"
-                batch.disabled_at = now
+                else:
+                    # Already off: keep when it went off, change the reason.
+                    batch.disabled_at = batch.disabled_at or now
+                batch.disabled_reason = disabled_reason
                 batch.disabled_by = caller
                 batch.revision += 1
                 batch.stamp_updated(actor, now)
-                disabled += 1
             if batches:
                 waiting = session.scalars(
                     select(BatchRun)
@@ -607,7 +644,7 @@ class BatchService:
                 )
                 for run in waiting:
                     run.status = RunStatus.SKIPPED
-                    run.skip_reason = "OWNER_DEACTIVATED"
+                    run.skip_reason = skip_reason
                     run.completed_at = now
                     run.stamp_updated(actor, now)
         return DisabledCount(disabled=disabled)

@@ -1111,6 +1111,132 @@ def test_disable_by_owner_applies_to_one_tenant(client, execution):
     assert disable_owner(client, tenant="someone-else").status_code == 403
 
 
+def test_disable_by_owner_matches_employee_ids_case_insensitively(
+    client, execution
+):
+    # Employee IDs as sent (user= sets X-User-Id verbatim).
+    batch = create_batch(client, user="E12345").json()
+    enabled = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={
+            **token(user="E12345"),
+            "Idempotency-Key": "on",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+    response = client.post(
+        f"{API}:disable-by-owner",
+        headers={"X-Api-Key": CALLER_KEY},
+        json={"owner_id": "e12345", "reason": "USER_DEACTIVATED"},
+    )
+    assert response.json() == {"disabled": 1}
+    view = client.get(f"{API}/{batch['id']}", headers=token(user="e12345"))
+    assert view.json()["disabled_reason"] == "USER_DEACTIVATED"
+
+
+def disable_tenant(client, tenant, key=CALLER_KEY):
+    return client.post(
+        f"{API}:disable-by-tenant",
+        headers={
+            "X-Api-Key": key,
+            **({"X-Tenant-Id": tenant} if tenant else {}),
+        },
+        json={"reason": "TENANT_REVOKED"},
+    )
+
+
+def test_disable_by_tenant_stops_every_batch_of_the_tenant(client, execution):
+    fake, worker = execution
+
+    def enabled_in(tenant, key, owner="alice"):
+        created = create_batch(
+            client,
+            key=f"{tenant}-{owner}-{key}",
+            owner=owner,
+            tenant=tenant,
+            config=metadata(policy={"overlap": {"mode": "QUEUE"}}),
+        ).json()
+        on = client.post(
+            f"{API}/{created['id']}/enable",
+            headers={
+                **token(owner, tenant=tenant),
+                "Idempotency-Key": f"on-{created['id']}",
+                "If-Match": f'"{created["revision"]}"',
+            },
+        )
+        assert on.status_code == 200, on.text
+        return on.json()
+
+    revoked = enabled_in("agent3", "a")
+    bobs = enabled_in("agent3", "b", owner="bob")
+    other = enabled_in("dtest-agent-service", "c")
+    # One already off by its owner, and a run waiting for the slot.
+    off = enabled_in("agent3", "d")
+    off = client.post(
+        f"{API}/{off['id']}/disable",
+        headers={
+            **token(tenant="agent3"),
+            "Idempotency-Key": "off",
+            "If-Match": f'"{off["revision"]}"',
+        },
+    ).json()
+    running = run_request(client, revoked["id"], tenant="agent3").json()
+    tick(worker, running)
+    waiting = run_request(
+        client, revoked["id"], key="run-2", tenant="agent3"
+    ).json()
+    assert run_get(client, waiting, tenant="agent3").json()["status"] == (
+        "WAITING"
+    )
+
+    response = disable_tenant(client, "agent3")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"disabled": 2}
+
+    def view(batch, owner="alice", tenant="agent3"):
+        return client.get(
+            f"{API}/{batch['id']}", headers=token(owner, tenant=tenant)
+        ).json()
+
+    for batch, owner in ((revoked, "alice"), (bobs, "bob"), (off, "alice")):
+        stored = view(batch, owner)
+        assert stored["enabled"] is False
+        assert stored["disabled_reason"] == "TENANT_REVOKED"
+    assert view(other, tenant="dtest-agent-service")["enabled"] is True
+    skipped = run_get(client, waiting, tenant="agent3").json()
+    assert (skipped["status"], skipped["skip_reason"]) == (
+        "SKIPPED",
+        "TENANT_REVOKED",
+    )
+    assert run_get(client, running, tenant="agent3").json()["status"] in {
+        "QUEUED",
+        "RUNNING",
+    }
+    manual = run_request(client, off["id"], key="run-3", tenant="agent3")
+    assert manual.status_code == 409
+    assert manual.json()["error"]["code"] == "TENANT_REVOKED"
+    assert disable_tenant(client, "agent3").json() == {"disabled": 0}
+    # Enabling again is explicit and clears the reason.
+    again = client.post(
+        f"{API}/{off['id']}/enable",
+        headers={
+            **token(tenant="agent3"),
+            "Idempotency-Key": "again",
+            "If-Match": f'"{view(off)["revision"]}"',
+        },
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["disabled_reason"] is None
+
+
+def test_disable_by_tenant_needs_an_admin_key_and_a_tenant(client):
+    assert disable_tenant(client, None).status_code == 400
+    assert disable_tenant(client, "outside").status_code == 403
+    assert disable_tenant(client, "agent3", key=PLAIN_KEY).status_code == 403
+    assert disable_tenant(client, "dlq").status_code == 400
+
+
 def test_disable_by_owner_needs_an_admin_key(client):
     assert disable_owner(client, key=PLAIN_KEY).status_code == 403
     assert disable_owner(client, key="bat_unknown_key").status_code == 401

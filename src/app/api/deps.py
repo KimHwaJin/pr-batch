@@ -13,6 +13,7 @@ from app.core.security import (
     Identity,
     Principal,
     admin_caller,
+    admin_named_tenant,
     admin_tenants,
     current_caller,
     current_identity,
@@ -30,6 +31,7 @@ Owner = Annotated[Principal, Depends(current_owner)]
 Ident = Annotated[Identity, Depends(current_identity)]
 KeyCaller = Annotated[Caller, Depends(current_caller)]
 AdminCaller = Annotated[Caller, Depends(admin_caller)]
+AdminNamedTenant = Annotated[str, Depends(admin_named_tenant)]
 AdminTenants = Annotated[frozenset[str] | None, Depends(admin_tenants)]
 Key = Annotated[
     str,

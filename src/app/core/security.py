@@ -184,6 +184,17 @@ def current_owner(
     return identity.owner
 
 
+def admin_named_tenant(
+    caller: Annotated[Caller, Depends(admin_caller)],
+    tenant: TenantHeader = None,
+) -> str:
+    """The one tenant an admin operation names; X-Tenant-Id is required."""
+    chosen = requested_tenant(tenant, caller)
+    if chosen is None:
+        raise invalid_identity("X-Tenant-Id is required.")
+    return chosen
+
+
 def admin_tenants(
     caller: Annotated[Caller, Depends(admin_caller)],
     tenant: TenantHeader = None,

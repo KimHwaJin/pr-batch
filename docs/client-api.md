@@ -119,6 +119,7 @@ DB 오류 응답(503 `DATABASE_UNAVAILABLE`, 500 `INTERNAL_ERROR`)은 `details`�
 | | POST | `/api/v1/batches/{batch_id}/disable` | 200 | O | O |
 | | GET | `/api/v1/batches/{batch_id}/skipped-windows` | 200 | | |
 | | POST | `/api/v1/batches:disable-by-owner` (admin key) | 200 | | |
+| | POST | `/api/v1/batches:disable-by-tenant` (admin key) | 200 | | |
 | 실행 | POST | `/api/v1/batches/{batch_id}/runs` | 202 | O | |
 | | GET | `/api/v1/batches/{batch_id}/runs` | 200 | | |
 | | GET | `/api/v1/batches/{batch_id}/runs/{run_id}` | 200 | | |
@@ -494,6 +495,12 @@ admin key만 부를 수 있다(`X-User-Id` 불필요). 본문 `{"owner_id": "e12
 요청의 tenant(admin key의 기본 tenant, 중계자 admin key는 `X-Tenant-Id`) 안에서 그 사용자의 켜진 배치를 모두 끄고 `{"disabled": n}`을 돌려준다. 자세한 동작은
 [인증 가이드](client-auth.md#사용자-비활성)를 본다.
 
+### POST /api/v1/batches:disable-by-tenant — tenant 폐기 (운영)
+
+admin key만 부를 수 있다(`X-User-Id` 불필요). `X-Tenant-Id` 필수, 본문 `{"reason": "TENANT_REVOKED"}`.
+그 tenant의 배치를 모두 `disabled_reason: "TENANT_REVOKED"`로 끄고 `{"disabled": n}`(켜져 있다가 꺼진 수)을 돌려준다.
+자세한 동작은 [인증 가이드](client-auth.md#tenant-폐기)를 본다.
+
 ### GET /api/v1/batches/{batch_id}/skipped-windows — 생략된 예약 구간
 
 실행 행을 만들지 않고 건너뛴 일정 구간이다. 쿼리: `limit`, `cursor`.
@@ -509,7 +516,7 @@ admin key만 부를 수 있다(`X-User-Id` 불필요). 본문 `{"owner_id": "e12
 }
 ```
 
-`reason`: `MISFIRE_SKIP`, `MISFIRE_LATEST`, `MISFIRE_CATCH_UP`, `REPLACED_BY_LATEST`, `DISABLED`, `SCHEDULE_REPLACED`, `DELETED`, `SCHEDULER_ERROR`.
+`reason`: `MISFIRE_SKIP`, `MISFIRE_LATEST`, `MISFIRE_CATCH_UP`, `REPLACED_BY_LATEST`, `DISABLED`, `SCHEDULE_REPLACED`, `DELETED`, `SCHEDULER_ERROR`, `OWNER_DEACTIVATED`, `TENANT_REVOKED`.
 
 ---
 
@@ -538,6 +545,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/runs" \
 | 오류 | 의미 |
 | --- | --- |
 | 409 `OWNER_DEACTIVATED` | 사용자 비활성으로 꺼진 배치(`disabled_reason=USER_DEACTIVATED`) |
+| 409 `TENANT_REVOKED` | tenant 폐기로 꺼진 배치(`disabled_reason=TENANT_REVOKED`) |
 | 503 `EXECUTOR_NOT_CONFIGURED` | Executor 미설정 |
 
 ### GET /api/v1/batches/{batch_id}/runs — 실행 이력

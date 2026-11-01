@@ -30,8 +30,8 @@ class Batch(SoftDeleteMixin, Base):
             "deleted_at IS NULL OR NOT enabled", name="deleted_is_disabled"
         ),
         CheckConstraint(
-            "disabled_reason IS NULL OR "
-            "disabled_reason IN ('OWNER', 'USER_DEACTIVATED')",
+            "disabled_reason IS NULL OR disabled_reason IN "
+            "('OWNER', 'USER_DEACTIVATED', 'TENANT_REVOKED')",
             name="batch_disabled_reason",
         ),
         CheckConstraint(
@@ -73,7 +73,8 @@ class Batch(SoftDeleteMixin, Base):
     # auth_clients name of the registering key; null in header mode.
     client: Mapped[str | None] = mapped_column(String(64))
     # Why the batch is off: OWNER (disabled by its owner) or
-    # USER_DEACTIVATED (disable-by-owner); null when enabled or never on.
+    # USER_DEACTIVATED (disable-by-owner) or TENANT_REVOKED
+    # (disable-by-tenant); null when enabled or never on.
     disabled_reason: Mapped[str | None] = mapped_column(String(32))
     disabled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)

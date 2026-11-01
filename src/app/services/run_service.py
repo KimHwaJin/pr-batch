@@ -300,6 +300,12 @@ class RunService:
                     "OWNER_DEACTIVATED",
                     "The owner was deactivated; enable the batch first.",
                 )
+            if batch.disabled_reason == "TENANT_REVOKED":
+                raise ServiceError(
+                    409,
+                    "TENANT_REVOKED",
+                    "The tenant was revoked; enable the batch first.",
+                )
             config = current_config(session, batch)
             status, run = admit_run(
                 session, batch, config, Actor.user(owner.user_id)
