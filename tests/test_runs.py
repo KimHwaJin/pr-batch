@@ -491,6 +491,18 @@ def test_active_lease_is_not_claimed_twice(client, execution):
     assert sum(work is not None for work in claims) == 1
 
 
+def test_leased_task_is_not_due_until_its_lease_lapses(client, execution):
+    # Otherwise idle workers poll every 0.05 s while one waits on a call.
+    _, worker = execution
+    run_request(client, create_batch(client).json()["id"])
+    with worker.sessions.begin() as session:
+        claimed = claim(session, 90)
+    assert claimed is not None
+    with worker.sessions() as session:
+        lease_until = session.get(Task, claimed.id).lease_until
+    assert worker.next_due() == lease_until
+
+
 def test_concurrent_replay_and_skip_admission(client, execution):
     _, worker = execution
     batch = create_batch(client).json()

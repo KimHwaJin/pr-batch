@@ -84,6 +84,12 @@ def script_version(
     return result
 
 
+def reset_schedule_failures(batch: Batch) -> None:
+    """A new schedule pointer starts with a clean retry record."""
+    batch.schedule_failures = 0
+    batch.schedule_retry_at = None
+
+
 def current_config(session: Session, batch: Batch) -> BatchConfig:
     result = session.get(BatchConfig, (batch.id, batch.config_number))
     if result is None:

@@ -52,7 +52,11 @@ class BackgroundRuntime:
         self.settings = settings
         self.sessions = sessions
         self.clients = clients
-        self.scheduler = Scheduler(sessions)
+        self.scheduler = Scheduler(
+            sessions,
+            retry_seconds=settings.schedule_retry_seconds,
+            retry_limit=settings.schedule_retry_limit,
+        )
         self.dispatcher = Dispatcher(
             sessions,
             clients,

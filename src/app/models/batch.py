@@ -59,6 +59,14 @@ class Batch(SoftDeleteMixin, Base):
         DateTime(timezone=True)
     )
     revision: Mapped[int] = mapped_column(default=1)
+    # Failed scheduler attempts at the occurrence at next_run_at; the
+    # scheduler leaves the batch alone until schedule_retry_at.
+    schedule_failures: Mapped[int] = mapped_column(
+        default=0, server_default="0"
+    )
+    schedule_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     config_number: Mapped[int] = mapped_column(default=1)
     # Fixed at registration (X-Project-Id); null: not project-scoped.
     project_id: Mapped[str | None] = mapped_column(String(255))

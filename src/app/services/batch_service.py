@@ -44,6 +44,7 @@ from app.services.common import (
     owned_batch,
     owned_script,
     policy_of,
+    reset_schedule_failures,
     schedule_of,
     script_version,
 )
@@ -163,6 +164,7 @@ def stop_schedule(
             actor or Actor.user(batch.owner_id),
         )
     batch.next_run_at = None
+    reset_schedule_failures(batch)
 
 
 class BatchService:
@@ -349,6 +351,7 @@ class BatchService:
                         Actor.user(owner.user_id),
                     )
                 batch.next_run_at = following
+                reset_schedule_failures(batch)
         batch.config_number += 1
         config = BatchConfig(
             batch_id=batch.id,
@@ -464,6 +467,7 @@ class BatchService:
                             "Choose a schedule with a future occurrence.",
                         )
                     batch.next_run_at = following
+                    reset_schedule_failures(batch)
                     batch.disabled_reason = None
                     batch.disabled_at = batch.disabled_by = None
                 else:

@@ -191,6 +191,7 @@ Run을 진행시키는 **외부 호출 1건**. 사용자 API에는 나오지 않
 | REPLACED_BY_LATEST | REPLACE 정책에서 한 번에 여러 일정이 도래했을 때 마지막 하나를 뺀 나머지 |
 | SCHEDULE_REPLACED | 활성 중 일정을 바꿀 때 옛 일정의 미접수분 |
 | DELETED | 활성 배치를 삭제할 때 아직 접수 못 한 과거 예약 |
+| SCHEDULER_ERROR | 예약 접수가 오류로 계속 실패해 재시도 한도(`SCHEDULE_RETRY_LIMIT`)를 넘긴 회차 |
 
 API: `GET /batches/{id}/skipped-windows`
 

@@ -30,5 +30,9 @@ SYNC_INITIAL_SECONDS: 5
 SYNC_MAX_SECONDS: 60
 SHUTDOWN_GRACE_SECONDS: 40
 TASK_GIVE_UP_SECONDS: 86400
+# A batch whose schedule admission fails is retried after this long, up
+# to the limit; then its due occurrences are skipped (SCHEDULER_ERROR).
+SCHEDULE_RETRY_SECONDS: 300
+SCHEDULE_RETRY_LIMIT: 3
 IDEMPOTENCY_RETENTION_DAYS: 7
 TASK_RETENTION_DAYS: 30
