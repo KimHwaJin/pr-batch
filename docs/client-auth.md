@@ -12,6 +12,7 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 - tenant는 key로 정해진다(중계자 key는 `X-Tenant-Id`로 고른다). 모든 자원은 Executor처럼 **tenant + 사용자** 소유이고,
   tenant는 배치 실행 이벤트를 받을 Executor tenant이기도 하다. 본문에 `tenant_id`를 보내면 422다.
 - 로컬과 dev는 `AUTH_MODE: header`로 key 없이 `X-User-Id`만 보내도 된다. stg·prd에서 이 모드면 기동하지 않는다.
+- dev의 key 인증은 켜고 끌 수 있다. `config.dev.yml`(또는 Deployment의 환경 변수)에서 `AUTH_MODE: api_key`면 stg·prd처럼 key를 요구하고, `header`면 key 없이도 받는다. Executor로 보내는 key는 `EXECUTOR_API_KEY`가 비어 있으면 보내지 않는다(Executor dev가 header 모드일 때).
 
 ## 헤더
 
