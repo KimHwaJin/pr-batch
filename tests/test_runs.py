@@ -345,6 +345,9 @@ def test_enable_requires_executor_but_drafts_do_not(client):
     assert response.json()["error"]["code"] == "EXECUTOR_NOT_CONFIGURED"
     stored = client.get(f"{API}/{batch['id']}", headers=token()).json()
     assert stored["enabled"] is False
+    assert stored["can_enable"] is False
+    assert stored["enable_blocked_reason"] == "EXECUTOR_NOT_CONFIGURED"
+    assert batch["enable_blocked_reason"] == "EXECUTOR_NOT_CONFIGURED"
 
 
 def test_durable_acceptance_replay_and_frozen_settings(client, execution):

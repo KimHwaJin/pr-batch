@@ -150,7 +150,7 @@ tenant와 project는 본문이 아니라 헤더로 정한다(본문 `tenant_id`�
 | `tenant_id` | 중계자 key의 `X-Tenant-Id`(허용 목록 안), 없으면 key의 기본 tenant | Executor 규칙 `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가(위반 400). 배치 실행 이벤트는 `executor.events.{tenant_id}`로 간다 |
 | `project_id` | `X-Project-Id` | 선택. `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 |
 
-응답(BatchView)은 등록 요청과 같은 모양에 `script_version_number`, `tenant_id`, `project_id`, `enabled`,
+응답(BatchView)은 등록 요청과 같은 모양에 `script_version_number`, `tenant_id`, `project_id`, `enabled`, `can_enable`, `can_disable`, `enable_blocked_reason`,
 `disabled_reason`, `disabled_at`,
 `next_run_at`, `preview_runs`, `config_number`, `revision`, 생성·수정 시각을 더한다.
 응답을 고쳐 그대로 PATCH 본문으로 쓸 수 있다.

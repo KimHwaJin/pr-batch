@@ -24,8 +24,10 @@ from app.integrations.executor import ExecutorClient
 from app.models import Batch, BatchRun, Task
 from app.runtime.dispatcher import Dispatcher
 from app.runtime.scheduler import Scheduler
+from app.schemas.batch import RuntimeSpec
 from app.services.common import current_config
 from app.services.run_service import admit_run
+from app.services.runtime_catalog import RuntimeCatalog
 from app.tasks.handlers import Clients
 
 
@@ -607,3 +609,62 @@ def test_replace_admits_only_the_latest_due_occurrence(client, scheduling):
     ] == [(first + timedelta(minutes=10), "QUEUED")]
     windows = {w["reason"]: w["occurrences"] for w in skipped(client, batch)}
     assert windows == {"MISFIRE_CATCH_UP": 7, "REPLACED_BY_LATEST": 3}
+
+
+def flags(view):
+    return (
+        view["can_enable"],
+        view["can_disable"],
+        view["enable_blocked_reason"],
+    )
+
+
+def listed(client, batch):
+    items = client.get(API, headers=token(), params={"limit": 100}).json()
+    return next(i for i in items["items"] if i["id"] == batch["id"])
+
+
+def test_enable_flags_follow_the_enable_checks(client, scheduling):
+    ready = create_batch(client, key="ready", config=config()).json()
+    assert flags(ready) == (True, False, None)
+    assert flags(listed(client, ready)) == (True, False, None)
+    enabled = activation(client, ready["id"]).json()
+    assert flags(enabled) == (False, True, None)
+    assert flags(get_batch(client, ready)) == (False, True, None)
+    disabled = activation(client, ready["id"], False, enabled["revision"])
+    assert flags(disabled.json()) == (True, False, None)
+
+    manual = create_batch(
+        client, key="manual", config=metadata(schedule=None)
+    ).json()
+    assert flags(manual) == (False, False, "SCHEDULE_REQUIRED")
+
+    past = create_batch(
+        client,
+        key="past",
+        config=metadata(
+            schedule={
+                "definition": {
+                    "kind": "ONCE",
+                    "at": (utcnow() - timedelta(days=1)).isoformat(),
+                }
+            }
+        ),
+    ).json()
+    assert flags(past) == (False, False, "NO_FUTURE_OCCURRENCE")
+    assert flags(listed(client, past)) == (
+        False,
+        False,
+        "NO_FUTURE_OCCURRENCE",
+    )
+
+    # The Executor stopped offering the batch's runtime.
+    client.app.state.runtime_catalog = RuntimeCatalog(
+        [RuntimeSpec(type="JUPYTER", profile="other")]
+    )
+    for view in (get_batch(client, ready), listed(client, ready)):
+        assert flags(view) == (False, False, "UNKNOWN_RUNTIME")
+    response = activation(
+        client, ready["id"], True, disabled.json()["revision"]
+    )
+    assert response.json()["error"]["code"] == "UNKNOWN_RUNTIME"

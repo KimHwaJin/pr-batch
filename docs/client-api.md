@@ -352,6 +352,9 @@ curl "$BATCH_URL/api/v1/batches" \
   "tenant_id": "dtest-agent-service",
   "project_id": null,
   "enabled": false,
+  "can_enable": true,
+  "can_disable": false,
+  "enable_blocked_reason": null,
   "disabled_reason": null,
   "disabled_at": null,
   "next_run_at": null,
@@ -360,6 +363,18 @@ curl "$BATCH_URL/api/v1/batches" \
   "revision": 1
 }
 ```
+
+**켜기·끄기 가능 여부** — 화면의 켜기·끄기 버튼은 이 값으로 정한다. 켜기 요청과 같은 검사를 같은 순서로 돌린 결과다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `can_enable` | 꺼져 있고 지금 켜면 성공하는 상태. 켜져 있으면 `false`(다시 켜도 바뀌는 것이 없다) |
+| `can_disable` | 켜져 있으면 `true`. 끄기에는 다른 조건이 없다 |
+| `enable_blocked_reason` | 꺼져 있는데 켤 수 없을 때, 켜기 요청이 돌려줄 오류 코드(아래 enable 오류 표). 그 외에는 `null` |
+
+검사 순서: `EXECUTOR_NOT_CONFIGURED` → `SCHEDULE_REQUIRED` → `RUNTIMES_NOT_CONFIGURED`·`RUNTIME_NOT_SUPPORTED`·`UNKNOWN_RUNTIME` →
+`NO_FUTURE_OCCURRENCE`. 조회 뒤 시간이 지나 마지막 회차가 지나가거나 그사이 배치가 바뀌면(412) `can_enable: true`여도 켜기가 거절될 수 있으니,
+켜기 응답의 오류도 그대로 처리한다. 켜기·끄기·수정 응답의 BatchView에도 같은 값이 들어 있다.
 
 **일정(`schedule`)** — `definition.kind`별로 필드가 다르다. `timezone`은 `Asia/Seoul`만 허용하고,
 `start_at`(포함)·`end_at`(미포함)은 선택이다.
@@ -459,7 +474,7 @@ curl -X POST "$BATCH_URL/api/v1/batches/$BATCH_ID/enable" \
   -H 'If-Match: "1"'
 ```
 
-200, `enabled: true`인 BatchView와 새 `ETag`.
+200, `enabled: true`인 BatchView와 새 `ETag`. 아래 오류 코드는 켜기 전에 BatchView의 `enable_blocked_reason`으로도 볼 수 있다.
 
 | 오류 | 의미 |
 | --- | --- |
