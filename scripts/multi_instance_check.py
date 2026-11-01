@@ -14,15 +14,15 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from scripts.docker_smoke import call, multipart
+from scripts.docker_smoke import AUTH, call, multipart
 
 API = "http://app:8000/api/v1"
 FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
 
 
 def auth(owner: str) -> dict[str, str]:
-    """Header-mode identity (the Compose stack trusts it without a key)."""
-    return {"X-User-Id": owner.lower()}
+    """Identity for `owner`, with the local key when set (docker_smoke)."""
+    return {**AUTH, "X-User-Id": owner.lower()}
 
 
 def notebook(sleep: int) -> bytes:
