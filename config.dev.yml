@@ -25,3 +25,5 @@ AUTH_CLIENTS:
     relay: true
     allowed_tenants: ["*"]  # any tenant; the agent approves callers
     admin: true
+# Swagger off in shared environments (internal network rules).
+DOCS_ENABLED: false
