@@ -93,6 +93,7 @@ Executor 주소를 설정합니다. 호출에는 `X-Api-Key`와 `X-User-Id`가 �
 환경변수도 접두어 없이 같은 이름(`PORT`, `DATABASE_URL` 등)을 씁니다. 우선순위는 환경변수 > `.env` > YAML
 순입니다(계별 YAML > `config.yml`). `APP_ENV`가 없으면 계별 YAML을 읽지 않으며, 값이 잘못됐거나 파일이 없으면
 시작할 때 실패합니다. `alembic` CLI도 같은 순서로 DB URL을 찾습니다.
+모든 설정의 용도, 기본값, 예시는 [`config.example.yml`](config.example.yml)에 정리되어 있습니다(참고용이라 읽지 않는 파일).
 
 로깅은 사내 HCP 라이브러리가 설치돼 있으면 `hcp.framework.logger.init_logger()`가
 맡고, 없으면 루트의 `logger.yml`을 표준 `logging.dictConfig`로 적용합니다

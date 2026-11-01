@@ -5,10 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from app.core import config
 from app.core.config import Settings
+
+REPO_ROOT = config.PROJECT_ROOT
 
 
 @pytest.fixture
@@ -57,6 +60,16 @@ def test_environment_overrides_the_file(project, monkeypatch):
     monkeypatch.setenv("APP_ENV", "prd")
     monkeypatch.setenv("DB_POOL_SIZE", "2")
     assert Settings(_env_file=None).db_pool_size == 2
+
+
+def test_example_lists_every_setting_and_loads(project, monkeypatch):
+    example = (REPO_ROOT / "config.example.yml").read_text(encoding="utf-8")
+    assert {k.lower() for k in yaml.safe_load(example)} == set(
+        Settings.model_fields
+    )
+    (project / "config.dev.yml").write_text(example, encoding="utf-8")
+    monkeypatch.setenv("APP_ENV", "dev")
+    Settings(_env_file=None)
 
 
 def test_no_app_env_ignores_files(project):
