@@ -93,9 +93,9 @@ Executor `GET /api/v1/artifacts/{artifact_id}/content`로 내려받아 사용자
 Executor에 닿기 전이면 CANCELLED로 끝난다. 앞선 제출 시도의 결과가 불확실하면 같은 키로 재제출해 실행을
 확인한 뒤 취소한다. RUNNING은 Executor에 취소를
 요청하고 실제 종료를 확인한 뒤 CANCELLED. COLLECTING 이후는 409 `NOT_CANCELLABLE`.
-처음 들어온 취소 요청의 출처와 사유를 `cancel_source`·`cancel_reason`에 남기고, Executor 취소에는 항상
-actor를 보낸다. 사용자 취소는 `{type: USER, id: owner_id}`, REPLACE 정책 취소는 수동 실행이 계기여도
-`{type: BATCH, id: batch_id}`다.
+처음 들어온 취소 요청의 출처와 사유를 `cancel_source`·`cancel_reason`에 남긴다. Executor 취소 본문은
+`{idempotency_key, reason}`뿐이다. Executor는 취소자를 `X-User-Id`(배치 소유자)와 API key의 client 이름
+(`pr-batch`)으로 기록하므로, 사용자 취소와 REPLACE 정책 취소는 `reason`과 pr-batch의 `cancel_source`로 구분한다.
 
 ## 실행과 Executor Execution 연결
 
@@ -106,8 +106,11 @@ pr-batch의 실행(Run)과 Executor의 Execution은 1:1이고 양쪽에서 서�
 | pr-batch → Executor | 실행 응답의 `execution_id`(제출 후 채워짐, QUEUED 동안은 null), `operation_id`, 상세의 셀별 `steps[].step_id` |
 | Executor → pr-batch | Execution의 `context.user_id` = 배치 소유자(`X-User-Id`, 소문자), `metadata`에 `batch_id`, `script_id`, `script_version_id`, `run_id`(= pr-batch `run_id`). `execution.completed` 이벤트의 `execution.metadata`에도 같은 값이 실린다 |
 
-제출 trigger는 `{type: BATCH, actor: {type: USER, id: owner_id}}`다. actor가 소유자이므로 배치는
-`metadata.batch_id`로 식별한다. Executor가 BATCH trigger에 USER actor를 허용한 뒤에 배포해야 한다.
+제출 trigger는 `{type: BATCH}`다. Executor는 요청 본문의 `actor`를 받지 않는다(보내면 422). 실행한 사람은
+`X-User-Id`(배치 소유자)로, 보낸 서비스는 API key의 client 이름으로 기록되므로 배치는 `metadata.batch_id`로
+식별한다. Executor의 actor 제거 릴리스(migration 0015)와 함께 배포해야 한다. 순서는 Executor maintenance drain →
+pr-batch 워커 정지 → Executor 배포 → pr-batch 배포 → activate다. 옛 pr-batch가 새 Executor에 제출하면 422를 받아
+그 실행이 `SUBMIT_REJECTED`로 끝나기 때문이다.
 
 제출 본문에는 `context`와 `tenant_id`를 넣지 않는다. 신원은 헤더로만 보낸다. tenant와 project는 실행을 만들 때
 `snapshot`에 고정되므로, 나중에 배치를 바꿔도 이미 접수된 실행은 같은 헤더로 제출·조회·취소된다(재제출도 같은 값).
@@ -154,6 +157,6 @@ prj_re가 pr-batch로 소유권을 확인한 뒤 중계한다.
 
 ## 검증 범위
 
-실제 PostgreSQL에서 접수·동시성·대기열 승격·lease 회수·오래된 응답 거절·취소 actor를 검증한다.
+실제 PostgreSQL에서 접수·동시성·대기열 승격·lease 회수·오래된 응답 거절·취소 요청 본문을 검증한다.
 Executor는 계약에 맞춘 테스트 서버로 응답 유실, 통신 장애, 불확실한 제출 뒤 취소, 장기 장애 포기를 재현한다. 백그라운드 런타임은 실제 스레드로 시작·처리·정지를 검증한다. Docker에서는 로컬 Executor와
 연결해 수동·예약 실행 완료와 결과 다운로드를 확인한다.
