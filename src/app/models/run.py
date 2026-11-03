@@ -72,7 +72,7 @@ class BatchRun(AuditMixin, Base):
     skip_reason: Mapped[str | None] = mapped_column(String(64))
     cancel_requested: Mapped[bool] = mapped_column(default=False)
     # Who asked first (USER: the owner, POLICY: overlap REPLACE) and why;
-    # the cancel task sends them to the Executor as actor and reason.
+    # the cancel task sends the reason to the Executor.
     cancel_source: Mapped[str | None] = mapped_column(String(16))
     cancel_reason: Mapped[str | None] = mapped_column(String(255))
     # Executor-side facts, kept verbatim for diagnosis.

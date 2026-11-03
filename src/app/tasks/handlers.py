@@ -314,7 +314,6 @@ class CancelExecution:
             return (
                 run.execution_id,
                 f"batch-run:{run.id}:abandon-cancel",
-                {"type": "BATCH", "id": str(run.batch_id)},
                 ABANDON_CANCEL_REASON,
                 identity_headers(run),
             )
@@ -324,15 +323,10 @@ class CancelExecution:
             or not run.cancel_requested
         ):
             return None
-        if run.cancel_source == "USER":
-            actor = {"type": "USER", "id": run.owner_id}
-        else:
-            actor = {"type": "BATCH", "id": str(run.batch_id)}
         assert run.cancel_reason is not None  # set with every request
         return (
             run.execution_id,
             f"batch-run:{run.id}:cancel",
-            actor,
             run.cancel_reason,
             identity_headers(run),
         )

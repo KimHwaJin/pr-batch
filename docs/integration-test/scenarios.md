@@ -130,7 +130,7 @@ P0이 하나라도 실패하면 연동 완료로 보지 않습니다. 별도 표
 | C1 | P0 | O | 노트북 업로드·새 버전·동일 파일 재업로드, 같은 `Idempotency-Key` 재전송 | 201, 동일 바이트는 200, 재전송은 같은 응답. `ETag`와 `Location` 전달 |
 | C2 | P0 | O | 일정 없는 배치와 있는 배치 등록, enable·disable | `enabled=false`. 일정 없음: `can_enable=false`, `enable_blocked_reason=SCHEDULE_REQUIRED`, enable 409. 일정 있음: `can_enable=true`, enable 후 `can_disable=true` |
 | C3 | P0 | O | 수동 실행을 끝까지 추적 | `QUEUED → RUNNING → COLLECTING → COMPLETED`. `execution_id`와 `notebook_artifact_id`가 채워짐 |
-| C4 | P0 | O | 게이트웨이로 Execution 조회, 결과 노트북 다운로드 | `trigger.type=BATCH`, actor와 `context.user_id`가 사번, `metadata.run_id` 일치, tenant 일치, 셀 실행 결과 포함 |
+| C4 | P0 | O | 게이트웨이로 Execution 조회, 결과 노트북 다운로드 | `trigger`가 `{type: BATCH}`만 있음, `created_by`와 `context.user_id`가 사번, `created_by_client=pr-batch`, `metadata.run_id` 일치, tenant 일치, 셀 실행 결과 포함 |
 | C5 | P0 |  | 자기 tenant 배치의 리포트. 외부 tenant 배치는 리포트 없음 (LLM 필요, 로컬은 mock 가능) | 자기 tenant: 작업 시작 1분 이내, 1건만. 외부 tenant: 0건 |
 | C6 | P0 | O | `ONCE`로 3분 뒤 예약(`Asia/Seoul`) 후 enable, 다른 배치는 disable | 예약 실행 1회, `trigger=SCHEDULED`, `scheduled_for` 일치. disable한 배치는 실행 없음 |
 | C7 | P0 | O | 예외를 던지는 노트북 | `FAILED`, `failure_type` 채워짐, 리포트 없음, 다음 실행 가능 |
@@ -152,7 +152,7 @@ P0이 하나라도 실패하면 연동 완료로 보지 않습니다. 별도 표
 | D4 | P0 | O | 끝난 실행 취소 | 409 `NOT_CANCELLABLE` |
 | D5 | P1 | O | 같은 `Idempotency-Key` 재전송, 다른 키로 중복 취소 | 같은 결과, 취소 1회, 최초 사유 유지 |
 | D6 | P1 | O | 취소 후 대기 중인 다음 실행 | 자동 승격 |
-| D7 | P1 | O | overlap `REPLACE` | 이전 실행 `cancel_source=POLICY`, Executor actor `BATCH`, 새 실행 수행 |
+| D7 | P1 | O | overlap `REPLACE` | 이전 실행 `cancel_source=POLICY`, Executor 취소 `reason`이 REPLACE 사유, `updated_by`는 소유자, 새 실행 수행 |
 | D8 | P0 | O | 게이트웨이 `POST /executor/executions/{id}/cancel`로 배치 실행을 직접 취소 | 거절되고 실행은 계속됨. 지금 코드는 통과시키므로 수정 후 시험 |
 | D9 | P0 | O | 게이트웨이 `POST /executor/executions/{id}/retry`로 실패한 배치 실행을 재시도, `POST /executor/executions`에 `trigger.type=BATCH`로 직접 제출 | 둘 다 거절되고 Execution이 새로 돌지 않음. 지금 코드는 통과시키므로 수정 후 시험 |
 | D10 | P2 | O | 종료 직전 취소 | 현재 동작 기록. `COMPLETED` + `cancel_requested=true`와 리포트 생성이 가능한 경로 |

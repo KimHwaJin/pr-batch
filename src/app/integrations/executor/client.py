@@ -172,21 +172,20 @@ class ExecutorClient:
         self,
         execution_id: UUID,
         key: str,
-        actor: dict[str, str],
         reason: str,
         identity: dict[str, str],
     ) -> bool:
         """Request cancellation; False when Executor reports it too late.
 
-        The actor is always sent: without it the Executor keeps the
-        submitter in updated_by and the canceller is lost.
+        The Executor records the canceller from X-User-Id (the owner) and
+        the API key's client; the reason tells user and policy apart.
         """
         try:
             self.request(
                 "POST",
                 f"api/v1/executions/{execution_id}/cancel",
                 CommandAck,
-                {"idempotency_key": key, "reason": reason, "actor": actor},
+                {"idempotency_key": key, "reason": reason},
                 headers=identity,
             )
         except ExecutorError as exc:

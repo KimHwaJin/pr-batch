@@ -206,11 +206,9 @@ def submission_request(session: Session, run: BatchRun) -> dict[str, Any]:
     request: dict[str, Any] = {
         "idempotency_key": f"batch-run:{run.id}:submit",
         "lifecycle": {"operation_mode": "SINGLE"},
-        "trigger": {
-            "type": "BATCH",
-            # The owner runs the batch; metadata.batch_id names the batch.
-            "actor": {"type": "USER", "id": run.owner_id},
-        },
+        # The Executor records the owner from X-User-Id and pr-batch from
+        # the API key; metadata.batch_id names the batch.
+        "trigger": {"type": "BATCH"},
         "runtime": dict(run.runtime),
         "operation": {
             "spec": {

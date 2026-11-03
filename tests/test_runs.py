@@ -385,10 +385,7 @@ def test_durable_acceptance_replay_and_frozen_settings(client, execution):
     assert payload["metadata"]["script_version_id"] == run["script_version_id"]
     assert payload["metadata"]["script_id"] == batch["script_id"]
     assert payload["lifecycle"] == {"operation_mode": "SINGLE"}
-    assert payload["trigger"] == {
-        "type": "BATCH",
-        "actor": {"type": "USER", "id": ALICE},
-    }
+    assert payload["trigger"] == {"type": "BATCH"}
     assert payload["metadata"]["batch_id"] == batch["id"]
     detail = run_get(client, run).json()
     assert detail["config_number"] == 1
@@ -816,7 +813,6 @@ def test_cancel_waiting_queued_and_running(client, execution):
     assert fake.cancels[0] == {
         "idempotency_key": f"batch-run:{running['id']}:cancel",
         "reason": "Cancelled by the batch owner.",
-        "actor": {"type": "USER", "id": ALICE},
     }
     again = command(client, running, "cancel", "c4")
     assert again.status_code == 409
@@ -896,7 +892,6 @@ def test_replace_overlap_cancels_running_and_starts_new(client, execution):
         {
             "idempotency_key": f"batch-run:{old['id']}:cancel",
             "reason": reason,
-            "actor": {"type": "BATCH", "id": batch["id"]},
         }
     ]
     assert run_get(client, old).json()["cancel_source"] == "POLICY"
