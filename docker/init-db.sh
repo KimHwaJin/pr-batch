@@ -7,7 +7,7 @@ psql -v ON_ERROR_STOP=1 \
     -v role="$BATCH_DB_USER" \
     -v password="$BATCH_DB_PASSWORD" \
     -v db="$BATCH_DB_NAME" <<'SQL'
-SELECT format('CREATE ROLE %I LOGIN', :'role')
+SELECT format('CREATE USER %I', :'role')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'role')\gexec
 SELECT format('ALTER ROLE %I PASSWORD %L', :'role', :'password')\gexec
 SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'role')
