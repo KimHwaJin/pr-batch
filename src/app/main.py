@@ -82,7 +82,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if docs else None,
         redoc_url="/redoc" if docs else None,
-        openapi_url="/openapi.json" if docs else None,
+        # No schema path in code: it comes from configuration (OPENAPI_URL),
+        # and FastAPI serves no Swagger without one.
+        openapi_url=settings.openapi_url if docs else None,
     )
     app.state.settings = settings
     app.state.sessions = sessions

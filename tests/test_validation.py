@@ -399,9 +399,22 @@ def test_monthly_nth_weekday_and_interval_anchor_default():
 def test_docs_are_on_by_default_and_can_be_turned_off(settings):
     with TestClient(create_app(settings)) as client:
         assert client.get("/docs").status_code == 200
+    schema = settings.openapi_url
+    assert schema
     settings = settings.model_copy(update={"docs_enabled": False})
     with TestClient(create_app(settings)) as client:
-        for path in ("/docs", "/redoc", "/openapi.json"):
+        for path in ("/docs", "/redoc", schema):
+            assert client.get(path).status_code == 404, path
+
+
+def test_schema_path_comes_from_settings(settings):
+    custom = settings.model_copy(update={"openapi_url": "/spec/v1"})
+    with TestClient(create_app(custom)) as client:
+        assert client.get("/spec/v1").status_code == 200
+        assert client.get(settings.openapi_url).status_code == 404
+    unset = settings.model_copy(update={"openapi_url": None})
+    with TestClient(create_app(unset)) as client:
+        for path in ("/docs", "/redoc", settings.openapi_url):
             assert client.get(path).status_code == 404, path
 
 
@@ -415,7 +428,7 @@ def test_docs_are_off_in_shared_environments(env):
 def test_openapi_declares_auth_headers(settings):
     settings = settings.model_copy(update={"docs_enabled": True})
     with TestClient(create_app(settings)) as client:
-        spec = client.get("/openapi.json").json()
+        spec = client.get(settings.openapi_url).json()
     scheme = spec["components"]["securitySchemes"]["APIKeyHeader"]
     assert scheme == {**scheme, "type": "apiKey", "in": "header"}
     assert scheme["name"] == "X-Api-Key"
