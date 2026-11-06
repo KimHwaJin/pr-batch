@@ -80,7 +80,7 @@ def test_existing_schema_needs_no_database_create_privilege(
         database = connection.execute(text("SELECT current_database()"))
         database = database.scalar()
         connection.execute(text(f"DROP ROLE IF EXISTS {role}"))
-        connection.execute(text(f"CREATE USER {role} PASSWORD 'x'"))
+        connection.execute(text(f"CREATE ROLE {role} LOGIN PASSWORD 'x'"))
         connection.execute(
             text(f'REVOKE CREATE ON DATABASE "{database}" FROM PUBLIC')
         )
