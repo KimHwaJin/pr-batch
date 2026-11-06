@@ -131,9 +131,13 @@ class Settings(BaseSettings):
     # Runtimes batches may choose; kernels of the Executor's BATCH pool.
     batch_runtimes: list[RuntimeSpec] = Field(default_factory=list)
 
-    # /docs, /redoc and /openapi.json; on by default, off in every shared
-    # environment (internal network rules; config.{dev,stg,prd}.yml).
+    # Swagger (/docs, /redoc) and the OpenAPI schema; on by default, off
+    # in every shared environment (internal network rules;
+    # config.{dev,stg,prd}.yml).
     docs_enabled: bool = True
+    # Where the OpenAPI schema is served while docs_enabled is on (OPENAPI_URL
+    # in config.yml). Unset serves neither the schema nor Swagger.
+    openapi_url: str | None = Field(default=None, pattern=r"^/[^?#]*$")
 
     # In-process background runtime (scheduler + task dispatcher).
     background_enabled: bool = True

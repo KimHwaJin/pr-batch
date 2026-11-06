@@ -11,10 +11,12 @@ MAX_CODE_CELLS: 100
 MAX_NOTEBOOK_CELLS: 1000
 CELL_MAX_BYTES: 1048576
 DB_AUTO_MIGRATE: true
-# Swagger (/docs, /redoc, /openapi.json): on by default (local runs and
-# the local Docker stack). Internal network rules keep it off in dev, stg
+# Swagger (/docs, /redoc) and the OpenAPI schema: on by default (local runs
+# and the local Docker stack). Internal network rules keep it off in dev, stg
 # and prd: config.{dev,stg,prd}.yml set it to false.
 DOCS_ENABLED: true
+# Schema path, used only while DOCS_ENABLED is true; unset serves no docs.
+OPENAPI_URL: /openapi.json
 # Per pod: 4 background loops plus API requests share this pool.
 # Connection budget: (2 + 4) per pod x maxReplicas 2 = 12.
 DB_POOL_SIZE: 2
