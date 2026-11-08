@@ -1,5 +1,7 @@
 # API별 호출 가이드
 
+> **대체됨 (2026-11-08).** 엔드포인트 명세는 [API 문서](api/README.md)로 옮겼다. 이 문서는 더 이상 갱신하지 않는다.
+
 pr-batch를 호출하는 서비스를 위한 엔드포인트별 사용법이다. key와 신원 헤더는
 [호출 서비스 인증 가이드](client-auth.md)를 먼저 본다. 동작 원리와 세부 규칙은
 [등록 API](registration-api.md), [실행 API](execution-api.md), [예약 실행](scheduling-api.md) 문서에 있다.
