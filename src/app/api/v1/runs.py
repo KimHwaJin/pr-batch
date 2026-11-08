@@ -10,6 +10,7 @@ from app.api.deps import (
     Key,
     Limit,
     Owner,
+    Reader,
     Runs,
     SettingsDep,
     mutation_response,
@@ -36,7 +37,7 @@ def create_run(
 
 @router.get("", response_model=RunPage)
 def list_runs(
-    owner: Owner,
+    owner: Reader,
     service: Runs,
     batch_id: UUID,
     limit: Limit = 50,
@@ -47,7 +48,7 @@ def list_runs(
 
 @router.get("/{run_id}", response_model=RunDetail)
 def get_run(
-    owner: Owner, service: Runs, batch_id: UUID, run_id: UUID
+    owner: Reader, service: Runs, batch_id: UUID, run_id: UUID
 ) -> RunDetail:
     return service.get(owner, batch_id, run_id)
 

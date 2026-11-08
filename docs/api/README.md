@@ -1,7 +1,7 @@
 # pr-batch API 문서
 
 pr-batch를 호출하는 서비스를 위한 API 명세다. 내용은 `src/app/api/` 라우터와 `src/app/schemas/`가 실제로
-받는 값·돌려주는 값을 기준으로 썼다(기준 커밋 `9dc4cd9`, 2026-11-08).
+받는 값·돌려주는 값을 기준으로 썼다(2026-11-08, tenant 전체 조회 반영).
 
 | 문서 | 대상 |
 | --- | --- |
@@ -24,30 +24,32 @@ key 발급·`AUTH_CLIENTS` 설정·감사 로그는 [호출 서비스 인증 가
 | --- | --- | --- | --- | --- | --- | --- |
 | 런타임 | GET | `/runtimes` | 200 | | | 불필요 |
 | 스크립트 | POST | `/scripts` | 201 | 필수 | | 필수 |
-| | GET | `/scripts` | 200 | | | 필수 |
-| | GET | `/scripts/{script_id}` | 200 | | | 필수 |
+| | GET | `/scripts` | 200 | | | 선택 |
+| | GET | `/scripts/{script_id}` | 200 | | | 선택 |
 | | PATCH | `/scripts/{script_id}` | 200 | 필수 | 필수 | 필수 |
 | | DELETE | `/scripts/{script_id}` | 204 | 필수 | 필수 | 필수 |
 | 버전 | POST | `/scripts/{script_id}/versions` | 201 / 200 | 필수 | | 필수 |
-| | GET | `/scripts/{script_id}/versions` | 200 | | | 필수 |
-| | GET | `/scripts/{script_id}/versions/{version_id}` | 200 | | | 필수 |
-| | GET | `/scripts/{script_id}/versions/{version_id}/content` | 200 | | | 필수 |
+| | GET | `/scripts/{script_id}/versions` | 200 | | | 선택 |
+| | GET | `/scripts/{script_id}/versions/{version_id}` | 200 | | | 선택 |
+| | GET | `/scripts/{script_id}/versions/{version_id}/content` | 200 | | | 선택 |
 | 배치 | POST | `/batches` | 201 | 필수 | | 필수 |
-| | GET | `/batches` | 200 | | | 필수 |
-| | GET | `/batches/{batch_id}` | 200 | | | 필수 |
+| | GET | `/batches` | 200 | | | 선택 |
+| | GET | `/batches/{batch_id}` | 200 | | | 선택 |
 | | PATCH | `/batches/{batch_id}` | 200 | 필수 | 필수 | 필수 |
 | | DELETE | `/batches/{batch_id}` | 204 | 필수 | 필수 | 필수 |
 | | POST | `/batches/{batch_id}/enable` | 200 | 필수 | 필수 | 필수 |
 | | POST | `/batches/{batch_id}/disable` | 200 | 필수 | 필수 | 필수 |
-| | GET | `/batches/{batch_id}/skipped-windows` | 200 | | | 필수 |
+| | GET | `/batches/{batch_id}/skipped-windows` | 200 | | | 선택 |
 | 배치 운영 (admin key) | POST | `/batches:disable-by-owner` | 200 | | | 불필요 |
 | | POST | `/batches:disable-by-tenant` | 200 | | | 불필요 |
 | 실행 | POST | `/batches/{batch_id}/runs` | 202 (409) | 필수 | | 필수 |
-| | GET | `/batches/{batch_id}/runs` | 200 | | | 필수 |
-| | GET | `/batches/{batch_id}/runs/{run_id}` | 200 | | | 필수 |
+| | GET | `/batches/{batch_id}/runs` | 200 | | | 선택 |
+| | GET | `/batches/{batch_id}/runs/{run_id}` | 200 | | | 선택 |
 | | POST | `/batches/{batch_id}/runs/{run_id}/cancel` | 202 | 필수 | | 필수 |
 | 헬스체크 | GET | `/healthz` (경로 앞 `/api/v1` 없음) | 200 | | | 인증 없음 |
 | | GET | `/readyz` (경로 앞 `/api/v1` 없음) | 200 | | | 인증 없음 |
+
+`X-User-Id` 선택: 보내면 그 사용자 것만, 빼면 tenant 전체를 조회한다([조회 범위](00-common.md#조회-범위-읽기)).
 
 ## openapi.json 다시 만들기
 

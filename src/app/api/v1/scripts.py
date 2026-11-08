@@ -11,7 +11,9 @@ from app.api.deps import (
     Cursor,
     Key,
     Limit,
+    Lister,
     Owner,
+    Reader,
     Revision,
     Scripts,
     SettingsDep,
@@ -51,7 +53,7 @@ def create_script(
 
 @router.get("", response_model=ScriptPage)
 def list_scripts(
-    owner: Owner,
+    owner: Lister,
     service: Scripts,
     limit: Limit = 50,
     cursor: Cursor = None,
@@ -61,7 +63,7 @@ def list_scripts(
 
 @router.get("/{script_id}", response_model=ScriptView)
 def get_script(
-    response: Response, owner: Owner, service: Scripts, script_id: UUID
+    response: Response, owner: Reader, service: Scripts, script_id: UUID
 ) -> ScriptView:
     script = service.get_script(owner, script_id)
     response.headers["ETag"] = f'"{script.revision}"'
@@ -117,7 +119,7 @@ def add_version(
 
 @router.get("/{script_id}/versions", response_model=VersionPage)
 def list_versions(
-    owner: Owner,
+    owner: Reader,
     service: Scripts,
     script_id: UUID,
     limit: Limit = 50,
@@ -128,14 +130,14 @@ def list_versions(
 
 @router.get("/{script_id}/versions/{version_id}", response_model=VersionDetail)
 def get_version(
-    owner: Owner, service: Scripts, script_id: UUID, version_id: UUID
+    owner: Reader, service: Scripts, script_id: UUID, version_id: UUID
 ) -> VersionDetail:
     return service.version(owner, script_id, version_id)
 
 
 @router.get("/{script_id}/versions/{version_id}/content")
 def download_version(
-    owner: Owner, service: Scripts, script_id: UUID, version_id: UUID
+    owner: Reader, service: Scripts, script_id: UUID, version_id: UUID
 ) -> Response:
     data, script_type = service.download(owner, script_id, version_id)
     extension = PurePath(ORIGINAL_NAMES[script_type]).suffix

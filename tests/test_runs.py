@@ -1638,3 +1638,32 @@ def test_submit_failures_log_batch_run_and_status(client, execution, caplog):
         f"batch_id={other['id']} status=422 code=INVALID_EXECUTION_SPEC "
         "error=EXECUTOR_HTTP_422:INVALID_EXECUTION_SPEC"
     ) in caplog.messages
+
+
+def test_tenant_wide_reads_show_every_users_runs(client, execution):
+    batch = create_batch(client, key="bob", owner="bob").json()
+    run = run_request(client, batch["id"], owner="bob").json()
+    assert run["owner_id"] == user_id("bob")
+    tenant_wide = {"X-Api-Key": CALLER_KEY}
+    listed = client.get(f"{API}/{batch['id']}/runs", headers=tenant_wide)
+    assert [r["id"] for r in listed.json()["items"]] == [run["id"]]
+    detail = client.get(
+        f"{API}/{batch['id']}/runs/{run['id']}", headers=tenant_wide
+    )
+    assert detail.status_code == 200
+    assert detail.json()["owner_id"] == user_id("bob")
+    # Another user naming themselves sees neither; nor can anyone act
+    # without naming the owner.
+    assert run_get(client, run).status_code == 404
+    cancel = client.post(
+        f"{API}/{batch['id']}/runs/{run['id']}/cancel",
+        headers={**tenant_wide, "Idempotency-Key": "cancel"},
+    )
+    assert cancel.status_code == 400
+    assert (
+        client.post(
+            f"{API}/{batch['id']}/runs",
+            headers={**tenant_wide, "Idempotency-Key": "run"},
+        ).status_code
+        == 400
+    )

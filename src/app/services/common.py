@@ -1,18 +1,31 @@
-"""Owner-scoped (tenant and user) lookups, revisions and keyset cursors."""
+"""Owner-scoped (tenant, and user unless a tenant-wide read) lookups,
+revisions and keyset cursors."""
 
 import base64
 import binascii
 import json
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core.exceptions import ServiceError, detail
-from app.core.security import Principal
+from app.core.security import Principal, ReadScope
 from app.models import Batch, BatchConfig, Script, ScriptVersion
 from app.schemas.schedule import Policy, Schedule
+
+# Writes name the user (Principal); reads may cover the tenant (ReadScope).
+Scope = Principal | ReadScope
+
+
+def owned_by(model: type[Script] | type[Batch], scope: Scope) -> list[Any]:
+    """Conditions limiting `model` rows to what `scope` may see."""
+    conditions: list[Any] = [model.tenant_id == scope.tenant]
+    if scope.user_id is not None:
+        conditions.append(model.owner_id == scope.user_id)
+    return conditions
 
 
 def schedule_of(config: BatchConfig) -> Schedule | None:
@@ -27,7 +40,7 @@ def policy_of(config: BatchConfig) -> Policy:
 
 def owned_script(
     session: Session,
-    owner: Principal,
+    owner: Scope,
     script_id: UUID,
     *,
     lock: bool = False,
@@ -36,8 +49,7 @@ def owned_script(
     """A live script; `share` blocks its deletion until commit."""
     query = select(Script).where(
         Script.id == script_id,
-        Script.tenant_id == owner.tenant,
-        Script.owner_id == owner.user_id,
+        *owned_by(Script, owner),
         Script.deleted_at.is_(None),
     )
     if lock or share:
@@ -49,12 +61,11 @@ def owned_script(
 
 
 def owned_batch(
-    session: Session, owner: Principal, batch_id: UUID, *, lock: bool = False
+    session: Session, owner: Scope, batch_id: UUID, *, lock: bool = False
 ) -> Batch:
     query = select(Batch).where(
         Batch.id == batch_id,
-        Batch.tenant_id == owner.tenant,
-        Batch.owner_id == owner.user_id,
+        *owned_by(Batch, owner),
         Batch.deleted_at.is_(None),
     )
     if lock:

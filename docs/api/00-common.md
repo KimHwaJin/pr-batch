@@ -46,7 +46,7 @@ key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드]
 | 헤더 | 필수 | 형식 | 설명 |
 | --- | --- | --- | --- |
 | `X-Api-Key` | 모든 `/api/v1` 요청 | 1~512자 | 호출 서비스 key. 없거나 모르는 key는 401 |
-| `X-User-Id` | `GET /runtimes`, `disable-by-owner`, `disable-by-tenant` 외 전부 | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자(SSO 사번). `E12345`와 `e12345`는 같은 사용자 |
+| `X-User-Id` | 쓰기(POST·PATCH·DELETE) 필수, 읽기(GET) 선택. `GET /runtimes`와 운영 API 두 개는 불필요 | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자(SSO 사번). `E12345`와 `e12345`는 같은 사용자. 읽기에서 빼면 tenant 전체 조회 ([조회 범위](#조회-범위-읽기)) |
 | `X-Project-Id` | 선택 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 | 배치 등록 때만 저장한다. 다른 요청에서는 무시 |
 | `X-Tenant-Id` | 선택 (`disable-by-tenant`는 필수) | `^[a-z][a-z0-9-]{1,62}[a-z0-9]$`, `dlq`·`work` 불가 | relay key만, 허용된 tenant 안에서 쓸 수 있다 |
 | `X-Session-Id` | — | — | 보내도 무시한다 |
@@ -57,8 +57,9 @@ key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드]
 
 - 헤더 값은 호출 서비스가 **자기가 확인한 사용자로 새로 만든다.** 브라우저나 상위 호출자가 보낸 값을 그대로
   넘기지 않는다. pr-batch는 key를 가진 호출 서비스가 보증한 사용자를 그대로 믿는다.
-- **모든 자원(스크립트, 버전, 배치, 실행, 생략 구간)은 (tenant, user) 소유다.** 둘 다 같아야 보인다.
-  같은 `X-User-Id`라도 tenant가 다르면 다른 사용자로 보고, 상세·수정·삭제·실행은 404, 목록은 빈 결과다.
+- **모든 자원(스크립트, 버전, 배치, 실행, 생략 구간)은 (tenant, user) 소유다.** 쓰기와 `X-User-Id`를 보낸 읽기는
+  tenant와 user가 모두 같아야 보인다. 같은 `X-User-Id`라도 tenant가 다르면 다른 사용자로 보고, 상세·수정·삭제·실행은
+  404, 목록은 빈 결과다. 다른 tenant의 자원은 어떤 경우에도 보이지 않는다.
 - 요청의 tenant는 이렇게 정한다.
   - 일반 key: key에 등록된 기본 tenant. `X-Tenant-Id`를 보내면 403.
   - relay key: `X-Tenant-Id`(허용 목록 안, `allowed_tenants: ["*"]`면 형식에 맞는 모든 tenant), 없으면 key의 기본 tenant.
@@ -67,6 +68,25 @@ key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드]
   빼면 기본 tenant로 보아 404가 난다.
 - tenant는 배치 실행 이벤트를 받을 Executor 스트림(`executor.events.<tenant>`)이기도 하다.
 - project는 소유 기준이 아니라 배치의 속성이다. 등록할 때 `X-Project-Id`로 정하고 바꿀 수 없다.
+
+### 조회 범위 (읽기)
+
+Executor와 같은 규칙이다. 읽기(GET) API에만 적용되고, 쓰기는 항상 `X-User-Id`가 필요하다.
+
+| 요청 | 보이는 자원 |
+| --- | --- |
+| `X-User-Id` 있음 | 그 사용자 것만 (기존과 같음) |
+| `X-User-Id` 없음 | 요청 tenant의 **모든 사용자** 것 |
+| 목록 + 쿼리 `user_id` | tenant 전체 중 그 사용자 것만. `X-User-Id`와 함께 보내면 같은 값이어야 하고, 다르면 403 `FORBIDDEN` |
+
+- 쿼리 `user_id`는 목록(`GET /scripts`, `GET /batches`)에서 받는다. 형식은 `X-User-Id`와 같다(틀리면 400 `INVALID_IDENTITY`).
+- tenant 전체 조회도 요청 tenant 안에서만 된다. relay key는 `X-Tenant-Id`로 tenant를 고른다.
+- 응답의 `owner_id`(스크립트·배치·실행)로 누구 자원인지 구분한다.
+- 쓰기(등록·수정·삭제·활성화·실행·취소)는 `X-User-Id`가 없으면 400 `INVALID_IDENTITY`이고, 그 사용자 자원만 바꿀 수 있다.
+  tenant 전체로 조회한 남의 자원은 그 소유자 `X-User-Id`로만 바꿀 수 있다.
+- pr-batch는 key를 가진 호출 서비스를 믿는다. 누구에게 tenant 전체 조회를 허용할지는 앞단 게이트웨이
+  (pr-agentic-service의 마스터·일반 key)가 정한다. 게이트웨이는 일반 key 요청이면 `X-User-Id`를 그대로 넘기고,
+  마스터 key 요청이면 `X-User-Id`를 빼고 필터만 쿼리 `user_id`로 넘긴다.
 
 ## 4. 쓰기 규칙
 
@@ -92,7 +112,7 @@ key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드]
 
 ## 5. 목록 조회
 
-- 쿼리 `limit`(1~100, 기본 50), `cursor`(최대 1024자).
+- 쿼리 `limit`(1~100, 기본 50), `cursor`(최대 1024자). 스크립트·배치 목록은 `user_id`도 받는다([조회 범위](#조회-범위-읽기)).
 - 응답은 `{"items": [...], "next_cursor": "..." | null}`. `next_cursor`가 `null`이면 마지막 페이지다.
 - 다음 페이지는 받은 `next_cursor`를 그대로 `cursor`에 넣는다. 내용을 해석하거나 만들어 보내지 않는다
   (잘못된 값은 422 `INVALID_CURSOR`).
@@ -123,9 +143,9 @@ key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드]
 
 | HTTP | code | 의미 | 재시도 |
 | --- | --- | --- | --- |
-| 400 | `INVALID_IDENTITY` | `X-User-Id` 없음·형식 오류, `X-Project-Id`·`X-Tenant-Id` 형식 오류, `disable-by-tenant`의 `X-Tenant-Id` 없음 | 아니오 |
+| 400 | `INVALID_IDENTITY` | 쓰기에 `X-User-Id` 없음, `X-User-Id`·쿼리 `user_id` 형식 오류, `X-Project-Id`·`X-Tenant-Id` 형식 오류, `disable-by-tenant`의 `X-Tenant-Id` 없음 | 아니오 |
 | 401 | `UNAUTHENTICATED` | key 없음, 등록되지 않은 key, 512자 초과 | 아니오 |
-| 403 | `FORBIDDEN` | relay가 아닌 key의 `X-Tenant-Id`, 허용 목록 밖 tenant, admin이 아닌 key의 운영 API | 아니오 |
+| 403 | `FORBIDDEN` | relay가 아닌 key의 `X-Tenant-Id`, 허용 목록 밖 tenant, admin이 아닌 key의 운영 API, 쿼리 `user_id`가 `X-User-Id`와 다름 | 아니오 |
 | 404 | `NOT_FOUND` | 없는 자원, 다른 tenant·사용자 자원, 삭제된 자원, 없는 경로 | 아니오 |
 | 405 | `METHOD_NOT_ALLOWED` | 경로는 있으나 메서드가 다름 | 아니오 |
 | 409 | `IDEMPOTENCY_CONFLICT` | 같은 키에 다른 본문 | 새 키로 |

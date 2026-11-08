@@ -26,11 +26,13 @@ from app.schemas.script import (
     VersionView,
 )
 from app.services.common import (
+    Scope,
     before_cursor,
     check_revision,
     decode_number_cursor,
     encode_cursor,
     encode_number_cursor,
+    owned_by,
     owned_script,
     script_version,
 )
@@ -69,6 +71,7 @@ def script_view(script: Script, latest: ScriptVersion) -> ScriptView:
         id=script.id,
         name=script.name,
         type=ScriptType(script.type),
+        owner_id=script.owner_id,
         revision=script.revision,
         latest_version=version_view(latest),
         **audit_fields(script),
@@ -278,7 +281,7 @@ class ScriptService:
             action,
         )
 
-    def get_script(self, owner: Principal, script_id: UUID) -> ScriptView:
+    def get_script(self, owner: Scope, script_id: UUID) -> ScriptView:
         with self.sessions() as session:
             script = owned_script(session, owner, script_id)
             latest = script_version(
@@ -287,7 +290,7 @@ class ScriptService:
             return script_view(script, latest)
 
     def list_scripts(
-        self, owner: Principal, limit: int, cursor: str | None
+        self, owner: Scope, limit: int, cursor: str | None
     ) -> ScriptPage:
         query = (
             select(Script, ScriptVersion)
@@ -300,8 +303,7 @@ class ScriptService:
                 ),
             )
             .where(
-                Script.tenant_id == owner.tenant,
-                Script.owner_id == owner.user_id,
+                *owned_by(Script, owner),
                 Script.deleted_at.is_(None),
             )
         )
@@ -319,7 +321,7 @@ class ScriptService:
         return ScriptPage(items=items, next_cursor=next_cursor)
 
     def versions(
-        self, owner: Principal, script_id: UUID, limit: int, cursor: str | None
+        self, owner: Scope, script_id: UUID, limit: int, cursor: str | None
     ) -> VersionPage:
         with self.sessions() as session:
             owned_script(session, owner, script_id)
@@ -348,7 +350,7 @@ class ScriptService:
             )
 
     def version(
-        self, owner: Principal, script_id: UUID, version_id: UUID
+        self, owner: Scope, script_id: UUID, version_id: UUID
     ) -> VersionDetail:
         with self.sessions() as session:
             owned_script(session, owner, script_id)
@@ -361,7 +363,7 @@ class ScriptService:
             return ScriptType(owned_script(session, owner, script_id).type)
 
     def download(
-        self, owner: Principal, script_id: UUID, version_id: UUID
+        self, owner: Scope, script_id: UUID, version_id: UUID
     ) -> tuple[bytes, ScriptType]:
         with self.sessions() as session:
             script = owned_script(session, owner, script_id)

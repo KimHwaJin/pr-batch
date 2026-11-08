@@ -37,12 +37,14 @@ from app.schemas.batch import (
 from app.schemas.common import audit_fields
 from app.schemas.schedule import Interval, Policy, Schedule
 from app.services.common import (
+    Scope,
     before_cursor,
     check_revision,
     config_version,
     current_config,
     encode_cursor,
     owned_batch,
+    owned_by,
     owned_script,
     policy_of,
     reset_schedule_failures,
@@ -81,6 +83,7 @@ def batch_view(
         policy=policy_of(config),
         tenant_id=batch.tenant_id,
         project_id=batch.project_id,
+        owner_id=batch.owner_id,
         enabled=batch.enabled,
         can_enable=not batch.enabled and blocked is None,
         can_disable=batch.enabled,
@@ -434,7 +437,7 @@ class BatchService:
         )
         return batch_view(batch, config, version, now, blocker)
 
-    def get_batch(self, owner: Principal, batch_id: UUID) -> BatchView:
+    def get_batch(self, owner: Scope, batch_id: UUID) -> BatchView:
         with self.sessions() as session:
             batch = owned_batch(session, owner, batch_id)
             config = current_config(session, batch)
@@ -448,7 +451,7 @@ class BatchService:
 
     def list_batches(
         self,
-        owner: Principal,
+        owner: Scope,
         limit: int,
         cursor: str | None,
         script_id: UUID | None,
@@ -468,8 +471,7 @@ class BatchService:
             )
             .join(Script, Script.id == ScriptVersion.script_id)
             .where(
-                Batch.tenant_id == owner.tenant,
-                Batch.owner_id == owner.user_id,
+                *owned_by(Batch, owner),
                 Batch.deleted_at.is_(None),
             )
         )
@@ -702,7 +704,7 @@ class BatchService:
 
     def skipped(
         self,
-        owner: Principal,
+        owner: Scope,
         batch_id: UUID,
         limit: int,
         cursor: str | None,

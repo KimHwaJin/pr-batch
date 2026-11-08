@@ -33,6 +33,8 @@ class RunView(Audited, BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     batch_id: UUID
+    # The batch owner, as whom the Executor runs it.
+    owner_id: str
     script_id: UUID
     script_version_id: UUID
     config_number: int

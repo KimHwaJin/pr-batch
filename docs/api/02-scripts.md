@@ -14,7 +14,7 @@
 | GET | `/api/v1/scripts/{script_id}/versions/{version_id}` | 버전 상세 (셀 목록 포함) |
 | GET | `/api/v1/scripts/{script_id}/versions/{version_id}/content` | 원본 노트북 다운로드 |
 
-모든 요청에 `X-Api-Key`, `X-User-Id`가 필요하다. 예시의 `$BATCH_URL`은 Base URL, `$BATCH_API_KEY`는 호출 서비스 key,
+모든 요청에 `X-Api-Key`가 필요하다. `X-User-Id`는 쓰기에 필수, 읽기(GET)에 선택이다(빼면 tenant 전체, [조회 범위](00-common.md#조회-범위-읽기)). 예시의 `$BATCH_URL`은 Base URL, `$BATCH_API_KEY`는 호출 서비스 key,
 `$USER_ID`는 대신하는 사용자다.
 
 ## 응답 모델
@@ -26,6 +26,7 @@
 | `id` | UUID | 스크립트 ID |
 | `name` | string | 이름 (1~255자) |
 | `type` | `NOTEBOOK` | 스크립트 타입 |
+| `owner_id` | string | 업로드한 사용자 |
 | `revision` | int | `If-Match`에 쓰는 값. 이름 변경·새 버전 생성·삭제 때 오른다 |
 | `latest_version` | VersionView | 가장 최근 버전 |
 | 감사 필드 | | [공통 응답 필드](00-common.md#7-공통-응답-필드) |
@@ -104,6 +105,7 @@ curl "$BATCH_URL/api/v1/scripts" \
   "id": "8d3c2f0e-6c1b-4a8e-9f6e-2d7b1c0a4e11",
   "name": "생산라인 일일 분석",
   "type": "NOTEBOOK",
+  "owner_id": "e12345",
   "revision": 1,
   "latest_version": {
     "id": "0b9a7e52-2f4d-4c33-8a51-6f0e9d2c7b10",
@@ -135,6 +137,7 @@ curl "$BATCH_URL/api/v1/scripts" \
 | --- | --- | --- | --- |
 | 쿼리 | `limit` | X | 1~100, 기본 50 |
 | 쿼리 | `cursor` | X | 이전 응답의 `next_cursor` |
+| 쿼리 | `user_id` | X | 이 사용자 것만. `X-User-Id`와 함께 보내면 같아야 함(다르면 403) |
 
 응답 200 `{"items": [ScriptView, ...], "next_cursor": string | null}`. 최신순. 삭제된 스크립트는 나오지 않는다.
 

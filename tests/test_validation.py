@@ -187,7 +187,6 @@ def test_policy_defaults_and_parallel_rule():
         ({"X-User-Id": "alice"}, 401, "UNAUTHENTICATED"),
         ({"X-Api-Key": "bat_unknown_key", "X-User-Id": "a"}, 401, None),
         ({"X-Api-Key": "", "X-User-Id": "a"}, 401, None),
-        ({"X-Api-Key": CALLER_KEY}, 400, "INVALID_IDENTITY"),
         ({"X-Api-Key": CALLER_KEY, "X-User-Id": ".abc"}, 400, None),
         ({"X-Api-Key": CALLER_KEY, "X-User-Id": "a" * 65}, 400, None),
         ({"X-Api-Key": CALLER_KEY, "X-User-Id": "a/b"}, 400, None),
@@ -209,6 +208,33 @@ def test_caller_and_identity_checks(settings, headers, status, code):
     assert response.status_code == status
     if code:
         assert response.json()["error"]["code"] == code
+
+
+def test_writes_need_a_user(settings):
+    """Reads may omit X-User-Id (the whole tenant); writes may not."""
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            SCRIPTS,
+            headers={"X-Api-Key": CALLER_KEY, "Idempotency-Key": "k"},
+            files={"file": ("a.ipynb", b"{}")},
+            data={"type": "NOTEBOOK"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_IDENTITY"
+
+
+def test_read_user_filter_must_match_the_header(settings):
+    """Refused before any database access."""
+    with TestClient(create_app(settings)) as client:
+        response = client.get(
+            API, params={"user_id": "bob"}, headers=token("alice")
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "FORBIDDEN"
+        response = client.get(
+            API, params={"user_id": ".bad"}, headers={"X-Api-Key": CALLER_KEY}
+        )
+        assert response.status_code == 400
 
 
 def test_runtimes_need_a_key_but_no_user(settings):

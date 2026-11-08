@@ -15,7 +15,8 @@
 | POST | `/api/v1/batches:disable-by-owner` | (운영) 사용자 비활성 시 그 사용자의 배치 일괄 중지 |
 | POST | `/api/v1/batches:disable-by-tenant` | (운영) tenant 폐기 시 그 tenant의 배치 일괄 중지 |
 
-운영 API 두 개는 admin key만 부를 수 있고 `X-User-Id`가 필요 없다. 나머지는 `X-Api-Key`, `X-User-Id`가 필요하다.
+운영 API 두 개는 admin key만 부를 수 있고 `X-User-Id`가 필요 없다. 나머지 쓰기는 `X-User-Id`가 필수이고, 읽기(GET)는 선택이다
+(빼면 tenant 전체, [조회 범위](00-common.md#조회-범위-읽기)).
 
 ## 응답 모델 — BatchView
 
@@ -31,6 +32,7 @@
 | `policy` | Policy | 겹침·누락 정책 (기본값이 채워진 전체 값) |
 | `tenant_id` | string | 등록 때 정해진 tenant. 바뀌지 않는다 |
 | `project_id` | string \| null | 등록 때의 `X-Project-Id`. 바뀌지 않는다 |
+| `owner_id` | string | 등록한 사용자. 바뀌지 않는다 |
 | `enabled` | bool | 예약 활성 여부 |
 | `can_enable` | bool | 지금 `enable`을 부르면 켜지는지. 이미 켜져 있으면 `false` |
 | `can_disable` | bool | 지금 `disable`을 부르면 꺼지는지 (= `enabled`) |
@@ -174,6 +176,7 @@ curl "$BATCH_URL/api/v1/batches" \
   },
   "tenant_id": "dtest-agent-service",
   "project_id": null,
+  "owner_id": "e12345",
   "enabled": false,
   "can_enable": true,
   "can_disable": false,
@@ -206,6 +209,7 @@ curl "$BATCH_URL/api/v1/batches" \
 | 쿼리 | `limit` | X | 1~100, 기본 50 |
 | 쿼리 | `cursor` | X | |
 | 쿼리 | `script_id` | X | 이 스크립트를 쓰는 배치만 |
+| 쿼리 | `user_id` | X | 이 사용자 것만. `X-User-Id`와 함께 보내면 같아야 함(다르면 403) |
 
 응답 200 `{"items": [BatchView, ...], "next_cursor": ...}`. 최신순. 삭제된 배치는 나오지 않는다.
 

@@ -9,7 +9,8 @@
 | GET | `/api/v1/batches/{batch_id}/runs/{run_id}` | 실행 상세 (셀별 step 포함) |
 | POST | `/api/v1/batches/{batch_id}/runs/{run_id}/cancel` | 실행 취소 |
 
-모든 요청에 `X-Api-Key`, `X-User-Id`가 필요하다. 배치가 없거나 내 것이 아니거나 삭제됐으면 404 `NOT_FOUND`다.
+모든 요청에 `X-Api-Key`가 필요하다. `X-User-Id`는 실행·취소에 필수, 조회에 선택이다(빼면 tenant 전체 배치의 실행,
+[조회 범위](00-common.md#조회-범위-읽기)). 배치가 없거나 보이지 않거나 삭제됐으면 404 `NOT_FOUND`다.
 
 ## 실행 상태
 
@@ -50,6 +51,7 @@
 | --- | --- | --- |
 | `id` | UUID | 실행 ID (`run_id`) |
 | `batch_id`, `script_id`, `script_version_id` | UUID | 실행 당시 대상 |
+| `owner_id` | string | 배치 소유자 (Executor 실행의 주인) |
 | `config_number` | int | 실행 당시 배치 설정 번호 |
 | `runtime` | object | 실행 당시 런타임 |
 | `snapshot` | object | 실행 당시 설정 사본: `script_id`, `script_version_id`, `sha256`, `code_hash`, `schedule`, `policy`, `tenant_id`, `project_id` |
@@ -147,6 +149,7 @@ curl "$BATCH_URL/api/v1/batches/$BATCH_ID/runs?limit=20" -H "X-Api-Key: $BATCH_A
 {
   "id": "a7b8c9d0-…",
   "batch_id": "5f1e8a3b-…",
+  "owner_id": "e12345",
   "script_id": "8d3c2f0e-…",
   "script_version_id": "0b9a7e52-…",
   "config_number": 1,

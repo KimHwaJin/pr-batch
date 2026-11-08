@@ -42,6 +42,8 @@ class ScriptView(Audited, Contract):
     id: UUID
     name: str
     type: ScriptType
+    # The uploading user; tenant-wide reads show every user's.
+    owner_id: str
     revision: int
     latest_version: VersionView
 
