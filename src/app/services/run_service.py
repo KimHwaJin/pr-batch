@@ -308,9 +308,7 @@ class RunService:
                     "The tenant was revoked; enable the batch first.",
                 )
             config = current_config(session, batch)
-            status, run = admit_run(
-                session, batch, config, Actor.user(owner.user_id)
-            )
+            status, run = admit_run(session, batch, config, owner.actor)
             return status, run_view(run).model_dump(mode="json")
 
         return self.idempotency.run(owner, f"run:{batch_id}", key, {}, action)
@@ -327,7 +325,7 @@ class RunService:
                     409, "NOT_CANCELLABLE", "Run can no longer be cancelled."
                 )
             now = database_now(session)
-            run.stamp_updated(Actor.user(owner.user_id), now)
+            run.stamp_updated(owner.actor, now)
             request_cancel(run, "USER", USER_CANCEL_REASON)
             if run.status == RunStatus.WAITING:
                 run.status = RunStatus.CANCELLED

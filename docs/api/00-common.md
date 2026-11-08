@@ -79,9 +79,9 @@ Executor와 같은 규칙이다. 읽기(GET) API에만 적용되고, 쓰기는 �
 | `X-User-Id` 없음 | 요청 tenant의 **모든 사용자** 것 |
 | 목록 + 쿼리 `user_id` | tenant 전체 중 그 사용자 것만. `X-User-Id`와 함께 보내면 같은 값이어야 하고, 다르면 403 `FORBIDDEN` |
 
-- 쿼리 `user_id`는 목록(`GET /scripts`, `GET /batches`)에서 받는다. 형식은 `X-User-Id`와 같다(틀리면 400 `INVALID_IDENTITY`).
+- 쿼리 `user_id`는 목록(`GET /scripts`, `GET /batches`)에서 받는다. 형식은 `X-User-Id`와 같고 대소문자를 구분하지 않는다(틀리면 422 `VALIDATION_ERROR`).
 - tenant 전체 조회도 요청 tenant 안에서만 된다. relay key는 `X-Tenant-Id`로 tenant를 고른다.
-- 응답의 `owner_id`(스크립트·배치·실행)로 누구 자원인지 구분한다.
+- 응답의 `user_id`(스크립트·배치·실행의 소유자)로 누구 자원인지 구분한다.
 - 쓰기(등록·수정·삭제·활성화·실행·취소)는 `X-User-Id`가 없으면 400 `INVALID_IDENTITY`이고, 그 사용자 자원만 바꿀 수 있다.
   tenant 전체로 조회한 남의 자원은 그 소유자 `X-User-Id`로만 바꿀 수 있다.
 - pr-batch는 key를 가진 호출 서비스를 믿는다. 누구에게 tenant 전체 조회를 허용할지는 앞단 게이트웨이
@@ -143,7 +143,7 @@ Executor와 같은 규칙이다. 읽기(GET) API에만 적용되고, 쓰기는 �
 
 | HTTP | code | 의미 | 재시도 |
 | --- | --- | --- | --- |
-| 400 | `INVALID_IDENTITY` | 쓰기에 `X-User-Id` 없음, `X-User-Id`·쿼리 `user_id` 형식 오류, `X-Project-Id`·`X-Tenant-Id` 형식 오류, `disable-by-tenant`의 `X-Tenant-Id` 없음 | 아니오 |
+| 400 | `INVALID_IDENTITY` | 쓰기에 `X-User-Id` 없음, `X-User-Id` 형식 오류, `X-Project-Id`·`X-Tenant-Id` 형식 오류, `disable-by-tenant`의 `X-Tenant-Id` 없음 | 아니오 |
 | 401 | `UNAUTHENTICATED` | key 없음, 등록되지 않은 key, 512자 초과 | 아니오 |
 | 403 | `FORBIDDEN` | relay가 아닌 key의 `X-Tenant-Id`, 허용 목록 밖 tenant, admin이 아닌 key의 운영 API, 쿼리 `user_id`가 `X-User-Id`와 다름 | 아니오 |
 | 404 | `NOT_FOUND` | 없는 자원, 다른 tenant·사용자 자원, 삭제된 자원, 없는 경로 | 아니오 |
@@ -153,7 +153,7 @@ Executor와 같은 규칙이다. 읽기(GET) API에만 적용되고, 쓰기는 �
 | 409 | 그 밖 (`SCRIPT_IN_USE` 등) | 지금 상태에서는 불가. 엔드포인트별 문서 참고 | 상태를 바꾼 뒤 |
 | 413 | `REQUEST_TOO_LARGE`, `UPLOAD_TOO_LARGE` | 요청 본문·업로드 파일 크기 초과(기본 10 MiB) | 아니오 |
 | 422 | `VALIDATION_ERROR` | 필드 누락·형식·범위 오류, 모르는 필드 | 아니오 |
-| 422 | `INVALID_REVISION`, `INVALID_CURSOR` 등 | 헤더·쿼리 값 형식 오류 | 아니오 |
+| 422 | `INVALID_REVISION`, `INVALID_CURSOR` 등 | 헤더·쿼리 값 형식 오류 (쿼리 `user_id` 형식 오류는 `VALIDATION_ERROR`) | 아니오 |
 | 500 | `INTERNAL_ERROR` | DB 제약 위반 등 서버 쪽 오류 | 아니오. `details[0].context`(`error_id` 등)를 pr-batch 담당자에게 전달 |
 | 503 | `DATABASE_UNAVAILABLE`, `STORAGE_UNAVAILABLE`, `INCONSISTENT_STATE` | 일시 장애 | 예, 같은 `Idempotency-Key`로 잠시 뒤 |
 | 503 | `EXECUTOR_NOT_CONFIGURED`, `RUNTIMES_NOT_CONFIGURED` | 서버 설정 누락 | 설정이 고쳐진 뒤 |
@@ -169,8 +169,12 @@ DB 오류 응답(503 `DATABASE_UNAVAILABLE`, 500 `INTERNAL_ERROR`)은 `details`�
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `created_at`, `updated_at` | string (date-time) | UTC ISO 8601 |
-| `created_by_type`, `updated_by_type` | `USER` \| `SYSTEM` | 사용자 요청이면 `USER`, 스케줄러·운영 API면 `SYSTEM` |
-| `created_by`, `updated_by` | string | 사용자 ID 또는 시스템 이름(호출 서비스 이름 등) |
+| `created_by`, `updated_by` | string \| null | 요청의 `X-User-Id`. 운영 API·스케줄러·처리기가 바꾼 경우 `null` |
+| `created_by_client`, `updated_by_client` | string \| null | 요청 key의 호출자 이름(`AUTH_CLIENTS.name`, 예: `pr-agentic-service`). 스케줄러·처리기가 바꾼 경우 `null` |
+
+Executor와 같은 규칙이다. 예약 실행은 `created_by`·`created_by_client`가 모두 `null`이고, 실행 진행(상태 반영)은
+`updated_by`·`updated_by_client`가 `null`로 남는다. 운영 API(`disable-by-owner`·`disable-by-tenant`)로 바뀐 배치는
+`updated_by`가 `null`, `updated_by_client`가 그 key 이름이다.
 
 모든 ID는 UUID 문자열이다. 시각은 응답에서 모두 UTC다.
 

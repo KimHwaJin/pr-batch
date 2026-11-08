@@ -7,7 +7,7 @@ resource to that user within the request's tenant, as the Executor does.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, cast
 
 from fastapi import Depends, Header, Query, Request, Security
@@ -16,6 +16,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from app.core.config import Settings
 from app.core.exceptions import ServiceError
+from app.db.base import Actor
 from app.schemas.common import TenantId
 
 # Opaque user IDs (UUIDs, employee numbers, ...), lower-cased; the same
@@ -65,10 +66,19 @@ class Caller:
 
 @dataclass(frozen=True)
 class Principal:
-    """Who owns a resource: a user within a tenant (as in the Executor)."""
+    """Who owns a resource: a user within a tenant (as in the Executor).
+
+    `client` is the calling key's name, recorded with the user on writes
+    (created_by_client and the like); it is not part of ownership.
+    """
 
     tenant: str
     user_id: str
+    client: str | None = field(default=None, compare=False)
+
+    @property
+    def actor(self) -> Actor:
+        return Actor(client=self.client, user=self.user_id)
 
 
 @dataclass(frozen=True)
@@ -99,7 +109,7 @@ class Identity:
 
     @property
     def owner(self) -> Principal:
-        return Principal(self.tenant, self.user_id)
+        return Principal(self.tenant, self.user_id, self.caller.client)
 
 
 def unauthenticated() -> ServiceError:
@@ -239,6 +249,8 @@ def list_scope(
     user_id: Annotated[
         str | None,
         Query(
+            # X-User-Id's rule before lower-casing; 422 like the Executor.
+            pattern=USER_ID.pattern.replace("a-z0-9", "A-Za-z0-9"),
             description=(
                 "Only this user's resources. With X-User-Id it must be "
                 "the same user (403 otherwise)."
@@ -249,7 +261,7 @@ def list_scope(
     """A list's scope: the read scope narrowed by the user_id filter."""
     if user_id is None:
         return scope
-    wanted = normalize_user_id(user_id)
+    wanted = user_id.lower()
     if scope.user_id is not None and wanted != scope.user_id:
         raise ServiceError(403, "FORBIDDEN", "user_id must match X-User-Id.")
     return ReadScope(tenant=scope.tenant, user_id=wanted)

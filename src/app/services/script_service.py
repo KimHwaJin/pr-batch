@@ -71,7 +71,7 @@ def script_view(script: Script, latest: ScriptVersion) -> ScriptView:
         id=script.id,
         name=script.name,
         type=ScriptType(script.type),
-        owner_id=script.owner_id,
+        user_id=script.owner_id,
         revision=script.revision,
         latest_version=version_view(latest),
         **audit_fields(script),
@@ -93,6 +93,7 @@ class ScriptService:
         parsed: ParsedScript,
         number: int,
         written: list[str],
+        actor: Actor,
     ) -> ScriptVersion:
         version_id = uuid4()
         try:
@@ -119,9 +120,7 @@ class ScriptService:
             cell_map=cell_map,
             cell_list=list(parsed.cell_list),
         )
-        version.stamp_created(
-            Actor.user(script.owner_id), database_now(session)
-        )
+        version.stamp_created(actor, database_now(session))
         session.add(version)
         session.flush()
         return version
@@ -162,12 +161,12 @@ class ScriptService:
                 name=display,
                 type=parsed.type,
             )
-            script.stamp_created(
-                Actor.user(owner.user_id), database_now(session)
-            )
+            script.stamp_created(owner.actor, database_now(session))
             session.add(script)
             session.flush()
-            version = self.save_version(session, script, parsed, 1, written)
+            version = self.save_version(
+                session, script, parsed, 1, written, owner.actor
+            )
             return 201, script_view(script, version).model_dump(mode="json")
 
         return self.run_upload(
@@ -195,11 +194,11 @@ class ScriptService:
                 return 200, version_view(existing).model_dump(mode="json")
             number = script.latest_version_number + 1
             version = self.save_version(
-                session, script, parsed, number, written
+                session, script, parsed, number, written, owner.actor
             )
             script.latest_version_number = number
             script.revision += 1
-            script.stamp_updated(Actor.user(owner.user_id), version.created_at)
+            script.stamp_updated(owner.actor, version.created_at)
             return 201, version_view(version).model_dump(mode="json")
 
         return self.run_upload(
@@ -223,9 +222,7 @@ class ScriptService:
             check_revision(script.revision, expected)
             script.name = name
             script.revision += 1
-            script.stamp_updated(
-                Actor.user(owner.user_id), database_now(session)
-            )
+            script.stamp_updated(owner.actor, database_now(session))
             latest = script_version(
                 session, script.id, script.latest_version_number
             )
@@ -268,9 +265,7 @@ class ScriptService:
                     "Wait for or cancel its active runs first.",
                 )
             script.revision += 1
-            script.stamp_deleted(
-                Actor.user(owner.user_id), database_now(session)
-            )
+            script.stamp_deleted(owner.actor, database_now(session))
             return 204, {}
 
         return self.idempotency.run(

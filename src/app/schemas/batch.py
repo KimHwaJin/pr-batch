@@ -74,7 +74,7 @@ class BatchView(Audited, Contract):
     tenant_id: str
     project_id: str | None
     # The user who registered it; tenant-wide reads show every user's.
-    owner_id: str
+    user_id: str
     enabled: bool
     # Whether POST .../enable would turn the batch on now (false while
     # enabled: enabling then changes nothing) and .../disable would turn

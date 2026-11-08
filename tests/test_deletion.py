@@ -89,7 +89,10 @@ def test_batch_delete_hides_it_and_stops_its_schedule(client, scheduling):
         assert row is not None
         assert row.enabled is False and row.next_run_at is None
         assert row.deleted_at is not None
-        assert (row.deleted_by_type, row.deleted_by) == ("USER", ALICE)
+        assert (row.deleted_by, row.deleted_by_client) == (
+            ALICE,
+            "pr-agentic-service",
+        )
     # The scheduler never picks a deleted batch.
     assert scheduling.tick(now=utcnow().replace(year=2100)) is False
 

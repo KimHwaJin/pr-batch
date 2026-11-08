@@ -234,7 +234,8 @@ def test_read_user_filter_must_match_the_header(settings):
         response = client.get(
             API, params={"user_id": ".bad"}, headers={"X-Api-Key": CALLER_KEY}
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_runtimes_need_a_key_but_no_user(settings):

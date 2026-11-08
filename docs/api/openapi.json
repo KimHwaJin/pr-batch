@@ -166,7 +166,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
                 },
                 {
                   "type": "null"
@@ -1258,7 +1259,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
                 },
                 {
                   "type": "null"
@@ -2771,34 +2773,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -2854,9 +2876,9 @@
             ],
             "title": "Project Id"
           },
-          "owner_id": {
+          "user_id": {
             "type": "string",
-            "title": "Owner Id"
+            "title": "User Id"
           },
           "enabled": {
             "type": "boolean",
@@ -2937,11 +2959,11 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "name",
           "script_id",
@@ -2952,7 +2974,7 @@
           "policy",
           "tenant_id",
           "project_id",
-          "owner_id",
+          "user_id",
           "enabled",
           "can_enable",
           "can_disable",
@@ -3743,34 +3765,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -3782,9 +3824,9 @@
             "format": "uuid",
             "title": "Batch Id"
           },
-          "owner_id": {
+          "user_id": {
             "type": "string",
-            "title": "Owner Id"
+            "title": "User Id"
           },
           "script_id": {
             "type": "string",
@@ -4049,14 +4091,14 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "batch_id",
-          "owner_id",
+          "user_id",
           "script_id",
           "script_version_id",
           "config_number",
@@ -4123,34 +4165,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -4162,9 +4224,9 @@
             "format": "uuid",
             "title": "Batch Id"
           },
-          "owner_id": {
+          "user_id": {
             "type": "string",
-            "title": "Owner Id"
+            "title": "User Id"
           },
           "script_id": {
             "type": "string",
@@ -4422,14 +4484,14 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "batch_id",
-          "owner_id",
+          "user_id",
           "script_id",
           "script_version_id",
           "config_number",
@@ -4611,34 +4673,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -4652,9 +4734,9 @@
           "type": {
             "$ref": "#/components/schemas/ScriptType"
           },
-          "owner_id": {
+          "user_id": {
             "type": "string",
-            "title": "Owner Id"
+            "title": "User Id"
           },
           "revision": {
             "type": "integer",
@@ -4668,15 +4750,15 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "name",
           "type",
-          "owner_id",
+          "user_id",
           "revision",
           "latest_version"
         ],
@@ -4756,34 +4838,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -4821,11 +4923,11 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "batch_id",
           "config_number",
@@ -5020,34 +5122,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -5094,11 +5216,11 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "script_id",
           "version_number",
@@ -5147,34 +5269,54 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "created_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Created By Type"
-          },
           "created_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Created By"
+          },
+          "created_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Client"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
           },
-          "updated_by_type": {
-            "type": "string",
-            "enum": [
-              "USER",
-              "SYSTEM"
-            ],
-            "title": "Updated By Type"
-          },
           "updated_by": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updated By"
+          },
+          "updated_by_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Client"
           },
           "id": {
             "type": "string",
@@ -5214,11 +5356,11 @@
         "type": "object",
         "required": [
           "created_at",
-          "created_by_type",
           "created_by",
+          "created_by_client",
           "updated_at",
-          "updated_by_type",
           "updated_by",
+          "updated_by_client",
           "id",
           "script_id",
           "version_number",

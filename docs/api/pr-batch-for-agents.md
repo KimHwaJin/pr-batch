@@ -58,8 +58,8 @@ Read the key and base URL from configuration/environment variables. Never hard-c
 | without `X-User-Id` | every user's resources in the request tenant |
 | list + query `user_id` | the tenant's resources of that user. With `X-User-Id` too, it MUST be the same value, else 403 `FORBIDDEN` |
 
-- `user_id` is accepted on `GET /scripts` and `GET /batches`.
-- Never crosses tenants. Responses carry `owner_id` (scripts, batches, runs).
+- `user_id` is accepted on `GET /scripts` and `GET /batches` (case-insensitive; invalid format → 422 `VALIDATION_ERROR`).
+- Never crosses tenants. Responses carry the owner as `user_id` (scripts, batches, runs).
 - Writes always act as `X-User-Id` and only on that user's resources; a resource found by a tenant-wide read can be
   changed only with its owner's `X-User-Id`.
 - If you are writing code for an end user, always send `X-User-Id` (end users must see only their own resources).
@@ -194,10 +194,13 @@ UpdateBatch (PATCH) rules: send only fields to change; `{}` → 422; `name`/`scr
 `script_version_number: null` → re-pin latest; `schedule: null` → remove schedule (409 `SCHEDULE_REQUIRED` if enabled);
 `policy` is merged per section, a different `mode` resets that section to the new mode's defaults (bad merge → 422 `INVALID_POLICY`).
 
-BatchView fields to use for UI/logic: `owner_id`, `enabled`, `can_enable`, `can_disable`, `enable_blocked_reason`, `disabled_reason`
+Audit fields on every resource (same as the Executor): `created_by`/`updated_by` = the `X-User-Id` of the change (null for
+background work and admin operations), `created_by_client`/`updated_by_client` = the API key's client name (null for background work).
+
+BatchView fields to use for UI/logic: `user_id` (owner), `enabled`, `can_enable`, `can_disable`, `enable_blocked_reason`, `disabled_reason`
 (`OWNER` | `USER_DEACTIVATED` | `TENANT_REVOKED` | null), `next_run_at`, `preview_runs` (≤ 5), `revision`, `config_number`.
 
-RunView key fields: `id`, `owner_id`, `status`, `skip_reason`, `failure_type`, `cancel_requested`, `trigger` (`MANUAL`|`SCHEDULED`),
+RunView key fields: `id`, `user_id` (owner), `status`, `skip_reason`, `failure_type`, `cancel_requested`, `trigger` (`MANUAL`|`SCHEDULED`),
 `scheduled_for`, `execution_id`, `notebook_status`, `result.notebook_artifact_id`, `completed_at`.
 
 ## 10. State machines

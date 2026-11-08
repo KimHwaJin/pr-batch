@@ -191,7 +191,7 @@ IPython 문법도 원문으로 보관한다.
 ### 삭제
 
 스크립트와 배치는 **soft delete**다. 요건상 원본·버전·실행 이력을 지우지 않으므로 행과 PV 파일은 그대로 두고
-`deleted_at`·`deleted_by_type`·`deleted_by`만 기록한다. 삭제한 자원은 상세·목록·하위 경로(버전, 원본
+`deleted_at`·`deleted_by`·`deleted_by_client`만 기록한다. 삭제한 자원은 상세·목록·하위 경로(버전, 원본
 다운로드, 실행, 생략 구간)가 모두 404이고, 새 배치가 가리킬 수도 없다. 되살리는 API는 없다.
 
 | 대상 | 막히는 경우 (409) | 삭제 시 함께 일어나는 일 |
@@ -212,13 +212,13 @@ IPython 문법도 원문으로 보관한다.
 | 필드 | 의미 |
 | --- | --- |
 | `created_at`, `updated_at` | 생성·마지막 수정 시각 (UTC) |
-| `created_by_type`, `updated_by_type` | `USER`(로그인 사용자) 또는 `SYSTEM`(서비스 자체) |
-| `created_by`, `updated_by` | USER면 `X-User-Id`(호출 서비스가 확인한 사용자 ID, 소문자), SYSTEM이면 `scheduler` 또는 `dispatcher` |
+| `created_by`, `updated_by` | 요청의 `X-User-Id`(호출 서비스가 확인한 사용자 ID, 소문자). 운영 API·백그라운드 작업이면 `null` |
+| `created_by_client`, `updated_by_client` | 요청 key의 호출자 이름(`AUTH_CLIENTS.name`). 백그라운드 작업(스케줄러·처리기)이면 `null` |
 
-- Script·Batch처럼 사용자가 관리하는 자원은 항상 USER가 생성·수정한다. 스케줄러가 `next_run_at`을 옮기는 것은
+- Executor와 같은 규칙이다(2026-11-08, `*_by_type` 폐지). Script·Batch처럼 사용자가 관리하는 자원은 항상 사용자가 생성·수정한다. 스케줄러가 `next_run_at`을 옮기는 것은
   수정으로 보지 않아 `updated_*`가 바뀌지 않는다.
-- Run은 수동 실행이면 USER, 예약 실행이면 `SYSTEM / scheduler`가 생성한다. 실행 진행(상태·결과 반영)은
-  `SYSTEM / dispatcher`, 취소는 USER가 수정한 것으로 남는다. 새 정보가 없는 상태 조회는 수정이 아니다.
+- Run은 수동 실행이면 그 사용자·key가, 예약 실행이면 `null / null`로 생성된다. 실행 진행(상태·결과 반영)은
+  `null / null`, 취소는 그 사용자·key가 수정한 것으로 남는다. 새 정보가 없는 상태 조회는 수정이 아니다.
 - 버전·설정 이력처럼 바뀌지 않는 자원은 `updated_*`가 생성값과 같다.
 
 ## NOTEBOOK 처리 규칙
