@@ -37,7 +37,7 @@ erDiagram
   tenant·사용자의 자원은 존재하지 않는 것처럼(404) 보인다. 배치는 같은 tenant·사용자의 스크립트만 쓴다.
 - **Script와 Batch는 독립**이다. 스크립트 하나를 여러 배치가 쓸 수 있고, 배치는 스크립트의 특정 버전을 가리킨다.
 - **불변 자원**: ScriptVersion, BatchConfig, Run의 스냅샷. 한 번 만들어지면 바뀌지 않아서, 과거 실행이 "무슨 코드를 어떤 설정으로 돌렸는지" 항상 재현 가능하다.
-- **감사 필드**: 모든 자원 응답에 `created_at/by/by_type`, `updated_at/by/by_type`이 있다. 사람이 바꾸면 `USER`, 스케줄러·처리기가 바꾸면 `SYSTEM`([등록 API 안내](registration-api.md) 참고).
+- **감사 필드**: 모든 자원 응답에 `created_at/by/by_client`, `updated_at/by/by_client`이 있다(Executor와 같음). `*_by`는 `X-User-Id`, `*_by_client`는 key의 호출자 이름이고, 스케줄러·처리기가 바꾸면 둘 다 `null`이다([등록 API 안내](registration-api.md) 참고).
 - **실행 이력 자동 삭제 없음**(요건). 끝난 내부 Task와 만료된 멱등성 기록만 보존 기간 뒤 지운다([아키텍처](architecture.md#41-보존-정리)). 사용자가 Script·Batch를 삭제하면 API에서 사라지지만(soft delete) 원본 파일·버전·설정·실행 이력은 DB와 PV에 남는다([등록 API 안내](registration-api.md#삭제)).
 
 ## 2. 자원별 설명

@@ -1,7 +1,7 @@
 """Shared request/response building blocks."""
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import (
     AfterValidator,
@@ -63,18 +63,17 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-ActorType = Literal["USER", "SYSTEM"]
-
-
 class Audited(BaseModel):
-    """Standard audit fields present on every resource response."""
+    """Standard audit fields present on every resource response, as in the
+    Executor: the user (X-User-Id) and the API key's client name; both
+    null for background work (scheduler, dispatcher)."""
 
     created_at: datetime
-    created_by_type: ActorType
-    created_by: str
+    created_by: str | None
+    created_by_client: str | None
     updated_at: datetime
-    updated_by_type: ActorType
-    updated_by: str
+    updated_by: str | None
+    updated_by_client: str | None
 
 
 def audit_fields(record: object) -> dict[str, Any]:

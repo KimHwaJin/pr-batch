@@ -32,7 +32,7 @@
 | `policy` | Policy | 겹침·누락 정책 (기본값이 채워진 전체 값) |
 | `tenant_id` | string | 등록 때 정해진 tenant. 바뀌지 않는다 |
 | `project_id` | string \| null | 등록 때의 `X-Project-Id`. 바뀌지 않는다 |
-| `owner_id` | string | 등록한 사용자. 바뀌지 않는다 |
+| `user_id` | string | 소유자 (등록한 사용자). 바뀌지 않는다 |
 | `enabled` | bool | 예약 활성 여부 |
 | `can_enable` | bool | 지금 `enable`을 부르면 켜지는지. 이미 켜져 있으면 `false` |
 | `can_disable` | bool | 지금 `disable`을 부르면 꺼지는지 (= `enabled`) |
@@ -176,7 +176,7 @@ curl "$BATCH_URL/api/v1/batches" \
   },
   "tenant_id": "dtest-agent-service",
   "project_id": null,
-  "owner_id": "e12345",
+  "user_id": "e12345",
   "enabled": false,
   "can_enable": true,
   "can_disable": false,

@@ -26,7 +26,7 @@
 | `id` | UUID | 스크립트 ID |
 | `name` | string | 이름 (1~255자) |
 | `type` | `NOTEBOOK` | 스크립트 타입 |
-| `owner_id` | string | 업로드한 사용자 |
+| `user_id` | string | 소유자 (업로드한 사용자) |
 | `revision` | int | `If-Match`에 쓰는 값. 이름 변경·새 버전 생성·삭제 때 오른다 |
 | `latest_version` | VersionView | 가장 최근 버전 |
 | 감사 필드 | | [공통 응답 필드](00-common.md#7-공통-응답-필드) |
@@ -105,7 +105,7 @@ curl "$BATCH_URL/api/v1/scripts" \
   "id": "8d3c2f0e-6c1b-4a8e-9f6e-2d7b1c0a4e11",
   "name": "생산라인 일일 분석",
   "type": "NOTEBOOK",
-  "owner_id": "e12345",
+  "user_id": "e12345",
   "revision": 1,
   "latest_version": {
     "id": "0b9a7e52-2f4d-4c33-8a51-6f0e9d2c7b10",

@@ -505,9 +505,9 @@ def test_script_type_is_required_and_fixed(client):
 def test_resources_report_created_and_updated_by(client):
     script = upload_script(client).json()
     for record in (script, script["latest_version"]):
-        assert (record["created_by_type"], record["created_by"]) == (
-            "USER",
+        assert (record["created_by"], record["created_by_client"]) == (
             ALICE,
+            "pr-agentic-service",
         )
         assert record["updated_by"] == ALICE
     batch = create_batch(client, owner="bob").json()
@@ -749,11 +749,11 @@ def test_reads_without_a_user_cover_the_whole_tenant(client):
     alice = create_batch(client).json()
     bob = create_batch(client, key="bob", owner="bob").json()
     elsewhere = create_batch(client, key="far", tenant="agent3").json()
-    assert alice["owner_id"] == ALICE and bob["owner_id"] == BOB
+    assert alice["user_id"] == ALICE and bob["user_id"] == BOB
     batches = client.get(API, headers=TENANT_WIDE).json()["items"]
     assert {b["id"] for b in batches} == {alice["id"], bob["id"]}
     scripts = client.get(SCRIPTS, headers=TENANT_WIDE).json()["items"]
-    assert {s["owner_id"] for s in scripts} == {ALICE, BOB}
+    assert {s["user_id"] for s in scripts} == {ALICE, BOB}
     # Every single-resource read too, for any user of the tenant.
     script = f"{SCRIPTS}/{bob['script_id']}"
     version = bob["script_version_id"]
@@ -787,7 +787,7 @@ def test_user_id_filter_narrows_tenant_wide_lists(client):
         mine = client.get(
             path, params={"user_id": ALICE.upper()}, headers=TENANT_WIDE
         ).json()["items"]
-        assert [item["owner_id"] for item in mine] == [ALICE], path
+        assert [item["user_id"] for item in mine] == [ALICE], path
     filtered = client.get(
         API,
         params={"user_id": ALICE, "script_id": alice["script_id"]},

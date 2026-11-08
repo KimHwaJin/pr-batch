@@ -83,7 +83,7 @@ def batch_view(
         policy=policy_of(config),
         tenant_id=batch.tenant_id,
         project_id=batch.project_id,
-        owner_id=batch.owner_id,
+        user_id=batch.owner_id,
         enabled=batch.enabled,
         can_enable=not batch.enabled and blocked is None,
         can_disable=batch.enabled,
@@ -164,7 +164,7 @@ def stop_schedule(
     config: BatchConfig,
     now: datetime,
     reason: str,
-    actor: Actor | None = None,
+    actor: Actor,
 ) -> None:
     """Clear the next occurrence, recording it if it was already due."""
     if batch.next_run_at and batch.next_run_at <= now:
@@ -176,7 +176,7 @@ def stop_schedule(
             now + EPSILON,
             reason,
             now,
-            actor or Actor.user(batch.owner_id),
+            actor,
         )
     batch.next_run_at = None
     reset_schedule_failures(batch)
@@ -235,7 +235,7 @@ class BatchService:
             check_runtime(
                 data.runtime, script_type_of(session, version), available
             )
-            actor = Actor.user(owner.user_id)
+            actor = owner.actor
             now = database_now(session)
             batch = Batch(
                 id=uuid4(),
@@ -311,7 +311,7 @@ class BatchService:
                 if available is not None:
                     check_config_runtime(session, config, available)
             batch.revision += 1
-            batch.stamp_updated(Actor.user(owner.user_id), now)
+            batch.stamp_updated(owner.actor, now)
             return 200, self.view(
                 session, batch, config, config_version(session, config), now
             ).model_dump(mode="json")
@@ -367,7 +367,7 @@ class BatchService:
                         now + EPSILON,
                         "SCHEDULE_REPLACED",
                         now,
-                        Actor.user(owner.user_id),
+                        owner.actor,
                     )
                 batch.next_run_at = following
                 reset_schedule_failures(batch)
@@ -385,7 +385,7 @@ class BatchService:
             schedule=dump(schedule),
             policy=policy.model_dump(mode="json"),
         )
-        config.stamp_created(Actor.user(owner.user_id), now)
+        config.stamp_created(owner.actor, now)
         session.add(config)
         session.flush()
         return config
@@ -541,13 +541,15 @@ class BatchService:
                     batch.disabled_reason = None
                     batch.disabled_at = batch.disabled_by = None
                 else:
-                    stop_schedule(session, batch, config, now, "DISABLED")
+                    stop_schedule(
+                        session, batch, config, now, "DISABLED", owner.actor
+                    )
                     batch.disabled_reason = "OWNER"
                     batch.disabled_at = now
                     batch.disabled_by = identity.caller.client
                 batch.enabled = enabled
                 batch.revision += 1
-                batch.stamp_updated(Actor.user(owner.user_id), now)
+                batch.stamp_updated(owner.actor, now)
             return 200, self.view(
                 session, batch, config, config_version(session, config), now
             ).model_dump(mode="json")
@@ -618,7 +620,7 @@ class BatchService:
         *,
         mark_disabled: bool,
     ) -> DisabledCount:
-        actor = Actor("SYSTEM", caller)
+        actor = Actor(client=caller, user=None)
         with self.sessions.begin() as session:
             # Lock order everywhere: batch rows, then run rows.
             batches = list(
@@ -688,10 +690,12 @@ class BatchService:
             now = database_now(session)
             if batch.enabled:
                 config = current_config(session, batch)
-                stop_schedule(session, batch, config, now, "DELETED")
+                stop_schedule(
+                    session, batch, config, now, "DELETED", owner.actor
+                )
                 batch.enabled = False
             batch.revision += 1
-            batch.stamp_deleted(Actor.user(owner.user_id), now)
+            batch.stamp_deleted(owner.actor, now)
             return 204, {}
 
         return self.idempotency.run(

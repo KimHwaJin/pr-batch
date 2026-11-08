@@ -569,14 +569,11 @@ def test_schedule_is_optional_but_required_to_enable(client, scheduling):
 
 def test_scheduled_runs_are_created_by_the_system(client, scheduling):
     batch = enabled_batch(client)
-    assert batch["created_by_type"] == "USER"
+    assert batch["created_by_client"] == "pr-agentic-service"
     assert batch["updated_by"] == ALICE
     assert scheduling.tick(now=first_at(batch))
     run = runs(client, batch)[0]
-    assert (run["created_by_type"], run["created_by"]) == (
-        "SYSTEM",
-        "scheduler",
-    )
+    assert (run["created_by"], run["created_by_client"]) == (None, None)
     # Moving next_run_at is scheduler bookkeeping, not a batch update.
     assert get_batch(client, batch)["updated_at"] == batch["updated_at"]
     window = client.post(
@@ -587,9 +584,9 @@ def test_scheduled_runs_are_created_by_the_system(client, scheduling):
             "If-Match": f'"{batch["revision"]}"',
         },
     ).json()
-    assert (window["updated_by_type"], window["updated_by"]) == (
-        "USER",
+    assert (window["updated_by"], window["updated_by_client"]) == (
         ALICE,
+        "pr-agentic-service",
     )
 
 

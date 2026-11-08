@@ -853,20 +853,21 @@ def test_audit_fields_follow_who_changed_the_run(client, execution):
     fake, worker = execution
     batch = create_batch(client).json()
     run = run_request(client, batch["id"]).json()
-    assert (run["created_by_type"], run["created_by"]) == ("USER", ALICE)
+    assert (run["created_by"], run["created_by_client"]) == (
+        ALICE,
+        "pr-agentic-service",
+    )
     assert run["updated_by"] == ALICE
     tick(worker, run)
     detail = run_get(client, run).json()
-    assert (detail["updated_by_type"], detail["updated_by"]) == (
-        "SYSTEM",
-        "dispatcher",
-    )
+    # Background work records neither a user nor a client.
+    assert (detail["updated_by"], detail["updated_by_client"]) == (None, None)
     assert detail["updated_at"] > run["updated_at"]
     assert detail["created_by"] == ALICE
     cancelled = command(client, run, "cancel", "cancel").json()
-    assert (cancelled["updated_by_type"], cancelled["updated_by"]) == (
-        "USER",
+    assert (cancelled["updated_by"], cancelled["updated_by_client"]) == (
         ALICE,
+        "pr-agentic-service",
     )
 
 
@@ -1643,7 +1644,7 @@ def test_submit_failures_log_batch_run_and_status(client, execution, caplog):
 def test_tenant_wide_reads_show_every_users_runs(client, execution):
     batch = create_batch(client, key="bob", owner="bob").json()
     run = run_request(client, batch["id"], owner="bob").json()
-    assert run["owner_id"] == user_id("bob")
+    assert run["user_id"] == user_id("bob")
     tenant_wide = {"X-Api-Key": CALLER_KEY}
     listed = client.get(f"{API}/{batch['id']}/runs", headers=tenant_wide)
     assert [r["id"] for r in listed.json()["items"]] == [run["id"]]
@@ -1651,7 +1652,7 @@ def test_tenant_wide_reads_show_every_users_runs(client, execution):
         f"{API}/{batch['id']}/runs/{run['id']}", headers=tenant_wide
     )
     assert detail.status_code == 200
-    assert detail.json()["owner_id"] == user_id("bob")
+    assert detail.json()["user_id"] == user_id("bob")
     # Another user naming themselves sees neither; nor can anyone act
     # without naming the owner.
     assert run_get(client, run).status_code == 404

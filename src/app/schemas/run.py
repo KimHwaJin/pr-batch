@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import Audited, Contract
 
@@ -30,11 +30,11 @@ class ResultRefs(BaseModel):
 
 
 class RunView(Audited, BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
     id: UUID
     batch_id: UUID
     # The batch owner, as whom the Executor runs it.
-    owner_id: str
+    user_id: str = Field(validation_alias="owner_id")
     script_id: UUID
     script_version_id: UUID
     config_number: int
