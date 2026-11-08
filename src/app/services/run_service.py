@@ -30,6 +30,7 @@ from app.schemas.run import (
 )
 from app.schemas.schedule import concurrency
 from app.services.common import (
+    Scope,
     before_cursor,
     current_config,
     encode_cursor,
@@ -268,18 +269,20 @@ class RunService:
     def owned_run(
         self,
         session: Session,
-        owner: Principal,
+        owner: Scope,
         batch_id: UUID,
         run_id: UUID,
         *,
         lock: bool = False,
     ) -> BatchRun:
-        """Callers check the batch first, which scopes it to the tenant."""
+        """Callers check the batch first, which scopes it to the tenant
+        (and its owner, so a run is the batch owner's)."""
         query = select(BatchRun).where(
             BatchRun.id == run_id,
             BatchRun.batch_id == batch_id,
-            BatchRun.owner_id == owner.user_id,
         )
+        if owner.user_id is not None:
+            query = query.where(BatchRun.owner_id == owner.user_id)
         if lock:
             query = query.with_for_update()
         run = session.scalar(query)
@@ -340,7 +343,7 @@ class RunService:
             owner, f"run:cancel:{run_id}", key, {}, action
         )
 
-    def get(self, owner: Principal, batch_id: UUID, run_id: UUID) -> RunDetail:
+    def get(self, owner: Scope, batch_id: UUID, run_id: UUID) -> RunDetail:
         with self.sessions() as session:
             owned_batch(session, owner, batch_id)
             run = self.owned_run(session, owner, batch_id, run_id)
@@ -355,14 +358,12 @@ class RunService:
             )
 
     def list(
-        self, owner: Principal, batch_id: UUID, limit: int, cursor: str | None
+        self, owner: Scope, batch_id: UUID, limit: int, cursor: str | None
     ) -> RunPage:
         with self.sessions() as session:
             owned_batch(session, owner, batch_id)
-            query = select(BatchRun).where(
-                BatchRun.batch_id == batch_id,
-                BatchRun.owner_id == owner.user_id,
-            )
+            # The batch was checked above; its runs are its owner's.
+            query = select(BatchRun).where(BatchRun.batch_id == batch_id)
             if cursor:
                 query = query.where(
                     before_cursor(BatchRun.created_at, BatchRun.id, cursor)

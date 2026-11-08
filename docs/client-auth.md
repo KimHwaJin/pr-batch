@@ -8,6 +8,8 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 
 - 모든 `/api/v1/*` 요청에 `X-Api-Key`(호출 서비스 key)와 `X-User-Id`(대신하는 사용자)를 넣는다.
   `/healthz`, `/readyz`만 예외다. `GET /runtimes`, `POST /batches:disable-by-owner`, `POST /batches:disable-by-tenant`는 `X-User-Id`가 필요 없다.
+- 읽기(GET)는 `X-User-Id`를 빼면 그 tenant 전체를 조회한다(Executor와 같은 규칙). 목록은 쿼리 `user_id`로 거를 수 있고,
+  `X-User-Id`와 다르면 403이다. 쓰기는 항상 `X-User-Id`가 필요하다. 자세한 내용은 [API 공통 규칙](api/00-common.md#조회-범위-읽기).
 - pr-batch는 key 원문을 갖지 않는다. 설정 `AUTH_CLIENTS`에 key의 **SHA-256 해시**만 두고 상수 시간으로 비교한다.
 - tenant는 key로 정해진다(중계자 key는 `X-Tenant-Id`로 고른다). 모든 자원은 Executor처럼 **tenant + 사용자** 소유이고,
   tenant는 배치 실행 이벤트를 받을 Executor tenant이기도 하다. 본문에 `tenant_id`를 보내면 422다.
@@ -19,7 +21,7 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 | 헤더 | 필수 | 형식 | 설명 |
 | --- | --- | --- | --- |
 | `X-Api-Key` | 필수 | 512자 이하 | 호출 서비스 key. 모르는 key는 401 |
-| `X-User-Id` | 필수 (위 두 API 제외) | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자의 **SSO 사번**(세 서비스 공통). 사람이 아닌 호출은 사번과 겹치지 않는 접두어(예: `svc-…`)를 쓴다. `E12345`와 `e12345`는 같은 사용자다 |
+| `X-User-Id` | 쓰기 필수, 읽기 선택 (위 세 API는 불필요) | 소문자로 바꾼 뒤 `^[a-z0-9][a-z0-9._-]{0,63}$` | 대신하는 사용자의 **SSO 사번**(세 서비스 공통). 사람이 아닌 호출은 사번과 겹치지 않는 접두어(예: `svc-…`)를 쓴다. `E12345`와 `e12345`는 같은 사용자다 |
 | `X-Project-Id` | 선택 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, `unscoped` 불가 | 배치 등록 때만 저장한다. 수정 요청에서는 무시한다 |
 | `X-Tenant-Id` | 선택 | Executor tenant 규칙 | 중계자(`relay`) key만, `allowed_tenants` 안의 값만 쓸 수 있다 |
 | `X-Session-Id` | — | — | 보내도 무시한다 |

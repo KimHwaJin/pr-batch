@@ -160,6 +160,24 @@
             }
           },
           {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this user's resources. With X-User-Id it must be the same user (403 otherwise).",
+              "title": "User Id"
+            },
+            "description": "Only this user's resources. With X-User-Id it must be the same user (403 otherwise)."
+          },
+          {
             "name": "X-User-Id",
             "in": "header",
             "required": false,
@@ -172,10 +190,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -274,10 +292,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -774,10 +792,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -886,10 +904,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -998,10 +1016,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -1234,6 +1252,24 @@
             }
           },
           {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this user's resources. With X-User-Id it must be the same user (403 otherwise).",
+              "title": "User Id"
+            },
+            "description": "Only this user's resources. With X-User-Id it must be the same user (403 otherwise)."
+          },
+          {
             "name": "X-User-Id",
             "in": "header",
             "required": false,
@@ -1246,10 +1282,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -1482,10 +1518,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -2108,10 +2144,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -2368,10 +2404,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -2480,10 +2516,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Required. User the caller acts for.",
+              "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant.",
               "title": "X-User-Id"
             },
-            "description": "Required. User the caller acts for."
+            "description": "Optional on reads. Sent: that user's resources only. Omitted: every resource of the tenant."
           },
           {
             "name": "X-Project-Id",
@@ -2818,6 +2854,10 @@
             ],
             "title": "Project Id"
           },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id"
+          },
           "enabled": {
             "type": "boolean",
             "title": "Enabled"
@@ -2912,6 +2952,7 @@
           "policy",
           "tenant_id",
           "project_id",
+          "owner_id",
           "enabled",
           "can_enable",
           "can_disable",
@@ -3741,6 +3782,10 @@
             "format": "uuid",
             "title": "Batch Id"
           },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id"
+          },
           "script_id": {
             "type": "string",
             "format": "uuid",
@@ -4011,6 +4056,7 @@
           "updated_by",
           "id",
           "batch_id",
+          "owner_id",
           "script_id",
           "script_version_id",
           "config_number",
@@ -4115,6 +4161,10 @@
             "type": "string",
             "format": "uuid",
             "title": "Batch Id"
+          },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id"
           },
           "script_id": {
             "type": "string",
@@ -4379,6 +4429,7 @@
           "updated_by",
           "id",
           "batch_id",
+          "owner_id",
           "script_id",
           "script_version_id",
           "config_number",
@@ -4601,6 +4652,10 @@
           "type": {
             "$ref": "#/components/schemas/ScriptType"
           },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id"
+          },
           "revision": {
             "type": "integer",
             "title": "Revision"
@@ -4621,6 +4676,7 @@
           "id",
           "name",
           "type",
+          "owner_id",
           "revision",
           "latest_version"
         ],

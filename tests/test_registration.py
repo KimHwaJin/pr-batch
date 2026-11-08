@@ -740,3 +740,92 @@ def test_upload_files_are_removed_when_the_write_rolls_back(
             Principal("dtest-agent-service", ALICE), "k", None, parsed
         )
     assert not any(settings.storage_root.rglob("original.ipynb"))
+
+
+TENANT_WIDE = {"X-Api-Key": CALLER_KEY}  # reads without X-User-Id
+
+
+def test_reads_without_a_user_cover_the_whole_tenant(client):
+    alice = create_batch(client).json()
+    bob = create_batch(client, key="bob", owner="bob").json()
+    elsewhere = create_batch(client, key="far", tenant="agent3").json()
+    assert alice["owner_id"] == ALICE and bob["owner_id"] == BOB
+    batches = client.get(API, headers=TENANT_WIDE).json()["items"]
+    assert {b["id"] for b in batches} == {alice["id"], bob["id"]}
+    scripts = client.get(SCRIPTS, headers=TENANT_WIDE).json()["items"]
+    assert {s["owner_id"] for s in scripts} == {ALICE, BOB}
+    # Every single-resource read too, for any user of the tenant.
+    script = f"{SCRIPTS}/{bob['script_id']}"
+    version = bob["script_version_id"]
+    for path in (
+        f"{API}/{bob['id']}",
+        f"{API}/{bob['id']}/skipped-windows",
+        script,
+        f"{script}/versions",
+        f"{script}/versions/{version}",
+        f"{script}/versions/{version}/content",
+    ):
+        assert client.get(path, headers=TENANT_WIDE).status_code == 200, path
+    assert (
+        client.get(f"{API}/{bob['id']}", headers=TENANT_WIDE).headers["ETag"]
+        == f'"{bob["revision"]}"'
+    )
+    # Never another tenant's; X-Tenant-Id picks the tenant as on writes.
+    far = f"{API}/{elsewhere['id']}"
+    assert client.get(far, headers=TENANT_WIDE).status_code == 404
+    other = {**TENANT_WIDE, "X-Tenant-Id": "agent3"}
+    assert client.get(far, headers=other).status_code == 200
+    assert [
+        b["id"] for b in client.get(API, headers=other).json()["items"]
+    ] == [elsewhere["id"]]
+
+
+def test_user_id_filter_narrows_tenant_wide_lists(client):
+    alice = create_batch(client).json()
+    create_batch(client, key="bob", owner="bob")
+    for path in (API, SCRIPTS):
+        mine = client.get(
+            path, params={"user_id": ALICE.upper()}, headers=TENANT_WIDE
+        ).json()["items"]
+        assert [item["owner_id"] for item in mine] == [ALICE], path
+    filtered = client.get(
+        API,
+        params={"user_id": ALICE, "script_id": alice["script_id"]},
+        headers=TENANT_WIDE,
+    ).json()["items"]
+    assert [b["id"] for b in filtered] == [alice["id"]]
+    # With X-User-Id the filter may only repeat it.
+    same = client.get(API, params={"user_id": ALICE}, headers=token())
+    assert [b["id"] for b in same.json()["items"]] == [alice["id"]]
+    other = client.get(API, params={"user_id": BOB}, headers=token())
+    assert other.status_code == 403
+    assert other.json()["error"]["code"] == "FORBIDDEN"
+
+
+def test_writes_stay_with_the_named_user(client):
+    """Tenant-wide reads do not open other users' resources to writes."""
+    bob = create_batch(client, key="bob", owner="bob").json()
+    for method, path, extra in (
+        ("PATCH", f"{API}/{bob['id']}", {"json": {"name": "mine"}}),
+        ("DELETE", f"{API}/{bob['id']}", {}),
+        ("POST", f"{API}/{bob['id']}/enable", {}),
+        ("DELETE", f"{SCRIPTS}/{bob['script_id']}", {}),
+    ):
+        response = client.request(
+            method,
+            path,
+            headers={**token(), "Idempotency-Key": path, "If-Match": '"1"'},
+            **extra,
+        )
+        assert response.status_code == 404, (method, path)
+        response = client.request(
+            method,
+            path,
+            headers={
+                **TENANT_WIDE,
+                "Idempotency-Key": path,
+                "If-Match": '"1"',
+            },
+            **extra,
+        )
+        assert response.status_code == 400, (method, path)

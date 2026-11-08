@@ -12,12 +12,15 @@ from app.core.security import (
     Caller,
     Identity,
     Principal,
+    ReadScope,
     admin_caller,
     admin_named_tenant,
     admin_tenants,
     current_caller,
     current_identity,
     current_owner,
+    list_scope,
+    read_scope,
 )
 from app.domain.script_parser import parse_script
 from app.domain.scripts import ParsedScript, ScriptType
@@ -28,6 +31,9 @@ from app.services.runtime_catalog import RuntimeCatalog
 from app.services.script_service import ScriptService
 
 Owner = Annotated[Principal, Depends(current_owner)]
+# Reads: X-User-Id optional (omitted: the whole tenant); lists add user_id.
+Reader = Annotated[ReadScope, Depends(read_scope)]
+Lister = Annotated[ReadScope, Depends(list_scope)]
 Ident = Annotated[Identity, Depends(current_identity)]
 KeyCaller = Annotated[Caller, Depends(current_caller)]
 AdminCaller = Annotated[Caller, Depends(admin_caller)]

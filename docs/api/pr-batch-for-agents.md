@@ -6,7 +6,7 @@
 > `openapi.json` and MUST be followed.
 >
 > Human-readable Korean docs: `00-common.md` … `04-runs.md` in the same folder.
-> Source of truth: pr-batch `src/app/api/v1/*.py`, `src/app/schemas/*.py` (commit `9dc4cd9`).
+> Source of truth: pr-batch `src/app/api/v1/*.py`, `src/app/schemas/*.py` (tenant-wide reads added 2026-11-08).
 
 ## 1. What pr-batch is
 
@@ -41,7 +41,7 @@ Read the key and base URL from configuration/environment variables. Never hard-c
 | Header | Rule |
 | --- | --- |
 | `X-Api-Key` | MUST be sent on every `/api/v1` request, in every environment. Missing/unknown → 401 `UNAUTHENTICATED` |
-| `X-User-Id` | MUST be sent on every endpoint except `GET /runtimes`, `POST /batches:disable-by-owner`, `POST /batches:disable-by-tenant`. Pattern after lower-casing: `^[a-z0-9][a-z0-9._-]{0,63}$` (SSO employee id). Missing/invalid → 400 `INVALID_IDENTITY` |
+| `X-User-Id` | MUST be sent on every write (POST/PATCH/DELETE) except the two admin endpoints. Optional on reads (GET): sent → that user's resources only; omitted → every resource of the tenant (see §3.1). Pattern after lower-casing: `^[a-z0-9][a-z0-9._-]{0,63}$` (SSO employee id). Missing on a write / invalid → 400 `INVALID_IDENTITY` |
 | `Idempotency-Key` | MUST be sent on every POST/PATCH/DELETE except the two admin endpoints. 1–255 printable ASCII chars, no spaces (`^[!-~]+$`). Use `uuid4()`. Missing → 422 |
 | `If-Match` | MUST be sent on: `PATCH /scripts/{id}`, `DELETE /scripts/{id}`, `PATCH /batches/{id}`, `DELETE /batches/{id}`, `POST /batches/{id}/enable`, `POST /batches/{id}/disable`. Value is the `ETag` header **including double quotes**, e.g. `"3"` |
 | `X-Tenant-Id` | Send ONLY with a relay key. If you created a resource with `X-Tenant-Id`, you MUST send the same value on every later call for it, or you get 404. Non-relay key + this header → 403 |
@@ -49,6 +49,21 @@ Read the key and base URL from configuration/environment variables. Never hard-c
 
 - MUST NOT put `tenant_id` (or any unknown field) in a JSON body → 422 `VALIDATION_ERROR`. All bodies reject unknown fields.
 - MUST NOT forward `X-User-Id` from a browser or upstream caller unverified; build it from the user your service authenticated.
+
+### 3.1 Read scope (same rule as the Executor)
+
+| Read request | Returns |
+| --- | --- |
+| with `X-User-Id` | only that user's resources |
+| without `X-User-Id` | every user's resources in the request tenant |
+| list + query `user_id` | the tenant's resources of that user. With `X-User-Id` too, it MUST be the same value, else 403 `FORBIDDEN` |
+
+- `user_id` is accepted on `GET /scripts` and `GET /batches`.
+- Never crosses tenants. Responses carry `owner_id` (scripts, batches, runs).
+- Writes always act as `X-User-Id` and only on that user's resources; a resource found by a tenant-wide read can be
+  changed only with its owner's `X-User-Id`.
+- If you are writing code for an end user, always send `X-User-Id` (end users must see only their own resources).
+  Omit it only for an operator/"master" view that your gateway has authorized.
 
 ## 4. Idempotency and retries — MUST
 
@@ -98,13 +113,13 @@ Every error has one shape:
 
 ## 8. Endpoints (24)
 
-`*` = needs `Idempotency-Key`; `M` = needs `If-Match`; paths are under `/api/v1`.
+`*` = needs `Idempotency-Key`; `M` = needs `If-Match`; paths are under `/api/v1`. Every `*` route needs `X-User-Id`; GET routes take it optionally (§3.1).
 
 | # | Method | Path | Body | Success | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 1 | GET | `/runtimes` | — | 200 `{"items":[{"type":"JUPYTER","profile":str}]}` | No `X-User-Id` |
 | 2 | POST* | `/scripts` | multipart: `file` (.ipynb), `type`=`NOTEBOOK`, `name`? | 201 ScriptView | |
-| 3 | GET | `/scripts` | `?limit&cursor` | 200 ScriptPage | |
+| 3 | GET | `/scripts` | `?limit&cursor&user_id` | 200 ScriptPage | |
 | 4 | GET | `/scripts/{script_id}` | — | 200 ScriptView + ETag | |
 | 5 | PATCH*M | `/scripts/{script_id}` | `{"name": str}` | 200 ScriptView | |
 | 6 | DELETE*M | `/scripts/{script_id}` | — | 204 | 409 `SCRIPT_IN_USE`, `SCRIPT_HAS_ACTIVE_RUNS` |
@@ -113,7 +128,7 @@ Every error has one shape:
 | 9 | GET | `/scripts/{script_id}/versions/{version_id}` | — | 200 VersionDetail | |
 | 10 | GET | `/scripts/{script_id}/versions/{version_id}/content` | — | 200 raw `.ipynb` bytes | |
 | 11 | POST* | `/batches` | CreateBatch | 201 BatchView (`enabled:false`) | |
-| 12 | GET | `/batches` | `?limit&cursor&script_id` | 200 BatchPage | |
+| 12 | GET | `/batches` | `?limit&cursor&script_id&user_id` | 200 BatchPage | |
 | 13 | GET | `/batches/{batch_id}` | — | 200 BatchView + ETag | |
 | 14 | PATCH*M | `/batches/{batch_id}` | UpdateBatch (partial) | 200 BatchView | |
 | 15 | DELETE*M | `/batches/{batch_id}` | — | 204 | 409 `BATCH_HAS_ACTIVE_RUNS` |
@@ -179,10 +194,10 @@ UpdateBatch (PATCH) rules: send only fields to change; `{}` → 422; `name`/`scr
 `script_version_number: null` → re-pin latest; `schedule: null` → remove schedule (409 `SCHEDULE_REQUIRED` if enabled);
 `policy` is merged per section, a different `mode` resets that section to the new mode's defaults (bad merge → 422 `INVALID_POLICY`).
 
-BatchView fields to use for UI/logic: `enabled`, `can_enable`, `can_disable`, `enable_blocked_reason`, `disabled_reason`
+BatchView fields to use for UI/logic: `owner_id`, `enabled`, `can_enable`, `can_disable`, `enable_blocked_reason`, `disabled_reason`
 (`OWNER` | `USER_DEACTIVATED` | `TENANT_REVOKED` | null), `next_run_at`, `preview_runs` (≤ 5), `revision`, `config_number`.
 
-RunView key fields: `id`, `status`, `skip_reason`, `failure_type`, `cancel_requested`, `trigger` (`MANUAL`|`SCHEDULED`),
+RunView key fields: `id`, `owner_id`, `status`, `skip_reason`, `failure_type`, `cancel_requested`, `trigger` (`MANUAL`|`SCHEDULED`),
 `scheduled_for`, `execution_id`, `notebook_status`, `result.notebook_artifact_id`, `completed_at`.
 
 ## 10. State machines
@@ -218,16 +233,21 @@ Cancel of QUEUED/RUNNING returns 202 with `cancel_requested: true` and the **sam
 
 ```python
 """Minimal pr-batch client. Copy and adapt; keep the rules in comments."""
+
 import os
 import time
 import uuid
 
 import httpx
 
-BATCH_URL = os.environ["BATCH_URL"]          # e.g. http://pr-batch:8000
+BATCH_URL = os.environ["BATCH_URL"]  # e.g. http://pr-batch:8000
 BATCH_API_KEY = os.environ["BATCH_API_KEY"]  # never hard-code
 FINAL = {"COMPLETED", "FAILED", "CANCELLED", "SKIPPED"}
-RETRYABLE_503 = {"DATABASE_UNAVAILABLE", "STORAGE_UNAVAILABLE", "INCONSISTENT_STATE"}
+RETRYABLE_503 = {
+    "DATABASE_UNAVAILABLE",
+    "STORAGE_UNAVAILABLE",
+    "INCONSISTENT_STATE",
+}
 
 
 class BatchError(Exception):
@@ -238,13 +258,24 @@ class BatchError(Exception):
 
 def client(user_id: str, tenant_id: str | None = None) -> httpx.Client:
     headers = {"X-Api-Key": BATCH_API_KEY, "X-User-Id": user_id}
-    if tenant_id:  # relay keys only; keep sending it for resources created with it
+    # Relay keys only; keep sending it for resources created with it.
+    if tenant_id:
         headers["X-Tenant-Id"] = tenant_id
-    return httpx.Client(base_url=f"{BATCH_URL}/api/v1", headers=headers, timeout=30)
+    return httpx.Client(
+        base_url=f"{BATCH_URL}/api/v1", headers=headers, timeout=30
+    )
 
 
-def call(api: httpx.Client, method: str, path: str, *, write: bool = False,
-         if_match: str | None = None, attempts: int = 4, **kwargs) -> httpx.Response:
+def call(
+    api: httpx.Client,
+    method: str,
+    path: str,
+    *,
+    write: bool = False,
+    if_match: str | None = None,
+    attempts: int = 4,
+    **kwargs,
+) -> httpx.Response:
     """One logical operation. Writes reuse ONE Idempotency-Key across retries."""
     headers = dict(kwargs.pop("headers", {}))
     if write:
@@ -257,32 +288,62 @@ def call(api: httpx.Client, method: str, path: str, *, write: bool = False,
         except httpx.TransportError:
             if attempt == attempts - 1:
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
             continue
-        body = response.json() if response.headers.get("content-type", "").startswith("application/json") else None
+        body = (
+            response.json()
+            if response.headers.get("content-type", "").startswith(
+                "application/json"
+            )
+            else None
+        )
         error = body.get("error") if isinstance(body, dict) else None
-        if error and response.status_code == 503 and error["code"] in RETRYABLE_503 and attempt < attempts - 1:
-            time.sleep(2 ** attempt)
+        if (
+            error
+            and response.status_code == 503
+            and error["code"] in RETRYABLE_503
+            and attempt < attempts - 1
+        ):
+            time.sleep(2**attempt)
             continue
         if error:
-            raise BatchError(response.status_code, error["code"], error["message"], error["details"])
-        return response  # includes 409 RunView from POST /runs (no "error" key)
+            raise BatchError(
+                response.status_code,
+                error["code"],
+                error["message"],
+                error["details"],
+            )
+        return (
+            response  # includes 409 RunView from POST /runs (no "error" key)
+        )
     raise RuntimeError("unreachable")
 
 
-def upload_notebook(api: httpx.Client, path: str, name: str | None = None) -> dict:
+def upload_notebook(
+    api: httpx.Client, path: str, name: str | None = None
+) -> dict:
     with open(path, "rb") as f:
         data = {"type": "NOTEBOOK", **({"name": name} if name else {})}
-        files = {"file": (os.path.basename(path), f, "application/x-ipynb+json")}
-        return call(api, "POST", "/scripts", write=True, data=data, files=files).json()
+        files = {
+            "file": (os.path.basename(path), f, "application/x-ipynb+json")
+        }
+        return call(
+            api, "POST", "/scripts", write=True, data=data, files=files
+        ).json()
 
 
-def create_batch(api: httpx.Client, script_id: str, name: str, cron: str | None = None) -> dict:
-    runtime = call(api, "GET", "/runtimes").json()["items"][0]  # pick an item verbatim
+def create_batch(
+    api: httpx.Client, script_id: str, name: str, cron: str | None = None
+) -> dict:
+    runtime = call(api, "GET", "/runtimes").json()["items"][
+        0
+    ]  # pick an item verbatim
     body = {"name": name, "script_id": script_id, "runtime": runtime}
     if cron:
         body["schedule"] = {"definition": {"kind": "CRON", "expression": cron}}
-    return call(api, "POST", "/batches", write=True, json=body).json()  # enabled: false
+    return call(
+        api, "POST", "/batches", write=True, json=body
+    ).json()  # enabled: false
 
 
 def enable_batch(api: httpx.Client, batch_id: str) -> dict:
@@ -292,11 +353,18 @@ def enable_batch(api: httpx.Client, batch_id: str) -> dict:
         return batch
     if not batch["can_enable"]:
         raise RuntimeError(f"cannot enable: {batch['enable_blocked_reason']}")
-    return call(api, "POST", f"/batches/{batch_id}/enable", write=True,
-                if_match=current.headers["ETag"]).json()
+    return call(
+        api,
+        "POST",
+        f"/batches/{batch_id}/enable",
+        write=True,
+        if_match=current.headers["ETag"],
+    ).json()
 
 
-def run_and_wait(api: httpx.Client, batch_id: str, poll_seconds: float = 5) -> dict:
+def run_and_wait(
+    api: httpx.Client, batch_id: str, poll_seconds: float = 5
+) -> dict:
     run = call(api, "POST", f"/batches/{batch_id}/runs", write=True).json()
     while run["status"] not in FINAL:
         time.sleep(max(poll_seconds, 5))
@@ -308,8 +376,14 @@ def rename_batch(api: httpx.Client, batch_id: str, name: str) -> dict:
     for _ in range(3):
         current = call(api, "GET", f"/batches/{batch_id}")
         try:
-            return call(api, "PATCH", f"/batches/{batch_id}", write=True,
-                        if_match=current.headers["ETag"], json={"name": name}).json()
+            return call(
+                api,
+                "PATCH",
+                f"/batches/{batch_id}",
+                write=True,
+                if_match=current.headers["ETag"],
+                json={"name": name},
+            ).json()
         except BatchError as e:
             if e.code != "REVISION_CONFLICT":
                 raise
@@ -319,7 +393,12 @@ def rename_batch(api: httpx.Client, batch_id: str, name: str) -> dict:
 def iterate(api: httpx.Client, path: str, **params):
     cursor = None
     while True:
-        page = call(api, "GET", path, params={**params, **({"cursor": cursor} if cursor else {})}).json()
+        page = call(
+            api,
+            "GET",
+            path,
+            params={**params, **({"cursor": cursor} if cursor else {})},
+        ).json()
         yield from page["items"]
         if not (cursor := page["next_cursor"]):
             return
@@ -328,10 +407,12 @@ def iterate(api: httpx.Client, path: str, **params):
 # Typical flow
 with client("e12345") as api:
     script = upload_notebook(api, "daily.ipynb", "Daily line report")
-    batch = create_batch(api, script["id"], "Weekdays 08:00", cron="0 8 * * MON-FRI")
-    result = run_and_wait(api, batch["id"])      # one manual run first
+    batch = create_batch(
+        api, script["id"], "Weekdays 08:00", cron="0 8 * * MON-FRI"
+    )
+    result = run_and_wait(api, batch["id"])  # one manual run first
     if result["status"] == "COMPLETED":
-        enable_batch(api, batch["id"])           # then turn the schedule on
+        enable_batch(api, batch["id"])  # then turn the schedule on
 ```
 
 Delete flow: a script cannot be deleted while a non-deleted batch uses it (409 `SCRIPT_IN_USE`); a batch cannot be
@@ -366,7 +447,7 @@ Uploading identical bytes as a new version returns the existing version with 200
 ## 14. Common mistakes — checklist for generated code
 
 - [ ] `X-Api-Key` sent on every call (also in local/dev).
-- [ ] `X-User-Id` sent on all user endpoints; lower-case is fine; not taken from an unverified upstream header.
+- [ ] `X-User-Id` sent on every write and on end-user reads; omitted only for an authorized tenant-wide view; never taken from an unverified upstream header.
 - [ ] New `Idempotency-Key` per operation, **same** key across retries of that operation.
 - [ ] `If-Match` value copied from `ETag` **with quotes**; refreshed after every write.
 - [ ] No `tenant_id`, `enabled`, `id` or other unknown fields in JSON bodies.
@@ -378,5 +459,6 @@ Uploading identical bytes as a new version returns the existing version with 200
 - [ ] Policy section contains only fields of its `mode`.
 - [ ] Polling interval ≥ 5 s; stop on `COMPLETED`/`FAILED`/`CANCELLED`/`SKIPPED`.
 - [ ] Branch on `error.code`, not on `message`.
+- [ ] Tenant-wide list filters use query `user_id`; never send a `user_id` different from `X-User-Id`.
 - [ ] Result notebook downloaded from the Executor, not pr-batch.
 - [ ] Admin endpoints (`:disable-by-owner`, `:disable-by-tenant`) are not used by end-user features.

@@ -14,7 +14,9 @@ from app.api.deps import (
     Ident,
     Key,
     Limit,
+    Lister,
     Owner,
+    Reader,
     Revision,
     mutation_response,
 )
@@ -80,7 +82,7 @@ def disable_by_tenant(
 
 @router.get("", response_model=BatchPage)
 def list_batches(
-    owner: Owner,
+    owner: Lister,
     service: Batches,
     limit: Limit = 50,
     cursor: Cursor = None,
@@ -91,7 +93,7 @@ def list_batches(
 
 @router.get("/{batch_id}", response_model=BatchView)
 def get_batch(
-    response: Response, owner: Owner, service: Batches, batch_id: UUID
+    response: Response, owner: Reader, service: Batches, batch_id: UUID
 ) -> BatchView:
     batch = service.get_batch(owner, batch_id)
     response.headers["ETag"] = f'"{batch.revision}"'
@@ -153,7 +155,7 @@ def disable_batch(
 
 @router.get("/{batch_id}/skipped-windows", response_model=SkippedPage)
 def list_skipped_windows(
-    owner: Owner,
+    owner: Reader,
     service: Batches,
     batch_id: UUID,
     limit: Limit = 50,

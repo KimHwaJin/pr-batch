@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Annotated, cast
 
-from fastapi import Depends, Header, Request, Security
+from fastapi import Depends, Header, Query, Request, Security
 from fastapi.security import APIKeyHeader
 from pydantic import TypeAdapter, ValidationError
 
@@ -69,6 +69,20 @@ class Principal:
 
     tenant: str
     user_id: str
+
+
+@dataclass(frozen=True)
+class ReadScope:
+    """What a read covers: one user's resources, or (user_id None) every
+    resource of the tenant, as in the Executor.
+
+    A read without X-User-Id covers the whole tenant; the gateway in
+    front (pr-agentic-service) decides which of its callers may do that.
+    Writes always name the user (Principal).
+    """
+
+    tenant: str
+    user_id: str | None
 
 
 @dataclass(frozen=True)
@@ -160,6 +174,17 @@ def requested_tenant(value: str | None, caller: Caller) -> str | None:
     return tenant
 
 
+def checked_project(project: str | None) -> str | None:
+    if project is not None and (
+        not PROJECT_ID.fullmatch(project) or project == "unscoped"
+    ):
+        raise invalid_identity(
+            "X-Project-Id: 1-255 characters of [A-Za-z0-9._-], "
+            "starting with [A-Za-z0-9]."
+        )
+    return project
+
+
 def current_identity(
     request: Request,
     caller: Annotated[Caller, Depends(current_caller)],
@@ -169,22 +194,65 @@ def current_identity(
 ) -> Identity:
     if user is None:
         raise invalid_identity("X-User-Id is required.")
-    if project is not None and (
-        not PROJECT_ID.fullmatch(project) or project == "unscoped"
-    ):
-        raise invalid_identity(
-            "X-Project-Id: 1-255 characters of [A-Za-z0-9._-], "
-            "starting with [A-Za-z0-9]."
-        )
     # X-Session-Id is ignored: batches are not session-scoped.
     identity = Identity(
         caller=caller,
         user_id=normalize_user_id(user),
-        project_id=project,
+        project_id=checked_project(project),
         requested_tenant=requested_tenant(tenant, caller),
     )
     audit(request, tenant=identity.tenant, user=identity.user_id)
     return identity
+
+
+ReadUserHeader = Annotated[
+    str | None,
+    Header(
+        alias="X-User-Id",
+        description=(
+            "Optional on reads. Sent: that user's resources only. "
+            "Omitted: every resource of the tenant."
+        ),
+    ),
+]
+
+
+def read_scope(
+    request: Request,
+    caller: Annotated[Caller, Depends(current_caller)],
+    user: ReadUserHeader = None,
+    project: ProjectHeader = None,
+    tenant: TenantHeader = None,
+) -> ReadScope:
+    """The resources a read may see (single-resource reads)."""
+    checked_project(project)  # same header rules as writes
+    scope = ReadScope(
+        tenant=requested_tenant(tenant, caller) or caller.tenant,
+        user_id=None if user is None else normalize_user_id(user),
+    )
+    audit(request, tenant=scope.tenant, user=scope.user_id or "-")
+    return scope
+
+
+def list_scope(
+    scope: Annotated[ReadScope, Depends(read_scope)],
+    user_id: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Only this user's resources. With X-User-Id it must be "
+                "the same user (403 otherwise)."
+            ),
+        ),
+    ] = None,
+) -> ReadScope:
+    """A list's scope: the read scope narrowed by the user_id filter."""
+    if user_id is None:
+        return scope
+    wanted = normalize_user_id(user_id)
+    if scope.user_id is not None and wanted != scope.user_id:
+        raise ServiceError(403, "FORBIDDEN", "user_id must match X-User-Id.")
+    return ReadScope(tenant=scope.tenant, user_id=wanted)
 
 
 def current_owner(
