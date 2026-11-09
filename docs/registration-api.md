@@ -50,7 +50,7 @@ DB에서 참조하지 않는 버전 디렉터리가 남을 수 있다. API에는
 ## 호출 서비스 인증 계약
 
 헤더·key 발급·오류 대응은 [호출 서비스 인증 가이드](client-auth.md),
-엔드포인트별 호출 예시는 [API별 호출 가이드](client-api.md)에 정리했다.
+엔드포인트별 호출 예시는 [API 문서](api/README.md)에 정리했다.
 
 - 호출 서비스는 `X-Api-Key`와 `X-User-Id`를 보낸다. pr-batch는 key의 SHA-256만 설정 `AUTH_CLIENTS`에 둔다.
 - 사용자 ID는 형식(UUID·사번 등)을 묻지 않고 소문자로 바꿔 저장·비교한다.
