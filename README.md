@@ -180,8 +180,6 @@ uv add --dev <tool>
 
 ## Git 작업 흐름
 
-원격 저장소: [KimHwaJin/pr-batch](https://github.com/KimHwaJin/pr-batch)
-
 ```sh
 # 작업 시작 전, 작업 트리가 깨끗한 상태에서 원격 변경 반영
 git pull --ff-only

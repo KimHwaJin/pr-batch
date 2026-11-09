@@ -1,7 +1,7 @@
 # 호출 서비스 인증 가이드
 
 pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣을 헤더와 key 발급 방법이다.
-내용은 `src/app/core/security.py`가 실제로 검사하는 항목만 적었다. API별 호출 방법은
+내용은 서버가 실제로 검사하는 항목만 적었다. API별 호출 방법은
 [API 문서](api/README.md)를 따른다. Executor도 같은 헤더 규칙을 쓴다.
 
 ## 요약

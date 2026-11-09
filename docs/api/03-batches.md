@@ -1,6 +1,6 @@
 # 03. 배치 API (10개)
 
-라우터: `src/app/api/v1/batches.py` · 태그 `batches` · 공통 규칙은 [00-common.md](00-common.md)
+태그 `batches` · 공통 규칙은 [00-common.md](00-common.md)
 
 | Method | 경로 | 설명 |
 | --- | --- | --- |

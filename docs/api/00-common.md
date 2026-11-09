@@ -41,7 +41,7 @@ pr-batch는 쿠버네티스 클러스터 안의 내부 Service로만 열려 있�
 - `/healthz`(프로세스 생존), `/readyz`(DB·저장소 준비)는 `/api/v1` 밖에 있고 인증 없이 부른다.
 - **모든 요청에 API key가 필요하다.** key 없이 신원 헤더만으로 부르는 방식은 없다.
 - 문서의 예시는 `BATCH_URL`(위 Base URL)과 `BATCH_API_KEY`(발급받은 key) 환경 변수를 쓴다. key는 코드에 넣지 않고
-  Secret 등 배포 설정으로 주입한다.
+  호출 서비스의 배포 설정으로 받는다.
 
 key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드](../client-auth.md)를 본다.
 
