@@ -27,17 +27,21 @@ Jupyter 노트북을 올려 두고, 정해진 일정이나 수동 요청으로 E
 
 ## 2. 주소와 환경
 
-| 환경 | Base URL | Swagger(`/docs`) |
-| --- | --- | --- |
-| 클러스터 안 (dev·stg·prd) | `http://pr-batch:8000` (환경별 주소는 배치팀에 확인) | 꺼짐 (내부망 규정, `DOCS_ENABLED: false`) |
-| 로컬 Docker Compose | `http://127.0.0.1:8100` | 켜짐 (`/docs`, `/redoc`, `/openapi.json`) |
+pr-batch는 쿠버네티스 클러스터 안의 내부 Service로만 열려 있다. 외부 Ingress는 없다.
+
+| 항목 | 값 |
+| --- | --- |
+| Service | `pr-batch` (포트 8000, 이름 `http`) |
+| Base URL (같은 네임스페이스) | `http://pr-batch:8000` |
+| Base URL (다른 네임스페이스) | `http://pr-batch.<namespace>.svc.cluster.local:8000` |
+| 환경 | dev · stg · prd. 네임스페이스와 key는 환경마다 다르므로 배치팀에 확인한다 |
+| Swagger·OpenAPI | 모든 환경에서 꺼져 있다(`/docs`, `/openapi.json` 없음). 명세는 [openapi.json](openapi.json)을 쓴다 |
 
 - 모든 공개 API는 `/api/v1` 아래에 있다.
 - `/healthz`(프로세스 생존), `/readyz`(DB·저장소 준비)는 `/api/v1` 밖에 있고 인증 없이 부른다.
-- 공유 환경에서는 서버의 OpenAPI가 꺼져 있으므로 [openapi.json](openapi.json)을 쓴다.
-- **모든 환경에서 API key가 필요하다.** key 없이 신원 헤더만으로 부르는 방식은 없다.
-- 로컬 Compose에는 로컬 전용 key `bat_local_agent_0123456789abcdef0123456789ab`가 등록돼 있다
-  (tenant `dtest-agent-service`, relay, admin).
+- **모든 요청에 API key가 필요하다.** key 없이 신원 헤더만으로 부르는 방식은 없다.
+- 문서의 예시는 `BATCH_URL`(위 Base URL)과 `BATCH_API_KEY`(발급받은 key) 환경 변수를 쓴다. key는 코드에 넣지 않고
+  Secret 등 배포 설정으로 주입한다.
 
 key 발급·교체·`AUTH_CLIENTS` 설정은 [호출 서비스 인증 가이드](../client-auth.md)를 본다.
 
@@ -75,7 +79,7 @@ Executor와 같은 규칙이다. 읽기(GET) API에만 적용되고, 쓰기는 �
 
 | 요청 | 보이는 자원 |
 | --- | --- |
-| `X-User-Id` 있음 | 그 사용자 것만 (기존과 같음) |
+| `X-User-Id` 있음 | 그 사용자 것만 |
 | `X-User-Id` 없음 | 요청 tenant의 **모든 사용자** 것 |
 | 목록 + 쿼리 `user_id` | tenant 전체 중 그 사용자 것만. `X-User-Id`와 함께 보내면 같은 값이어야 하고, 다르면 403 `FORBIDDEN` |
 

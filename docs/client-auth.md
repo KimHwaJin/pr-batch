@@ -2,7 +2,7 @@
 
 pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣을 헤더와 key 발급 방법이다.
 내용은 `src/app/core/security.py`가 실제로 검사하는 항목만 적었다. API별 호출 방법은
-[API별 호출 가이드](client-api.md)를 따른다. Executor도 같은 헤더 규칙을 쓴다.
+[API 문서](api/README.md)를 따른다. Executor도 같은 헤더 규칙을 쓴다.
 
 ## 요약
 
@@ -13,7 +13,7 @@ pr-batch API를 호출하는 서비스(pr-agentic-service 등)가 요청에 넣�
 - pr-batch는 key 원문을 갖지 않는다. 설정 `AUTH_CLIENTS`에 key의 **SHA-256 해시**만 두고 상수 시간으로 비교한다.
 - tenant는 key로 정해진다(중계자 key는 `X-Tenant-Id`로 고른다). 모든 자원은 Executor처럼 **tenant + 사용자** 소유이고,
   tenant는 배치 실행 이벤트를 받을 Executor tenant이기도 하다. 본문에 `tenant_id`를 보내면 422다.
-- 로컬을 포함한 모든 환경에서 key가 필요하다. 신원 헤더만으로 호출하는 방식은 없다.
+- 모든 환경에서 key가 필요하다. 신원 헤더만으로 호출하는 방식은 없다.
 - Executor로 보내는 key는 `EXECUTOR_API_KEY`다. 비어 있으면 보내지 않는다(Executor가 header 모드일 때).
 
 ## 헤더
@@ -109,8 +109,6 @@ response = httpx.get(
 )
 response.raise_for_status()
 ```
-
-로컬에서 `DOCS_ENABLED=true`로 띄운 Swagger(`/docs`)에서는 **Authorize**에 key를 넣고, 각 API의 `X-User-Id` 칸을 채운다.
 
 ## 사용자 비활성
 

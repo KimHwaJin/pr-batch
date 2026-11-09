@@ -1,7 +1,7 @@
 # pr-batch API 문서
 
 pr-batch를 호출하는 서비스를 위한 API 명세다. 내용은 `src/app/api/` 라우터와 `src/app/schemas/`가 실제로
-받는 값·돌려주는 값을 기준으로 썼다(2026-11-08, tenant 전체 조회 반영).
+받는 값·돌려주는 값을 기준으로 썼고(2026-11-09 기준), 쿠버네티스에 배포된 서비스를 호출하는 경우를 기준으로 한다.
 
 | 문서 | 대상 |
 | --- | --- |
@@ -51,15 +51,7 @@ key 발급·`AUTH_CLIENTS` 설정·감사 로그는 [호출 서비스 인증 가
 
 `X-User-Id` 선택: 보내면 그 사용자 것만, 빼면 tenant 전체를 조회한다([조회 범위](00-common.md#조회-범위-읽기)).
 
-## openapi.json 다시 만들기
+## openapi.json
 
-`openapi.json`은 코드에서 만든다. 라우터나 스키마를 바꾸면 다시 만들어 함께 커밋한다.
-
-```sh
-DATABASE_URL='postgresql+psycopg://u:p@localhost/x' STORAGE_ROOT=/tmp/pr-batch \
-OPENAPI_URL=/openapi.json DOCS_ENABLED=true \
-uv run python -c "import json; from app.main import create_app; \
-print(json.dumps(create_app().openapi(), ensure_ascii=False, indent=2))" > docs/api/openapi.json
-```
-
-DB에 접속하지 않으므로 주소는 형식만 맞으면 된다.
+[openapi.json](openapi.json)은 코드에서 생성한 정본이다. 배포된 서비스는 Swagger와 `/openapi.json`을 열지 않으므로
+요청·응답 스키마는 이 파일로 확인한다. 라우터나 스키마가 바뀌면 이 파일도 함께 갱신된다.

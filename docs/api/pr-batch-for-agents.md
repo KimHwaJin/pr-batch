@@ -6,7 +6,8 @@
 > `openapi.json` and MUST be followed.
 >
 > Human-readable Korean docs: `00-common.md` … `04-runs.md` in the same folder.
-> Source of truth: pr-batch `src/app/api/v1/*.py`, `src/app/schemas/*.py` (tenant-wide reads added 2026-11-08).
+> Source of truth: pr-batch `src/app/api/v1/*.py`, `src/app/schemas/*.py` as of 2026-11-09.
+> Everything here assumes you call the pr-batch service deployed on Kubernetes.
 
 ## 1. What pr-batch is
 
@@ -26,15 +27,15 @@ Every resource is owned by **(tenant, user)**. tenant comes from the API key; us
 
 | Item | Value |
 | --- | --- |
-| Base URL (cluster) | `http://pr-batch:8000` — ask the batch team per environment (dev/stg/prd) |
-| Base URL (local compose) | `http://127.0.0.1:8100` |
+| Where it runs | Kubernetes, internal Service `pr-batch` port 8000. No Ingress: call it from inside the cluster |
+| Base URL | same namespace `http://pr-batch:8000`; other namespace `http://pr-batch.<namespace>.svc.cluster.local:8000`. Namespace and key differ per environment (dev/stg/prd): ask the batch team |
 | API prefix | `/api/v1` (all 24 public endpoints) |
-| Local-only key | `bat_local_agent_0123456789abcdef0123456789ab` (local compose only, relay + admin, tenant `dtest-agent-service`) |
+| Swagger / OpenAPI | Off in every environment. Use `openapi.json` from this folder; do not fetch `/openapi.json` from the server |
 | Content type | `application/json`, except script uploads (`multipart/form-data`) |
 | Times | Responses are UTC ISO 8601. Send timezone-aware datetimes. Schedule timezone is always `Asia/Seoul` |
 | IDs | UUID strings |
 
-Read the key and base URL from configuration/environment variables. Never hard-code a real key.
+Read `BATCH_URL` and `BATCH_API_KEY` from environment variables (inject the key from a Kubernetes Secret). Never hard-code a key.
 
 ## 3. Headers — MUST / MUST NOT
 
@@ -449,7 +450,7 @@ Uploading identical bytes as a new version returns the existing version with 200
 
 ## 14. Common mistakes — checklist for generated code
 
-- [ ] `X-Api-Key` sent on every call (also in local/dev).
+- [ ] `X-Api-Key` sent on every call, in every environment.
 - [ ] `X-User-Id` sent on every write and on end-user reads; omitted only for an authorized tenant-wide view; never taken from an unverified upstream header.
 - [ ] New `Idempotency-Key` per operation, **same** key across retries of that operation.
 - [ ] `If-Match` value copied from `ETag` **with quotes**; refreshed after every write.
