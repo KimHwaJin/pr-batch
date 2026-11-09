@@ -1,7 +1,6 @@
 # pr-batch API 문서
 
-pr-batch를 호출하는 서비스를 위한 API 명세다. 내용은 `src/app/api/` 라우터와 `src/app/schemas/`가 실제로
-받는 값·돌려주는 값을 기준으로 썼고(2026-11-09 기준), 쿠버네티스에 배포된 서비스를 호출하는 경우를 기준으로 한다.
+pr-batch를 호출하는 서비스를 위한 API 명세다. 쿠버네티스에 배포된 서비스를 클러스터 안에서 호출하는 경우를 기준으로 쓴다.
 
 | 문서 | 대상 |
 | --- | --- |
@@ -10,7 +9,8 @@ pr-batch를 호출하는 서비스를 위한 API 명세다. 내용은 `src/app/a
 | [02-scripts.md](02-scripts.md) | 스크립트·버전 (9개) |
 | [03-batches.md](03-batches.md) | 배치, 일정·정책, 운영 API (10개) |
 | [04-runs.md](04-runs.md) | 실행, 결과 노트북, 완료 알림 (4개) |
-| [pr-batch-for-agents.md](pr-batch-for-agents.md) | 코딩 에이전트용 단일 파일 요약. 클라이언트 코드를 만들 때 이 파일과 `openapi.json`을 함께 준다 |
+| [pr-batch-for-agents.md](pr-batch-for-agents.md) | 코딩 에이전트용 단일 파일 요약(영문). 클라이언트 코드를 만들 때 이 파일과 `openapi.json`을 함께 준다 |
+| [pr-batch-for-agents.ko.md](pr-batch-for-agents.ko.md) | 위 문서의 한국어판. 내용은 같다 |
 | [openapi.json](openapi.json) | 전체 HTTP 명세. 코드에서 생성한 정본 |
 
 key 발급·`AUTH_CLIENTS` 설정·감사 로그는 [호출 서비스 인증 가이드](../client-auth.md), 내부 처리 구조는

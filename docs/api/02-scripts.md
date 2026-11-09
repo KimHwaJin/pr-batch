@@ -1,6 +1,6 @@
 # 02. 스크립트·버전 API (9개)
 
-라우터: `src/app/api/v1/scripts.py` · 태그 `scripts` · 공통 규칙은 [00-common.md](00-common.md)
+태그 `scripts` · 공통 규칙은 [00-common.md](00-common.md)
 
 | Method | 경로 | 설명 |
 | --- | --- | --- |

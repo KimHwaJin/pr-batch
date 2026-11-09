@@ -6,7 +6,6 @@
 > `openapi.json` and MUST be followed.
 >
 > Human-readable Korean docs: `00-common.md` … `04-runs.md` in the same folder.
-> Source of truth: pr-batch `src/app/api/v1/*.py`, `src/app/schemas/*.py` as of 2026-11-09.
 > Everything here assumes you call the pr-batch service deployed on Kubernetes.
 
 ## 1. What pr-batch is
@@ -35,7 +34,7 @@ Every resource is owned by **(tenant, user)**. tenant comes from the API key; us
 | Times | Responses are UTC ISO 8601. Send timezone-aware datetimes. Schedule timezone is always `Asia/Seoul` |
 | IDs | UUID strings |
 
-Read `BATCH_URL` and `BATCH_API_KEY` from environment variables (inject the key from a Kubernetes Secret). Never hard-code a key.
+Read `BATCH_URL` and `BATCH_API_KEY` from environment variables (the key comes from the calling service's deployment config). Never hard-code a key.
 
 ## 3. Headers — MUST / MUST NOT
 

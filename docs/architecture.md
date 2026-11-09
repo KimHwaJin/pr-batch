@@ -194,8 +194,7 @@ Pod 쉘에서 `alembic upgrade head`를 수동 실행하는 것은 장애 복구
   - 조회 대상은 등록된 배치 수가 아니라 **지금 실행 중인 Run 수**다. 조회 간격은 5초에서 시작해
     두 배씩 늘려 최대 60초(설정 가능)로 둔다. 배치 500개가 같은 시각에 10분짜리 실행을 시작하는
     최악의 경우에도 Run당 조회는 약 13회, 평균 초당 11건 수준이다.
-  - Executor 상태 조회(`GET /executions/{id}`)는 기본키 한 행을 필요한 컬럼만 읽는 비동기 핸들러다
-    (`executor/src/executor_service/infrastructure/_execution_queries/executions.py`). 초당 수십 건은 부하가 아니다.
+  - Executor 상태 조회(`GET /executions/{id}`)는 기본키 한 행을 필요한 컬럼만 읽는 비동기 핸들러다. 초당 수십 건은 부하가 아니다.
   - pr-batch가 Executor에 동시에 보내는 요청은 `Pod 수 × dispatcher 동시성`(최대 2 × 2 = 4)을 넘지 않는다.
     Run이 아무리 많아도 Executor가 받는 동시 요청은 이 상한으로 묶인다.
   - 종료 감지 지연은 최대 조회 간격(60초) + 큐 대기다. 처리 용량(Pod당 초당 수십 건)이 필요량보다 훨씬 커서
