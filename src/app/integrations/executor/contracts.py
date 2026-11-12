@@ -48,10 +48,6 @@ class Context(BaseModel):
     user_id: str
 
 
-class Failure(BaseModel):
-    type: str = Field(max_length=128)
-
-
 class Retry(BaseModel):
     strategy: str
     count: int = Field(ge=0)
@@ -67,12 +63,20 @@ class Workspace(BaseModel):
     notebook_projection: Projection
 
 
+class Reason(BaseModel):
+    code: str = Field(max_length=128)
+
+
+class DetailState(State):
+    # Why the Execution is in its status; null only while it runs normally.
+    reason: Reason | None
+
+
 class Detail(BaseModel):
     execution_id: UUID
-    state: State
+    state: DetailState
     context: Context
     lifecycle: Lifecycle
-    failure: Failure | None
     retry: Retry
     workspace: Workspace
 

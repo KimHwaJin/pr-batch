@@ -243,7 +243,12 @@ class SyncExecution:
         run.observed_at = now
         run.started_at = response.lifecycle.started_at
         run.finished_at = response.lifecycle.finished_at
-        run.failure_type = response.failure.type if response.failure else None
+        reason = response.state.reason
+        run.failure_type = (
+            reason.code
+            if reason and response.state.status == "FAILED"
+            else None
+        )
         run.retry_info = response.retry.model_dump(mode="json")
         run.notebook_status = response.workspace.notebook_projection.status
         if response.state.status not in EXECUTOR_TERMINAL:
