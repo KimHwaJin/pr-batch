@@ -155,24 +155,33 @@ class FakeExecutor:
         }
         state = {"status": self.state, "version": self.version}
         if not request.url.path.endswith("/result"):
+            reasons = {
+                "QUEUED": "CAPACITY_FULL",
+                "FAILED": "USER_CODE_ERROR",
+                "SUCCEEDED": "COMPLETED",
+                "CANCELLED": "CANCELLED_BY_REQUEST",
+            }
             return httpx2.Response(
                 200,
                 json={
                     "execution_id": execution_id,
-                    "state": state,
+                    "state": {
+                        **state,
+                        "reason": (
+                            {
+                                "code": reasons[self.state],
+                                "message": "private source and output",
+                                "detail": None,
+                            }
+                            if self.state in reasons
+                            else None
+                        ),
+                    },
                     "context": {
                         **context,
                         "user_id": self.owner_override or context["user_id"],
                     },
                     "lifecycle": lifecycle,
-                    "failure": (
-                        {
-                            "type": "USER_CODE_ERROR",
-                            "message": "private source and output",
-                        }
-                        if self.state == "FAILED"
-                        else None
-                    ),
                     "retry": {
                         "strategy": "FULL_RESTART",
                         "count": 0,
@@ -420,6 +429,8 @@ def test_pipeline_completes_after_notebook_projection(client, execution):
     tick(worker, run)
     detail = run_get(client, run).json()
     assert detail["status"] == "COMPLETED"
+    # A success also carries a state.reason; only a failure's is a type.
+    assert detail["failure_type"] is None
     assert detail["completed_at"] is not None
     assert "report" not in detail
     assert detail["result"] == {"notebook_artifact_id": fake.artifact_id}
