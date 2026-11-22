@@ -52,6 +52,7 @@ from app.services.common import (
     script_version,
 )
 from app.services.idempotency import Idempotency, MutationResult
+from app.services.run_service import log_status_change
 from app.services.runtime_catalog import RuntimeCatalog, check_runtime
 from app.services.schedule_history import record_skipped
 
@@ -667,6 +668,7 @@ class BatchService:
                     run.status = RunStatus.SKIPPED
                     run.skip_reason = skip_reason
                     run.completed_at = now
+                    log_status_change(run, RunStatus.WAITING)
                     run.stamp_updated(actor, now)
         return DisabledCount(disabled=disabled)
 
