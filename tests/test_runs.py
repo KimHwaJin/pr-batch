@@ -1624,6 +1624,90 @@ def test_mass_disable_logs_the_count(client, execution, caplog):
     ]
 
 
+RUN_LOG = "app.services.run_service"
+
+
+def status_line(run, before, after, execution="-", reason="-"):
+    return (
+        f"Run status changed run_id={run['id']} batch_id={run['batch_id']} "
+        f"from={before} to={after} trigger=MANUAL execution_id={execution} "
+        f"reason={reason}"
+    )
+
+
+def test_run_status_changes_are_logged_through_completion(
+    client, execution, caplog
+):
+    fake, worker = execution
+    batch = create_batch(client).json()
+    caplog.set_level(logging.INFO)
+    run = run_request(client, batch["id"]).json()
+    tick(worker, run)
+    executed = run_get(client, run).json()["execution_id"]
+    tick(worker, run)  # still RUNNING: polling logs nothing
+    fake.state, fake.version = "SUCCEEDED", 3
+    tick(worker, run)
+    tick(worker, run)
+    assert run_get(client, run).json()["status"] == "COMPLETED"
+    assert logged(caplog, RUN_LOG) == [
+        status_line(run, "-", "QUEUED"),
+        status_line(run, "QUEUED", "RUNNING", executed),
+        status_line(run, "RUNNING", "COLLECTING", executed),
+        status_line(run, "COLLECTING", "COMPLETED", executed),
+    ]
+
+
+def test_cancels_and_promotions_are_logged(client, execution, caplog):
+    _, worker = execution
+    batch = create_batch(
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
+    ).json()
+    caplog.set_level(logging.INFO)
+    queued = run_request(client, batch["id"], "a").json()
+    waiting = run_request(client, batch["id"], "b").json()
+    later = run_request(client, batch["id"], "c").json()
+    command(client, waiting, "cancel", "c1")
+    command(client, queued, "cancel", "c2")
+    tick(worker, queued)
+    assert logged(caplog, RUN_LOG) == [
+        status_line(queued, "-", "QUEUED"),
+        status_line(waiting, "-", "WAITING"),
+        status_line(later, "-", "WAITING"),
+        status_line(waiting, "WAITING", "CANCELLED", reason="USER"),
+        f"Run cancel requested run_id={queued['id']} "
+        f"batch_id={queued['batch_id']} status=QUEUED source=USER "
+        "execution_id=-",
+        status_line(queued, "QUEUED", "CANCELLED", reason="USER"),
+        status_line(later, "WAITING", "QUEUED"),
+    ]
+
+
+def test_skipped_runs_are_logged_with_their_reason(client, execution, caplog):
+    _, worker = execution
+    batch = create_batch(
+        client, config=metadata(policy={"overlap": {"mode": "QUEUE"}})
+    ).json()
+    enabled = client.post(
+        f"{API}/{batch['id']}/enable",
+        headers={
+            **token(),
+            "Idempotency-Key": "enable",
+            "If-Match": f'"{batch["revision"]}"',
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+    running = run_request(client, batch["id"]).json()
+    tick(worker, running)
+    caplog.set_level(logging.INFO)
+    caplog.clear()
+    waiting = run_request(client, batch["id"], key="run-2").json()
+    assert disable_owner(client).status_code == 200
+    assert logged(caplog, RUN_LOG) == [
+        status_line(waiting, "-", "WAITING"),
+        status_line(waiting, "WAITING", "SKIPPED", reason="OWNER_DEACTIVATED"),
+    ]
+
+
 def test_submit_failures_log_batch_run_and_status(client, execution, caplog):
     caplog.set_level(logging.INFO, "app")
     fake, worker = execution

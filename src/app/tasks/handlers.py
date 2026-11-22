@@ -31,6 +31,7 @@ from app.integrations.executor import (
 from app.models import BatchRun, RunStepBinding, Task
 from app.services.run_service import (
     identity_headers,
+    log_status_change,
     promote_waiting,
     submission_request,
 )
@@ -88,8 +89,11 @@ def bindings(session: Session, run: BatchRun) -> list[RunStepBinding]:
 
 
 def finish(run: BatchRun, status: RunStatus, now: datetime) -> None:
+    """End the run; set its failure fields first so the log carries them."""
+    previous = run.status
     run.status = status
     run.completed_at = now
+    log_status_change(run, previous)
 
 
 def abandon(
@@ -109,9 +113,9 @@ def abandon(
         run.execution_id is not None
         and run.execution_status not in EXECUTOR_TERMINAL
     )
-    finish(run, RunStatus.FAILED, now)
     run.failure_type = "ABANDONED"
     run.last_error = error
+    finish(run, RunStatus.FAILED, now)
     if occupying:
         promote_waiting(session, run.batch_id)
     if still_running:
@@ -185,9 +189,9 @@ class SubmitExecution:
             if run.status != RunStatus.QUEUED:
                 return
             # Retrying the same body can never succeed; free the slot.
-            finish(run, RunStatus.FAILED, now)
             run.failure_type = "SUBMIT_REJECTED"
             run.last_error = str(response.error)
+            finish(run, RunStatus.FAILED, now)
             promote_waiting(session, run.batch_id)
             return
         assert isinstance(response, Receipt)
@@ -209,6 +213,7 @@ class SubmitExecution:
         run.submitted_at = now
         run.observed_at = now
         run.status = RunStatus.RUNNING
+        log_status_change(run, RunStatus.QUEUED)
         enqueue(
             session,
             TaskKind.SYNC_EXECUTION,
@@ -257,6 +262,7 @@ class SyncExecution:
         complete(task)
         # Code execution ended: free the slot before collecting results.
         run.status = RunStatus.COLLECTING
+        log_status_change(run, RunStatus.RUNNING)
         promote_waiting(session, run.batch_id)
         enqueue(session, TaskKind.COLLECT_RESULT, run.id)
 

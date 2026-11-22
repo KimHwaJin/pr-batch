@@ -2,6 +2,7 @@
 history. Nothing here calls a remote service; outbound calls
 are enqueued as tasks in the same transaction as the state change."""
 
+import logging
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -39,6 +40,48 @@ from app.services.common import (
 from app.services.idempotency import Idempotency, MutationResult
 from app.tasks.queue import TaskKind, enqueue
 
+logger = logging.getLogger(__name__)
+
+
+def status_reason(run: BatchRun) -> str | None:
+    """Why the run reached its status, when that status has a reason."""
+    return {
+        RunStatus.SKIPPED: run.skip_reason,
+        RunStatus.FAILED: run.failure_type,
+        RunStatus.CANCELLED: run.cancel_source,
+    }.get(RunStatus(run.status))
+
+
+def log_status_change(run: BatchRun, previous: str | None) -> None:
+    """One line per status change; call it once the run's fields are set.
+
+    Values go in the message: the internal logger prints the message only.
+    """
+    logger.info(
+        "Run status changed run_id=%s batch_id=%s from=%s to=%s trigger=%s "
+        "execution_id=%s reason=%s",
+        run.id,
+        run.batch_id,
+        previous or "-",
+        run.status,
+        run.trigger,
+        run.execution_id or "-",
+        status_reason(run) or "-",
+    )
+
+
+def log_cancel_requested(run: BatchRun, source: str) -> None:
+    """A cancel request that leaves the status as it is (QUEUED, RUNNING)."""
+    logger.info(
+        "Run cancel requested run_id=%s batch_id=%s status=%s source=%s "
+        "execution_id=%s",
+        run.id,
+        run.batch_id,
+        run.status,
+        source,
+        run.execution_id or "-",
+    )
+
 
 def count_status(
     session: Session, batch_id: UUID, statuses: frozenset[RunStatus]
@@ -67,7 +110,9 @@ def request_cancel(run: BatchRun, source: str, reason: str) -> None:
 
 
 def queue_submission(session: Session, run: BatchRun) -> None:
+    previous = run.status
     run.status = RunStatus.QUEUED
+    log_status_change(run, previous)
     enqueue(session, TaskKind.SUBMIT_EXECUTION, run.id)
 
 
@@ -94,8 +139,10 @@ def replace_running(session: Session, batch_id: UUID, actor: Actor) -> None:
         if run.status == RunStatus.WAITING:
             run.status = RunStatus.CANCELLED
             run.completed_at = now
+            log_status_change(run, RunStatus.WAITING)
         elif not run.cancel_requested:
             run.cancel_requested = True
+            log_cancel_requested(run, "POLICY")
             if run.status == RunStatus.RUNNING:
                 enqueue(session, TaskKind.CANCEL_EXECUTION, run.id)
         run.stamp_updated(actor, now)
@@ -159,6 +206,7 @@ def admit_run(
         run.completed_at = run.created_at
     session.add(run)
     session.flush()
+    log_status_change(run, None)
     for cell in version.cell_map:
         session.add(
             RunStepBinding(
@@ -330,9 +378,11 @@ class RunService:
             if run.status == RunStatus.WAITING:
                 run.status = RunStatus.CANCELLED
                 run.completed_at = now
+                log_status_change(run, RunStatus.WAITING)
             elif not run.cancel_requested:
                 # QUEUED: the submit task skips or follows up with a cancel.
                 run.cancel_requested = True
+                log_cancel_requested(run, "USER")
                 if run.status == RunStatus.RUNNING:
                     enqueue(session, TaskKind.CANCEL_EXECUTION, run.id)
             return 202, run_view(run).model_dump(mode="json")

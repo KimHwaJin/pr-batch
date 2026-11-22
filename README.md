@@ -100,6 +100,10 @@ Executor 주소를 설정합니다. 호출에는 `X-Api-Key`와 `X-User-Id`가 �
 때는 HCP 의존성과 사내용 `logger.yml`만 바꾸면 됩니다.
 HCP 형식은 메시지 문장만 출력하므로, 로그에 남길 값은 `extra`가 아니라 메시지 안에
 `key=value`(`%s` 인자)로 넣습니다. 예: `Task failed kind=… task_id=… run_id=… batch_id=… status=409 code=…`.
+Run은 status가 바뀔 때마다 INFO `Run status changed run_id=… batch_id=… from=… to=… trigger=… execution_id=… reason=…`
+한 줄을 남깁니다(새 Run은 `from=-`, reason은 skip_reason·failure_type·cancel_source 중 해당 값, 없으면 `-`).
+상태는 그대로이고 취소만 요청된 경우(QUEUED·RUNNING의 사용자 취소, REPLACE 정책)는
+`Run cancel requested run_id=… batch_id=… status=… source=… execution_id=…`입니다. SYNC 폴링에는 로그를 남기지 않습니다.
 
 ```sh
 make serve
