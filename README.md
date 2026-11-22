@@ -21,6 +21,7 @@ Python 3.12 기반 배치 서비스 프로젝트입니다.
 - [실행 이력 저장 계약](docs/execution-history.md)
 - [아키텍처 (배포 제약 반영)](docs/architecture.md)
 - [서비스 체계 (도메인 모델)](docs/domain-model.md)
+- [인수인계·운영 문서 (소스코드 설명서, DB 설계서, 운영자 가이드)](docs/handover/README.md)
 
 ## 디렉토리 구조
 
