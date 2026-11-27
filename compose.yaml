@@ -16,6 +16,9 @@ x-batch-env: &batch-env
   # Smoke and load checks send it.
   LOCAL_API_KEY: bat_local_agent_0123456789abcdef0123456789ab
   EXECUTOR_BASE_URL: ${PR_BATCH_EXECUTOR_URL:-http://executor:8000}
+  # The Executor's local compose registers this key for its pr-batch caller;
+  # local-only, not a secret.
+  EXECUTOR_API_KEY: ${PR_BATCH_EXECUTOR_API_KEY:-exe_local_batch_0123456789abcdef0123456789ab}
   SYNC_INITIAL_SECONDS: ${PR_BATCH_SYNC_INITIAL_SECONDS:-2}
   SYNC_MAX_SECONDS: ${PR_BATCH_SYNC_MAX_SECONDS:-10}
   DB_AUTO_MIGRATE: "true"
